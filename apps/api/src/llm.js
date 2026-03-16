@@ -169,7 +169,72 @@ async function jsonCompletion({
   return fallback;
 }
 
-async function* streamCompletion({ messages, model }) {
+async function streamJsonCompletion({
+  messages,
+  model,
+  fallback,
+  temperature = 0.2,
+  validator,
+  normalizer,
+  retries = 1,
+  repairPrompt,
+  onToken,
+}) {
+  if (!hasRealLLM()) {
+    if (typeof onToken === 'function') {
+      const preview = JSON.stringify(fallback);
+      for (const part of preview.match(/.{1,10}/g) || []) {
+        onToken(part);
+        await sleep(40);
+      }
+    }
+    return fallback;
+  }
+
+  let activeMessages = messages;
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      let content = '';
+      for await (const delta of streamCompletion({ messages: activeMessages, model, temperature })) {
+        content += delta;
+        if (attempt === 0 && typeof onToken === 'function') {
+          await onToken(delta);
+        }
+      }
+      console.log('[llm.streamJsonCompletion.raw]', {
+        attempt: attempt + 1,
+        content,
+      });
+      const parsed = extractJsonObject(content);
+      const normalized = applyNormalizer({ value: parsed, normalizer });
+      const validation = runValidation({ value: normalized, validator });
+
+      if (validation.ok) {
+        return normalized;
+      }
+
+      if (attempt === retries) {
+        break;
+      }
+
+      activeMessages = buildRepairMessages({
+        baseMessages: messages,
+        rawContent: content,
+        validationError: parsed ? validation.error : '未返回可解析 JSON',
+        repairPrompt,
+      });
+    } catch {
+      if (attempt === retries) {
+        break;
+      }
+    }
+  }
+
+  return fallback;
+}
+
+async function* streamCompletion({ messages, model, temperature = 0.2 }) {
   if (!hasRealLLM()) {
     const lastUser = [...messages].reverse().find((m) => m.role === 'user')?.content || '';
     const mock = `Mock流式应答：已接收「${String(lastUser).slice(0, 80)}」。请配置 OPENAI_API_KEY 以启用真实 LLM。`;
@@ -185,6 +250,7 @@ async function* streamCompletion({ messages, model }) {
     messages,
     model,
     stream: true,
+    temperature,
   });
   if (!response.ok || !response.body) {
     const text = await response.text();
@@ -224,5 +290,6 @@ module.exports = {
   hasRealLLM,
   chatCompletion,
   jsonCompletion,
+  streamJsonCompletion,
   streamCompletion,
 };

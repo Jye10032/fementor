@@ -62,11 +62,19 @@
 
 ## POST /v1/retrieval/search
 
-- 用途：统一检索入口（本地优先，sirchmunk 可用则尝试，证据不足触发 fallback 信息）。
+- 用途：统一检索入口（默认直走 sirchmunk；仅在显式 `strategy=local` 时才走本地 rg；证据不足触发 fallback 信息）。
 
 ## POST /v1/scoring/evaluate
 
 - 用途：单题评分并落库到 `attempt/evidence/score/weakness`，同时写 memory。
+- 当前链路：
+  - `intent` 不参与单题练习
+  - 服务端会先做 `question_type` 识别
+  - 再按题型规划证据路径并走统一检索
+  - 评分阶段固定使用 evidence-based rubric
+- 响应新增字段：
+  - `resolved_question_type`
+  - `question_type_reason`
 
 ## POST /v1/interview/sessions/start
 
@@ -108,8 +116,16 @@
 }
 ```
 - 用途：提交当前队列题目的回答并评分。
+- 当前链路：
+  - `intent router`
+  - `question_type router`
+  - `evidence planner`
+  - `rubric scoring`
+  - `evaluation narration`
 - 响应新增字段：
   - `question_id`
+  - `resolved_question_type`
+  - `question_type_reason`
   - `feedback`
   - `next_question`
   - `next_question.question_type = follow_up` 时，表示本轮弱项触发了即时追问

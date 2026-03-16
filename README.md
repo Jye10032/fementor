@@ -69,8 +69,9 @@ npm run dev:web
 
 1. `POST /v1/retrieval/search` 为统一入口。
 2. 后端通过统一检索适配层输出 `query_plan / evidence_refs / strategy / need_fallback`。
-3. 默认 `strategy=auto`：先本地 `rg`，证据不足时再尝试 `sirchmunk`。
-4. 若本地证据仍不足，则返回 `web_fallback`（默认关闭，设置 `ENABLE_WEBSEARCH=1` 开启占位模式）。
+3. 默认 `strategy=auto`：直接走 `sirchmunk`，不再自动触发本地 `rg`。
+4. 本地 `rg` 仅保留为显式 `strategy=local` 的调试入口。
+5. 若 `sirchmunk` 证据不足，则返回 `web_fallback`（默认关闭，设置 `ENABLE_WEBSEARCH=1` 开启占位模式）。
 
 当前上层业务只依赖统一返回结构，不依赖 `sirchmunk` 的 `FAST/DEEP/primary/fallback` 等内部概念。
 

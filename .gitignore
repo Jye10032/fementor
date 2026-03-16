@@ -4,6 +4,8 @@ node_modules
 *.log
 *.tsbuildinfo
 .next
+.agents/skills/
+skills-lock.json
 data/
 !data/user_docs/
 !data/user_docs/.gitkeep

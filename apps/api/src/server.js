@@ -40,8 +40,10 @@ const {
   extractResumeTextFromBinary,
   saveResumeDoc,
   saveJdDoc,
+  listUserDocs,
   listResumeDocs,
   listJdDocs,
+  readUserDoc,
   readResumeDoc,
   readJdDoc,
   appendMemoryEntry,
@@ -56,6 +58,7 @@ const {
   OPENAI_MODEL,
   chatCompletion,
   jsonCompletion,
+  streamJsonCompletion,
   streamCompletion,
 } = require('./llm');
 
@@ -125,6 +128,11 @@ const writeSse = (res, event, payload) => {
   res.write(`event: ${event}\n`);
   res.write(`data: ${JSON.stringify(payload)}\n\n`);
 };
+
+const flushSseFrame = () =>
+  new Promise((resolve) => {
+    setImmediate(resolve);
+  });
 
 const tokenize = (input) =>
   String(input || '')
@@ -226,6 +234,350 @@ const validateEvaluationRewriteResult = (value) => {
   return { ok: true };
 };
 
+const clampNumber = (value, min, max) => {
+  const num = Number(value);
+  if (Number.isNaN(num)) return min;
+  return Math.max(min, Math.min(max, Math.round(num)));
+};
+
+const normalizeRubricScoreResult = (value) => {
+  const dimensionScores = value?.dimension_scores || value?.scores || {};
+  const technicalDepth = clampNumber(
+    dimensionScores.technical_depth ?? dimensionScores.technicalDepth ?? 0,
+    0,
+    25,
+  );
+  const structureClarity = clampNumber(
+    dimensionScores.structure_clarity ?? dimensionScores.structureClarity ?? 0,
+    0,
+    25,
+  );
+  const evidenceGrounding = clampNumber(
+    dimensionScores.evidence_grounding ?? dimensionScores.evidenceGrounding ?? 0,
+    0,
+    25,
+  );
+  const roleFit = clampNumber(
+    dimensionScores.role_fit ?? dimensionScores.roleFit ?? 0,
+    0,
+    25,
+  );
+
+  return {
+    dimension_scores: {
+      technical_depth: technicalDepth,
+      structure_clarity: structureClarity,
+      evidence_grounding: evidenceGrounding,
+      role_fit: roleFit,
+    },
+    total_score: clampNumber(
+      value?.total_score ?? value?.score ?? technicalDepth + structureClarity + evidenceGrounding + roleFit,
+      0,
+      100,
+    ),
+    strengths: normalizeStringList(value?.strengths, 3),
+    weaknesses: normalizeStringList(value?.weaknesses, 3),
+    feedback: normalizeString(value?.feedback, '', 240),
+    standard_answer: normalizeString(value?.standard_answer || value?.answer_key || value?.reference_answer, '', 500),
+  };
+};
+
+const validateRubricScoreResult = (value) => {
+  const base = validateObjectShape(value, ['dimension_scores', 'total_score', 'strengths', 'weaknesses', 'feedback', 'standard_answer']);
+  if (!base.ok) return base;
+  const scoreBase = validateObjectShape(value.dimension_scores, [
+    'technical_depth',
+    'structure_clarity',
+    'evidence_grounding',
+    'role_fit',
+  ]);
+  if (!scoreBase.ok) return { ok: false, error: `dimension_scores.${scoreBase.error}` };
+  if (!Array.isArray(value.strengths) || !Array.isArray(value.weaknesses)) {
+    return { ok: false, error: 'strengths and weaknesses must be arrays' };
+  }
+  if (typeof value.feedback !== 'string' || !value.feedback.trim()) {
+    return { ok: false, error: 'feedback must be a non-empty string' };
+  }
+  if (typeof value.standard_answer !== 'string' || !value.standard_answer.trim()) {
+    return { ok: false, error: 'standard_answer must be a non-empty string' };
+  }
+  return { ok: true };
+};
+
+const normalizeInterviewIntentResult = (value) => ({
+  intent: ['answer', 'clarify', 'question_back', 'skip', 'meta', 'invalid'].includes(String(value?.intent || '').trim())
+    ? String(value.intent).trim()
+    : 'invalid',
+  confidence: clampNumber(value?.confidence ?? 0, 0, 100),
+  reason: normalizeString(value?.reason, '', 160),
+});
+
+const validateInterviewIntentResult = (value) => {
+  const base = validateObjectShape(value, ['intent', 'confidence', 'reason']);
+  if (!base.ok) return base;
+  if (!['answer', 'clarify', 'question_back', 'skip', 'meta', 'invalid'].includes(String(value.intent || '').trim())) {
+    return { ok: false, error: 'intent is invalid' };
+  }
+  return { ok: true };
+};
+
+const normalizeQuestionTypeResult = (value) => ({
+  question_type: ['basic', 'project', 'knowledge', 'scenario', 'follow_up'].includes(String(value?.question_type || '').trim())
+    ? String(value.question_type).trim()
+    : 'project',
+  reason: normalizeString(value?.reason, '', 160),
+});
+
+const validateQuestionTypeResult = (value) => {
+  const base = validateObjectShape(value, ['question_type', 'reason']);
+  if (!base.ok) return base;
+  if (!['basic', 'project', 'knowledge', 'scenario', 'follow_up'].includes(String(value.question_type || '').trim())) {
+    return { ok: false, error: 'question_type is invalid' };
+  }
+  return { ok: true };
+};
+
+const normalizeRetrievalPlannerResult = (value) => ({
+  should_retrieve: value?.should_retrieve !== false,
+  retrieval_goal: ['verify_answer', 'find_evidence', 'not_needed'].includes(String(value?.retrieval_goal || '').trim())
+    ? String(value.retrieval_goal).trim()
+    : 'find_evidence',
+  query: normalizeString(value?.query, '', 240),
+  keywords: normalizeStringList(value?.keywords, 8),
+  reason: normalizeString(value?.reason, '', 180),
+});
+
+const validateRetrievalPlannerResult = (value) => {
+  const base = validateObjectShape(value, ['should_retrieve', 'retrieval_goal', 'query', 'keywords', 'reason']);
+  if (!base.ok) return base;
+  if (typeof value.should_retrieve !== 'boolean') return { ok: false, error: 'should_retrieve must be a boolean' };
+  if (!['verify_answer', 'find_evidence', 'not_needed'].includes(String(value.retrieval_goal || '').trim())) {
+    return { ok: false, error: 'retrieval_goal is invalid' };
+  }
+  if (!Array.isArray(value.keywords)) return { ok: false, error: 'keywords must be an array' };
+  return { ok: true };
+};
+
+const buildRetrievalPlannerFallback = ({ question, answer = '', questionType = 'project', intent = 'answer' }) => {
+  if (intent !== 'answer') {
+    return {
+      should_retrieve: false,
+      retrieval_goal: 'not_needed',
+      query: '',
+      keywords: [],
+      reason: '当前输入不是可评分回答，不需要检索',
+    };
+  }
+
+  if (questionType === 'basic' && String(answer || '').trim().length < 30) {
+    return {
+      should_retrieve: false,
+      retrieval_goal: 'not_needed',
+      query: '',
+      keywords: [],
+      reason: '开场背景题且回答较短，先不触发知识检索',
+    };
+  }
+
+  const keywordSeed = Array.from(new Set(
+    `${String(question || '')} ${String(answer || '')}`
+      .split(/[\s,，。！？?!.;；:：()（）[\]【】{}"“”'`]+/)
+      .map((item) => String(item || '').trim())
+      .filter(Boolean)
+      .filter((item) => item.length >= 2)
+      .filter((item) => /[A-Za-z@#./:_-]/.test(item) || /[\u4e00-\u9fa5]/.test(item)),
+  )).slice(0, 8);
+
+  return {
+    should_retrieve: true,
+    retrieval_goal: 'verify_answer',
+    query: `检索与 ${keywordSeed.slice(0, 4).join('、') || normalizeString(question, '当前问题', 40)} 相关的证据片段`,
+    keywords: keywordSeed,
+    reason: '当前为可评分回答，需要查找证据来校验回答是否准确',
+  };
+};
+
+const planRetrievalWithLLM = async ({
+  question,
+  answer,
+  questionType,
+  intent = 'answer',
+  interviewContext = '',
+}) => {
+  const fallback = buildRetrievalPlannerFallback({ question, answer, questionType, intent });
+  const result = await jsonCompletion({
+    fallback,
+    normalizer: normalizeRetrievalPlannerResult,
+    validator: validateRetrievalPlannerResult,
+    repairPrompt: '只返回合法 JSON：{"should_retrieve":true,"retrieval_goal":"verify_answer|find_evidence|not_needed","query":"...","keywords":["..."],"reason":"..."}。不要输出解释。',
+    messages: [
+      {
+        role: 'system',
+        content: [
+          '你是前端面试检索规划器。',
+          '你的任务是判断当前回答是否需要检索知识证据，并把原始问答改写成适合检索系统使用的 query。',
+          '只输出 JSON：{"should_retrieve":true|false,"retrieval_goal":"verify_answer|find_evidence|not_needed","query":"...","keywords":["..."],"reason":"..."}。',
+          'query 必须是检索式表达，例如“检索与 xxx 相关的证据片段”或“查找包含 xxx 的原文片段”，不要直接复述整段口语。',
+          'keywords 只保留技术词、实现词、关键概念，不要保留口语废话。',
+          '项目题/知识题/场景题通常 should_retrieve=true；basic 题如果只是简短背景回答，可以 false。',
+        ].join(' '),
+      },
+      {
+        role: 'user',
+        content: JSON.stringify({
+          question: String(question || '').slice(0, 260),
+          answer: String(answer || '').slice(0, 1600),
+          question_type: String(questionType || 'project'),
+          intent,
+          interview_context: String(interviewContext || '').slice(0, 1200),
+        }),
+      },
+    ],
+  });
+
+  return result;
+};
+
+const detectQuestionTypeFallback = ({ question, answer = '', queuedQuestionType = '' }) => {
+  const normalizedQueuedType = String(queuedQuestionType || '').trim();
+  if (['basic', 'project', 'scenario', 'follow_up'].includes(normalizedQueuedType)) {
+    return {
+      question_type: normalizedQueuedType,
+      reason: '沿用题目队列中已有的 question_type',
+    };
+  }
+
+  const text = `${String(question || '')} ${String(answer || '')}`.trim();
+  if (/(自我介绍|介绍一下自己|简单介绍|最有代表性的项目|为什么想加入|离职原因)/i.test(text)) {
+    return { question_type: 'basic', reason: '题面更像开场背景题或自我介绍题' };
+  }
+  if (/(如果|假如|遇到|出现|会怎么做|如何处理|怎么排查|取舍|权衡|线上|故障|压力)/i.test(text)) {
+    return { question_type: 'scenario', reason: '题面包含明显场景处理和方案判断信号' };
+  }
+  if (/(什么是|区别|原理|为什么|机制|生命周期|浏览器|css|html|javascript|react|vue|typescript|网络|操作系统)/i.test(text)) {
+    return { question_type: 'knowledge', reason: '题面更像知识点解释、原理或概念辨析' };
+  }
+  return { question_type: 'project', reason: '默认按项目经历和实现细节题处理' };
+};
+
+const classifyQuestionType = async ({
+  question,
+  answer = '',
+  queuedQuestionType = '',
+  interviewContext = '',
+}) => {
+  const fallback = detectQuestionTypeFallback({ question, answer, queuedQuestionType });
+  const result = await jsonCompletion({
+    fallback,
+    normalizer: normalizeQuestionTypeResult,
+    validator: validateQuestionTypeResult,
+    repairPrompt: '只返回合法 JSON：{"question_type":"basic|project|knowledge|scenario|follow_up","reason":"..."}。不要输出解释。',
+    messages: [
+      {
+        role: 'system',
+        content: [
+          '你是前端面试题型路由器。',
+          '请判断当前这道题属于哪一类：basic、project、knowledge、scenario、follow_up。',
+          'basic 表示自我介绍、背景经历、动机与概览类问题；project 表示围绕真实项目经历、实现细节、贡献与结果的问题；knowledge 表示概念、原理、区别、底层机制类知识题；scenario 表示故障排查、方案设计、权衡取舍、线上处理类问题；follow_up 表示基于上一轮薄弱点的追问。',
+          '只输出 JSON：{"question_type":"...","reason":"简短原因"}。',
+        ].join(' '),
+      },
+      {
+        role: 'user',
+        content: JSON.stringify({
+          question: String(question || '').slice(0, 240),
+          answer: String(answer || '').slice(0, 1200),
+          queued_question_type: String(queuedQuestionType || ''),
+          interview_context: String(interviewContext || '').slice(0, 1200),
+        }),
+      },
+    ],
+  });
+
+  return {
+    question_type: result.question_type,
+    reason: result.reason,
+  };
+};
+
+const scoreKnowledgeDocHint = ({ fileName, queryText }) => {
+  const name = String(fileName || '').toLowerCase();
+  const text = String(queryText || '').toLowerCase();
+  let score = 0;
+  const rules = [
+    { pattern: /(css|样式|布局|选择器|flex|grid)/i, names: ['css'] },
+    { pattern: /(html|语义化|标签|dom)/i, names: ['html'] },
+    { pattern: /(javascript|js|typescript|ts|react|vue|next|vite|node|异步|事件循环)/i, names: ['javascript'] },
+    { pattern: /(webpack|vite|构建|工程化|ci\/cd|git|npm|pnpm|工具)/i, names: ['工具', 'tool'] },
+    { pattern: /(网络|http|https|tcp|udp|浏览器缓存|cdn|请求)/i, names: ['网络'] },
+    { pattern: /(操作系统|进程|线程|内存|调度|锁)/i, names: ['操作系统'] },
+  ];
+
+  for (const rule of rules) {
+    if (rule.pattern.test(text) && rule.names.some((keyword) => name.includes(keyword.toLowerCase()))) {
+      score += 3;
+    }
+  }
+
+  const normalizedName = path.basename(name, path.extname(name));
+  if (text.includes(normalizedName.toLowerCase())) score += 2;
+  if (/resume|jd-/.test(name)) score -= 2;
+  return score;
+};
+
+const uniqPaths = (items) => Array.from(new Set(
+  (items || []).map((item) => String(item || '').trim()).filter(Boolean),
+));
+
+const planEvidenceDocPaths = ({ userId, questionType, question, answer = '', user }) => {
+  const allDocs = listUserDocs(userId);
+  const activeResume = user?.active_resume_file
+    ? readResumeDoc({ userId, fileName: user.active_resume_file })
+    : allDocs.find((item) => item.name.startsWith('resume-')) || null;
+  const activeJd = user?.active_jd_file
+    ? readJdDoc({ userId, fileName: user.active_jd_file })
+    : allDocs.find((item) => item.name.startsWith('jd-')) || null;
+  const knowledgeDocs = allDocs
+    .filter((item) => !item.name.startsWith('resume-') && !item.name.startsWith('jd-'))
+    .map((item) => ({
+      ...item,
+      relevance: scoreKnowledgeDocHint({
+        fileName: item.name,
+        queryText: `${String(question || '')} ${String(answer || '')}`,
+      }),
+    }))
+    .sort((a, b) => b.relevance - a.relevance || a.name.localeCompare(b.name));
+
+  const topKnowledgePaths = knowledgeDocs
+    .filter((item) => item.relevance > 0)
+    .slice(0, 4)
+    .map((item) => item.path);
+  const fallbackKnowledgePaths = knowledgeDocs.slice(0, 4).map((item) => item.path);
+  const selectedKnowledgePaths = topKnowledgePaths.length > 0 ? topKnowledgePaths : fallbackKnowledgePaths;
+
+  let selectedPaths = [];
+  if (questionType === 'basic') {
+    selectedPaths = [];
+  } else if (questionType === 'knowledge') {
+    selectedPaths = [...selectedKnowledgePaths];
+  } else if (questionType === 'scenario') {
+    selectedPaths = [...selectedKnowledgePaths];
+  } else {
+    selectedPaths = [...selectedKnowledgePaths];
+  }
+
+  const uniqueSelectedPaths = uniqPaths(selectedPaths).filter((item) => fs.existsSync(item));
+  const fallbackPaths = uniqPaths(allDocs.slice(0, 5).map((item) => item.path));
+
+  return {
+    question_type: questionType,
+    paths: uniqueSelectedPaths.length > 0 ? uniqueSelectedPaths : fallbackPaths,
+    active_resume_path: activeResume?.path || null,
+    active_jd_path: activeJd?.path || null,
+    selected_knowledge_paths: selectedKnowledgePaths,
+  };
+};
+
 const buildStandardAnswerFallback = ({ question, evidenceRefs }) => {
   const evidenceQuotes = (evidenceRefs || [])
     .map((item) => String(item?.quote || '').trim())
@@ -243,14 +595,101 @@ const buildStandardAnswerFallback = ({ question, evidenceRefs }) => {
   ].filter(Boolean).join('');
 };
 
+const buildInterviewReplyFallback = ({ intent, queuedQuestion, input }) => {
+  const questionStem = String(queuedQuestion?.stem || '').trim();
+  const expectedPoints = Array.isArray(queuedQuestion?.expected_points)
+    ? queuedQuestion.expected_points.filter(Boolean).slice(0, 3)
+    : [];
+  const expectedHint = expectedPoints.length > 0 ? `你可以优先围绕 ${expectedPoints.join('、')} 来回答。` : '';
+
+  if (intent === 'clarify') {
+    return [
+      questionStem ? `我换个说法，这题我主要想了解的是：${questionStem}` : '我换个说法再问一遍。',
+      expectedHint,
+      '你可以直接开始回答，不用太铺垫。',
+    ].filter(Boolean).join('');
+  }
+
+  if (intent === 'question_back') {
+    return [
+      '可以，我先补充一下题意：我关注的是你在真实项目或场景里的做法、判断依据和结果。',
+      expectedHint,
+      questionStem ? `还是回到这题本身：${questionStem}` : '你继续按这个方向回答即可。',
+    ].filter(Boolean).join('');
+  }
+
+  if (intent === 'meta') {
+    return [
+      '这轮先聚焦当前题目本身，我会根据你的回答看技术深度、表达结构、证据支撑和岗位匹配度。',
+      questionStem ? `你继续回答这题：${questionStem}` : '你继续当前题即可。',
+    ].join('');
+  }
+
+  if (intent === 'skip') {
+    return '这题先记为跳过，我们直接进入下一题。';
+  }
+
+  return `我还没有拿到可评分的回答。${input ? `你刚才说的是“${input.slice(0, 40)}”` : ''}请直接结合项目经历或具体场景回答当前问题。`;
+};
+
 // server 层只拿统一证据包，避免评分、面试回合、检索接口分别拼装底层策略。
-const buildEvidenceBundle = ({ userId, question, answer = '', user, strategy = 'auto' }) => {
-  const result = retrieveEvidence({
+const buildEvidenceBundle = async ({
+  userId,
+  question,
+  answer = '',
+  user,
+  strategy = 'auto',
+  questionType = 'project',
+  retrievalPlanner = null,
+}) => {
+  const retrievalPlan = planEvidenceDocPaths({
+    userId,
+    questionType,
+    question,
+    answer,
+    user,
+  });
+  if (retrievalPlanner && retrievalPlanner.should_retrieve === false) {
+    return {
+      queryPlan: buildQueryPlan({
+        question: retrievalPlanner.query || question,
+        resumeSummary: user?.resume_summary || '',
+        plannedKeywords: retrievalPlanner.keywords || [],
+      }),
+      localHits: [],
+      sirchmunk: {
+        available: false,
+        items: [],
+        message: 'skipped_by_retrieval_planner',
+      },
+      webFallback: {
+        enabled: false,
+        reason: 'skipped_by_retrieval_planner',
+        items: [],
+      },
+      evidenceRefs: [],
+      strategy: 'none',
+      needFallback: false,
+      retrievalPlan: {
+        ...retrievalPlan,
+        paths: [],
+      },
+      retrievalPlanner,
+    };
+  }
+
+  const result = await retrieveEvidence({
     userId,
     question,
     answer,
     resumeSummary: user?.resume_summary || '',
     strategy,
+    questionType,
+    paths: retrievalPlan.paths,
+    sirchmunkMode: 'DEEP',
+    plannedQuery: retrievalPlanner?.query || '',
+    plannedKeywords: retrievalPlanner?.keywords || [],
+    retrievalGoal: retrievalPlanner?.retrieval_goal || 'find_evidence',
     enableWebFallback: process.env.ENABLE_WEBSEARCH === '1',
   });
 
@@ -262,6 +701,8 @@ const buildEvidenceBundle = ({ userId, question, answer = '', user, strategy = '
     evidenceRefs: result.evidence_refs,
     strategy: result.strategy,
     needFallback: result.need_fallback,
+    retrievalPlan,
+    retrievalPlanner,
   };
 };
 
@@ -531,6 +972,298 @@ const evaluateAnswer = ({ question, answer, evidenceRefs, focusTerms = [] }) => 
   return { score, strengths, weaknesses, feedback };
 };
 
+const buildRubricFallback = ({ question, answer, evidenceRefs, focusTerms }) => {
+  const draft = evaluateAnswer({ question, answer, evidenceRefs, focusTerms });
+  const score = clampNumber(draft.score, 0, 100);
+  const technicalDepth = clampNumber(Math.round(score * 0.3), 0, 25);
+  const structureClarity = clampNumber(Math.round(score * 0.2), 0, 25);
+  const evidenceGrounding = clampNumber(Math.min(25, (evidenceRefs || []).length * 6), 0, 25);
+  const roleFit = clampNumber(score - technicalDepth - structureClarity - evidenceGrounding, 0, 25);
+
+  return {
+    dimension_scores: {
+      technical_depth: technicalDepth,
+      structure_clarity: structureClarity,
+      evidence_grounding: evidenceGrounding,
+      role_fit: roleFit,
+    },
+    total_score: technicalDepth + structureClarity + evidenceGrounding + roleFit,
+    strengths: draft.strengths,
+    weaknesses: draft.weaknesses,
+    feedback: draft.feedback,
+    standard_answer: buildStandardAnswerFallback({ question, evidenceRefs }),
+  };
+};
+
+const classifyInterviewIntentFallback = ({ input }) => {
+  const text = String(input || '').trim();
+
+  if (!text) {
+    return { intent: 'invalid', confidence: 100, reason: '空输入，无法判断为有效回答' };
+  }
+
+  if (/(跳过|skip|pass|不会|没想好|答不上来|不太会)/i.test(text)) {
+    return { intent: 'skip', confidence: 88, reason: '用户明确表达跳过或暂时不会回答' };
+  }
+
+  if (/(什么意思|没太懂|没听清|再说一遍|换个说法|解释一下|能具体一点吗)/i.test(text)) {
+    return { intent: 'clarify', confidence: 86, reason: '用户在要求澄清题意或让面试官重述' };
+  }
+
+  if (/(评分标准|怎么评|为什么问|下一题|结束了吗|流程|第几题|多久)/i.test(text)) {
+    return { intent: 'meta', confidence: 82, reason: '用户在询问流程、规则或面试元信息' };
+  }
+
+  if ((/[?？]$/.test(text) || /请问|方便说下|能否|可以先/i.test(text)) && text.length <= 80) {
+    return { intent: 'question_back', confidence: 72, reason: '输入更像是反问面试官，而不是直接作答' };
+  }
+
+  if (text.length < 8) {
+    return { intent: 'invalid', confidence: 70, reason: '内容过短，缺少可评分信息' };
+  }
+
+  return { intent: 'answer', confidence: text.length >= 40 ? 80 : 62, reason: '输入包含连续表述，更接近候选人作答' };
+};
+
+const classifyInterviewTurnIntent = async ({
+  question,
+  input,
+  interviewContext,
+}) => {
+  const fallback = classifyInterviewIntentFallback({ input });
+  const result = await jsonCompletion({
+    fallback,
+    normalizer: normalizeInterviewIntentResult,
+    validator: validateInterviewIntentResult,
+    repairPrompt: '只返回合法 JSON：{"intent":"answer|clarify|question_back|skip|meta|invalid","confidence":0,"reason":"..."}。不要输出解释。',
+    messages: [
+      {
+        role: 'system',
+        content: [
+          '你是模拟面试流程路由器。',
+          '你的任务是判断用户这一轮输入究竟是在回答题目，还是在澄清、反问、跳过、询问流程。',
+          '只输出 JSON：{"intent":"answer|clarify|question_back|skip|meta|invalid","confidence":0-100,"reason":"简短原因"}。',
+          'answer 表示这是可评分回答；clarify 表示用户没理解题意；question_back 表示用户在反问面试官；skip 表示明确跳过；meta 表示问流程/规则；invalid 表示内容太短或无效。',
+          '如果输入同时含少量寒暄和有效回答，以 answer 为准。',
+        ].join(' '),
+      },
+      {
+        role: 'user',
+        content: JSON.stringify({
+          current_question: String(question || '').slice(0, 220),
+          user_input: String(input || '').slice(0, 800),
+          interview_context: String(interviewContext || '').slice(0, 1200),
+        }),
+      },
+    ],
+  });
+
+  return {
+    intent: result.intent,
+    confidence: result.confidence,
+    reason: result.reason,
+  };
+};
+
+const scoreAnswerWithRubricLLM = async ({
+  question,
+  answer,
+  evidenceRefs,
+  interviewContext,
+  focusTerms,
+  resumeSummary,
+  jobDescription,
+  questionType = 'project',
+  retrievalPlan = null,
+}) => {
+  const fallback = buildRubricFallback({ question, answer, evidenceRefs, focusTerms });
+  const result = await jsonCompletion({
+    fallback,
+    normalizer: normalizeRubricScoreResult,
+    validator: validateRubricScoreResult,
+    repairPrompt: '只返回合法 JSON：{"dimension_scores":{"technical_depth":0,"structure_clarity":0,"evidence_grounding":0,"role_fit":0},"total_score":0,"strengths":["..."],"weaknesses":["..."],"feedback":"...","standard_answer":"..."}。不要输出解释。',
+    messages: [
+      {
+        role: 'system',
+        content: [
+          '你是前端模拟面试评分官。',
+          '请结合候选人的回答、当前问题、题型、简历摘要、JD、历史上下文和检索证据，进行 rubric 评分。',
+          '四个维度各 0-25 分：technical_depth 技术深度、structure_clarity 表达结构、evidence_grounding 证据支撑、role_fit 与岗位匹配度。',
+          '必须先判断回答本身是否合理，再参考证据是否能支撑或补强；不要用简单关键词命中替代判断。',
+          'project / scenario 题要重点判断方案是否合理、是否符合项目背景、是否讲清取舍与验证；knowledge 题要重点判断技术结论是否正确；basic 题要重点判断项目背景、职责与成果表达是否可信且贴合 JD。',
+          '只输出 JSON：{"dimension_scores":{"technical_depth":0,"structure_clarity":0,"evidence_grounding":0,"role_fit":0},"total_score":0,"strengths":["..."],"weaknesses":["..."],"feedback":"...","standard_answer":"..."}。',
+          'strengths 和 weaknesses 各 1-3 条，必须紧扣回答质量；feedback 用一句话指出最优先改进点；standard_answer 必须优先参考 evidence_refs、resume_summary、job_description 组织更优回答。',
+        ].join(' '),
+      },
+      {
+        role: 'user',
+        content: JSON.stringify({
+          question: String(question || '').slice(0, 300),
+          question_type: String(questionType || 'project'),
+          answer: String(answer || '').slice(0, 3000),
+          resume_summary: String(resumeSummary || '').slice(0, 800),
+          job_description: String(jobDescription || '').slice(0, 1800),
+          interview_context: String(interviewContext || '').slice(0, 1800),
+          retrieval_plan: retrievalPlan ? {
+            question_type: retrievalPlan.question_type,
+            paths: (retrievalPlan.paths || []).map((item) => path.basename(String(item || ''))).slice(0, 6),
+            active_resume: retrievalPlan.active_resume_path ? path.basename(retrievalPlan.active_resume_path) : null,
+            active_jd: retrievalPlan.active_jd_path ? path.basename(retrievalPlan.active_jd_path) : null,
+            knowledge_docs: (retrievalPlan.selected_knowledge_paths || []).map((item) => path.basename(String(item || ''))).slice(0, 4),
+          } : null,
+          focus_terms: (focusTerms || []).slice(0, 12),
+          evidence_refs: (evidenceRefs || []).slice(0, 6).map((item) => ({
+            source_type: item.source_type,
+            source_uri: item.source_uri,
+            quote: String(item.quote || '').slice(0, 220),
+            confidence: item.confidence,
+          })),
+          scoring_rules: [
+            '优先看回答是否讲清业务背景、个人职责、方案取舍、验证结果',
+            '回答如果只停留在抽象定义或空泛结论，应明显扣分',
+            'evidence_grounding 看回答与证据、简历、JD 是否能互相印证，不是看关键词数量',
+            'role_fit 看回答是否贴近岗位职责与面试题目标',
+          ],
+        }),
+      },
+    ],
+  });
+
+  return {
+    score: clampNumber(result.total_score, 0, 100),
+    dimension_scores: result.dimension_scores,
+    strengths: result.strengths.length > 0 ? result.strengths : fallback.strengths,
+    weaknesses: result.weaknesses.length > 0 ? result.weaknesses : fallback.weaknesses,
+    feedback: result.feedback || fallback.feedback,
+    standard_answer: result.standard_answer || fallback.standard_answer,
+  };
+};
+
+const buildEvaluationNarrationFallback = ({
+  score,
+  strengths,
+  weaknesses,
+  feedback,
+  standardAnswer,
+}) => [
+  `本轮回答得分 ${score} 分。`,
+  feedback ? `总体判断：${feedback}` : '',
+  strengths.length > 0 ? `相对做得好的部分是：${strengths.join('；')}。` : '',
+  weaknesses.length > 0 ? `当前最需要补强的是：${weaknesses.join('；')}。` : '',
+  standardAnswer ? `如果你想把这题答得更完整，可以这样组织：${standardAnswer}` : '',
+].filter(Boolean).join('\n');
+
+const streamAssistantText = async ({ messages, fallback, onToken, logLabel }) => {
+  if (!hasRealLLM()) {
+    const parts = String(fallback || '').match(/.{1,12}/g) || [];
+    for (const part of parts) {
+      if (typeof onToken === 'function') {
+        await onToken(part);
+      }
+    }
+    return String(fallback || '');
+  }
+
+  let full = '';
+  for await (const delta of streamCompletion({ messages })) {
+    full += delta;
+    if (typeof onToken === 'function') {
+      await onToken(delta);
+    }
+  }
+  console.log(logLabel || '[interview.stream.raw]', { content: full });
+  return String(full || fallback || '').trim() || String(fallback || '');
+};
+
+const generateEvaluationNarration = async ({
+  question,
+  answer,
+  score,
+  dimensionScores,
+  strengths,
+  weaknesses,
+  feedback,
+  standardAnswer,
+  interviewContext,
+  onToken,
+}) => {
+  const fallback = buildEvaluationNarrationFallback({
+    score,
+    strengths,
+    weaknesses,
+    feedback,
+    standardAnswer,
+  });
+
+  return streamAssistantText({
+    fallback,
+    onToken,
+    logLabel: '[interview.evaluation.raw]',
+    messages: [
+      {
+        role: 'system',
+        content: [
+          '你是前端面试反馈助手。',
+          '你已经拿到 rubric 评分结果，现在需要直接面向候选人输出自然语言评价。',
+          '不要输出 JSON，不要复述维度名，不要解释系统过程。',
+          '输出 3-5 句中文：先给出整体判断，再点出 1-2 个优点，接着指出最关键的改进点，最后给一句更优回答组织建议。',
+          '语气克制、专业、像真实面试官当场反馈。',
+        ].join(' '),
+      },
+      {
+        role: 'user',
+        content: JSON.stringify({
+          question: String(question || '').slice(0, 240),
+          answer: String(answer || '').slice(0, 2000),
+          interview_context: String(interviewContext || '').slice(0, 1200),
+          score,
+          dimension_scores: dimensionScores,
+          strengths,
+          weaknesses,
+          feedback,
+          standard_answer: standardAnswer,
+        }),
+      },
+    ],
+  });
+};
+
+const generateInterviewerReply = async ({
+  intent,
+  queuedQuestion,
+  input,
+  interviewContext,
+  onToken,
+}) => {
+  const fallback = buildInterviewReplyFallback({ intent, queuedQuestion, input });
+  return streamAssistantText({
+    fallback,
+    onToken,
+    logLabel: '[interview.reply.raw]',
+    messages: [
+      {
+        role: 'system',
+        content: [
+          '你是中文前端模拟面试官。',
+          '请根据用户意图给出一段简短自然的现场回复。',
+          '如果是 clarify，要换个说法重述当前问题；如果是 question_back，要先简短回应再把话题收回当前题；如果是 meta，要简短回答流程问题后引导回当前题；如果是 skip，要确认跳过并进入下一题；如果是 invalid，要提示用户给出可评分回答。',
+          '不要输出 JSON，不要长篇说教，控制在 2-4 句。',
+        ].join(' '),
+      },
+      {
+        role: 'user',
+        content: JSON.stringify({
+          intent,
+          current_question: queuedQuestion?.stem || '',
+          expected_points: queuedQuestion?.expected_points || [],
+          user_input: String(input || '').slice(0, 600),
+          interview_context: String(interviewContext || '').slice(0, 1200),
+        }),
+      },
+    ],
+  });
+};
+
 const buildQuestionQueueFallback = ({ resumeSummary, jobDescription, targetLevel }) => {
   const resumeHint = String(resumeSummary || '').trim();
   const jdHint = String(jobDescription || '').trim();
@@ -713,63 +1446,24 @@ const enhanceEvaluationWithLLM = async ({
   question,
   answer,
   evidenceRefs,
-  draft,
   interviewContext,
+  focusTerms = [],
+  resumeSummary = '',
+  jobDescription = '',
+  questionType = 'project',
+  retrievalPlan = null,
 }) => {
-  // LLM 只负责把规则评分重写成更自然的评语，不参与改分，避免结果漂移。
-  const fallback = {
-    strengths: draft.strengths,
-    weaknesses: draft.weaknesses,
-    feedback: draft.feedback,
-    standard_answer: buildStandardAnswerFallback({ question, evidenceRefs }),
-  };
-  const result = await jsonCompletion({
-    fallback,
-    normalizer: normalizeEvaluationRewriteResult,
-    validator: validateEvaluationRewriteResult,
-    repairPrompt: '只返回合法 JSON：{"strengths":["..."],"weaknesses":["..."],"feedback":"...","standard_answer":"..."}。strengths 和 weaknesses 必须是字符串数组，feedback 和 standard_answer 必须是字符串，不要输出解释。',
-    messages: [
-      {
-        role: 'system',
-        content: [
-          '你是前端面试评分助手。',
-          '你不能修改给定分数，只能重写优点、问题、一句反馈，并补充一段标准答案。',
-          '标准答案必须优先参考已提供的检索证据，尽量引用其中的项目事实、能力证明或岗位要求；如果证据不足，再用通用前端面试表达补齐。',
-          '输出 JSON：{"strengths":["..."],"weaknesses":["..."],"feedback":"...","standard_answer":"..."}。',
-          '每个数组 1-3 条，短句、中文、聚焦技术表达。',
-          'standard_answer 控制在 120-220 字，结构清晰，像候选人在面试中的高质量回答，不要写成点评。',
-        ].join(' '),
-      },
-      {
-        role: 'user',
-        content: JSON.stringify({
-          question,
-          answer: String(answer || '').slice(0, 3000),
-          interview_context: String(interviewContext || '').slice(0, 2600),
-          score: draft.score,
-          evidence_refs: (evidenceRefs || []).slice(0, 4).map((item) => ({
-            source_type: item.source_type,
-            source_uri: item.source_uri,
-            quote: String(item.quote || '').slice(0, 200),
-          })),
-          draft_strengths: draft.strengths,
-          draft_weaknesses: draft.weaknesses,
-          draft_feedback: draft.feedback,
-        }),
-      },
-    ],
+  return scoreAnswerWithRubricLLM({
+    question,
+    answer,
+    evidenceRefs,
+    interviewContext,
+    focusTerms,
+    resumeSummary,
+    jobDescription,
+    questionType,
+    retrievalPlan,
   });
-
-  const strengths = Array.isArray(result?.strengths) && result.strengths.length > 0
-    ? result.strengths.map((item) => String(item).trim()).filter(Boolean).slice(0, 3)
-    : draft.strengths;
-  const weaknesses = Array.isArray(result?.weaknesses) && result.weaknesses.length > 0
-    ? result.weaknesses.map((item) => String(item).trim()).filter(Boolean).slice(0, 3)
-    : draft.weaknesses;
-  const feedback = String(result?.feedback || draft.feedback).trim() || draft.feedback;
-  const standardAnswer = String(result?.standard_answer || fallback.standard_answer).trim() || fallback.standard_answer;
-
-  return { ...draft, strengths, weaknesses, feedback, standard_answer: standardAnswer };
 };
 
 const shouldInsertFollowUp = ({ queuedQuestion, score, weaknesses, queueItems }) => {
@@ -883,7 +1577,12 @@ const generateFollowUpQuestion = async ({ queuedQuestion, answer, weaknesses, in
   };
 };
 
-const submitInterviewTurn = async ({ sessionId, body }) => {
+const submitInterviewTurn = async ({ sessionId, body, onPhase, onToken }) => {
+  const emitPhase = async (phase, message) => {
+    if (typeof onPhase === 'function') {
+      await onPhase(phase, message);
+    }
+  };
   const questionId = String(body.question_id || '').trim();
   const queuedQuestion = questionId ? getInterviewQuestionById(questionId) : null;
   const question = String(body.question || queuedQuestion?.stem || '').trim();
@@ -909,30 +1608,164 @@ const submitInterviewTurn = async ({ sessionId, body }) => {
     turns,
     currentQuestion: question,
   });
-  const evidenceBundle = buildEvidenceBundle({
+  const user = getUserById(session.user_id);
+  const activeJd = user?.active_jd_file
+    ? readJdDoc({ userId: session.user_id, fileName: user.active_jd_file })
+    : null;
+  const resumeSummary = String(user?.resume_summary || '').trim();
+  const jobDescription = String(activeJd?.content || '').trim();
+
+  await emitPhase('intent', '正在判断这轮输入属于回答还是其他意图...');
+  const intentResult = await classifyInterviewTurnIntent({
+    question,
+    input: answer,
+    interviewContext: interviewContext.contextText,
+  });
+
+  if (intentResult.intent !== 'answer') {
+    if (intentResult.intent === 'skip') {
+      await emitPhase('planning', '已跳过当前题，正在切换到下一题...');
+      if (queuedQuestion) {
+        updateInterviewQuestionStatus({ questionId: queuedQuestion.id, status: 'skipped' });
+      }
+      let nextQuestion = getNextInterviewQuestion(sessionId);
+      if (nextQuestion && nextQuestion.status === 'pending') {
+        updateInterviewQuestionStatus({ questionId: nextQuestion.id, status: 'asked' });
+        nextQuestion = { ...nextQuestion, status: 'asked' };
+      }
+      const replyText = await generateInterviewerReply({
+        intent: 'skip',
+        queuedQuestion,
+        input: answer,
+        interviewContext: interviewContext.contextText,
+        onToken,
+      });
+      return {
+        session_id: sessionId,
+        question_id: queuedQuestion?.id || null,
+        turn_id: null,
+        turn_index: turnIndex,
+        intent: intentResult.intent,
+        intent_confidence: intentResult.confidence,
+        intent_reason: intentResult.reason,
+        handled_as: 'skip',
+        current_question_status: 'skipped',
+        reply_text: replyText,
+        evaluation_text: replyText,
+        next_question: nextQuestion ? {
+          id: nextQuestion.id,
+          order_no: nextQuestion.order_no,
+          stem: nextQuestion.stem,
+          source: nextQuestion.source,
+          question_type: nextQuestion.question_type,
+          difficulty: nextQuestion.difficulty,
+          status: nextQuestion.status,
+        } : null,
+      };
+    }
+
+    await emitPhase('reply', '当前输入不作为评分回答，正在生成面试官回复...');
+    const replyText = await generateInterviewerReply({
+      intent: intentResult.intent,
+      queuedQuestion,
+      input: answer,
+      interviewContext: interviewContext.contextText,
+      onToken,
+    });
+
+    return {
+      session_id: sessionId,
+      question_id: queuedQuestion?.id || null,
+      turn_id: null,
+      turn_index: turnIndex,
+      intent: intentResult.intent,
+      intent_confidence: intentResult.confidence,
+      intent_reason: intentResult.reason,
+      handled_as: 'non_answer',
+      current_question_status: queuedQuestion?.status || 'asked',
+      reply_text: replyText,
+      evaluation_text: replyText,
+      next_question: queuedQuestion ? {
+        id: queuedQuestion.id,
+        order_no: queuedQuestion.order_no,
+        stem: queuedQuestion.stem,
+        source: queuedQuestion.source,
+        question_type: queuedQuestion.question_type,
+        difficulty: queuedQuestion.difficulty,
+        status: queuedQuestion.status || 'asked',
+      } : null,
+    };
+  }
+
+  await emitPhase('question_type', '正在识别当前题型并规划证据来源...');
+  const questionTypeResult = await classifyQuestionType({
+    question,
+    answer,
+    queuedQuestionType: queuedQuestion?.question_type || '',
+    interviewContext: interviewContext.contextText,
+  });
+
+  const retrievalPlanner = await planRetrievalWithLLM({
+    question,
+    answer,
+    questionType: questionTypeResult.question_type,
+    intent: intentResult.intent,
+    interviewContext: interviewContext.contextText,
+  });
+  console.log('[retrieval.planner]', {
+    session_id: sessionId,
+    question_type: questionTypeResult.question_type,
+    planner: retrievalPlanner,
+  });
+
+  await emitPhase('retrieval', '正在检索候选人资料与知识证据...');
+  const evidenceBundle = await buildEvidenceBundle({
     userId: session.user_id,
     question,
     answer,
-    user: getUserById(session.user_id),
+    user,
+    questionType: questionTypeResult.question_type,
+    retrievalPlanner,
   });
   const rawEvidenceRefs = evidence_refs.length > 0 ? evidence_refs : evidenceBundle.evidenceRefs;
-  const draftEvaluation = evaluateAnswer({
+  const focusTerms = [
+    ...(evidenceBundle.queryPlan?.keyword_groups?.entity_terms || []),
+    ...(evidenceBundle.queryPlan?.keyword_groups?.intent_terms || []),
+    ...(evidenceBundle.queryPlan?.keyword_groups?.evidence_terms || []),
+  ];
+  await emitPhase('evaluation', '正在生成评分与反馈...');
+  const {
+    score,
+    dimension_scores,
+    strengths,
+    weaknesses,
+    feedback,
+    standard_answer,
+  } = await enhanceEvaluationWithLLM({
     question,
     answer,
     evidenceRefs: rawEvidenceRefs,
-    focusTerms: [
-      ...evidenceBundle.queryPlan.keyword_groups.entity_terms,
-      ...evidenceBundle.queryPlan.keyword_groups.intent_terms,
-      ...evidenceBundle.queryPlan.keyword_groups.evidence_terms,
-    ],
-  });
-  const { score, strengths, weaknesses, feedback, standard_answer } = await enhanceEvaluationWithLLM({
-    question,
-    answer,
-    evidenceRefs: rawEvidenceRefs,
-    draft: draftEvaluation,
     interviewContext: interviewContext.contextText,
+    focusTerms,
+    resumeSummary,
+    jobDescription,
+    questionType: questionTypeResult.question_type,
+    retrievalPlan: evidenceBundle.retrievalPlan,
   });
+  await emitPhase('feedback', '正在整理最终评价...');
+  const evaluationText = await generateEvaluationNarration({
+    question,
+    answer,
+    score,
+    dimensionScores: dimension_scores,
+    strengths,
+    weaknesses,
+    feedback,
+    standardAnswer: standard_answer,
+    interviewContext: interviewContext.contextText,
+    onToken,
+  });
+  await emitPhase('persist', '正在写入评分结果...');
   const turnId = randomUUID();
   addInterviewTurn({
     id: turnId,
@@ -984,6 +1817,7 @@ const submitInterviewTurn = async ({ sessionId, body }) => {
       }
     }
   }
+  await emitPhase('planning', '正在规划下一题...');
   if (!nextQuestion) {
     nextQuestion = getNextInterviewQuestion(sessionId);
   }
@@ -997,12 +1831,22 @@ const submitInterviewTurn = async ({ sessionId, body }) => {
     question_id: queuedQuestion?.id || null,
     turn_id: turnId,
     turn_index: turnIndex,
+    intent: intentResult.intent,
+    intent_confidence: intentResult.confidence,
+    intent_reason: intentResult.reason,
+    handled_as: 'answer',
+    resolved_question_type: questionTypeResult.question_type,
+    question_type_reason: questionTypeResult.reason,
+    retrieval_planner: retrievalPlanner,
+    current_question_status: 'answered',
     retrieval_strategy: evidenceBundle.strategy,
     score,
+    dimension_scores,
     strengths,
     weaknesses,
     feedback,
     standard_answer,
+    evaluation_text: evaluationText,
     evidence_refs_count: rawEvidenceRefs.length,
     evidence_refs: rawEvidenceRefs,
     next_question: nextQuestion ? {
@@ -1213,7 +2057,7 @@ const server = http.createServer(async (req, res) => {
       if (!question) return json(res, 400, { error: 'question is required' });
 
       const user = getUserById(userId);
-      const result = retrieveEvidence({
+      const result = await retrieveEvidence({
         userId,
         question,
         resumeSummary: user?.resume_summary || '',
@@ -1451,28 +2295,61 @@ const server = http.createServer(async (req, res) => {
       if (!answer) return json(res, 400, { error: 'answer is required' });
 
       const user = getUserById(user_id);
-      const evidenceBundle = buildEvidenceBundle({
+      const questionTypeResult = await classifyQuestionType({
+        question,
+        answer,
+        interviewContext: '',
+      });
+      const retrievalPlanner = await planRetrievalWithLLM({
+        question,
+        answer,
+        questionType: questionTypeResult.question_type,
+        intent: 'answer',
+        interviewContext: '',
+      });
+      console.log('[retrieval.planner]', {
+        user_id,
+        question_type: questionTypeResult.question_type,
+        planner: retrievalPlanner,
+      });
+      const evidenceBundle = await buildEvidenceBundle({
         userId: user_id,
         question,
         answer,
         user,
+        questionType: questionTypeResult.question_type,
+        retrievalPlanner,
       });
       const rawEvidenceRefs = evidence_refs.length > 0 ? evidence_refs : evidenceBundle.evidenceRefs;
-      const draftEvaluation = evaluateAnswer({
+      const focusTerms = [
+        ...(evidenceBundle.queryPlan?.keyword_groups?.entity_terms || []),
+        ...(evidenceBundle.queryPlan?.keyword_groups?.intent_terms || []),
+        ...(evidenceBundle.queryPlan?.keyword_groups?.evidence_terms || []),
+      ];
+      const activeJd = user?.active_jd_file
+        ? readJdDoc({ userId: user_id, fileName: user.active_jd_file })
+        : null;
+      const { score, dimension_scores, strengths, weaknesses, feedback, standard_answer } = await enhanceEvaluationWithLLM({
         question,
         answer,
         evidenceRefs: rawEvidenceRefs,
-        focusTerms: [
-          ...evidenceBundle.queryPlan.keyword_groups.entity_terms,
-          ...evidenceBundle.queryPlan.keyword_groups.intent_terms,
-          ...evidenceBundle.queryPlan.keyword_groups.evidence_terms,
-        ],
+        interviewContext: '',
+        focusTerms,
+        resumeSummary: user?.resume_summary || '',
+        jobDescription: activeJd?.content || '',
+        questionType: questionTypeResult.question_type,
+        retrievalPlan: evidenceBundle.retrievalPlan,
       });
-      const { score, strengths, weaknesses, feedback, standard_answer } = await enhanceEvaluationWithLLM({
+      const evaluation_text = await generateEvaluationNarration({
         question,
         answer,
-        evidenceRefs: rawEvidenceRefs,
-        draft: draftEvaluation,
+        score,
+        dimensionScores: dimension_scores,
+        strengths,
+        weaknesses,
+        feedback,
+        standardAnswer: standard_answer,
+        interviewContext: '',
       });
 
       const attemptId = randomUUID();
@@ -1513,11 +2390,16 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, {
         attempt_id: attemptId,
         retrieval_strategy: evidenceBundle.strategy,
+        resolved_question_type: questionTypeResult.question_type,
+        question_type_reason: questionTypeResult.reason,
+        retrieval_planner: retrievalPlanner,
         score,
+        dimension_scores,
         strengths,
         weaknesses,
         feedback,
         standard_answer,
+        evaluation_text,
         evidence_refs_count: normalizedEvidenceRefs.length,
         evidence_refs: normalizedEvidenceRefs.map(({ id, ...rest }) => rest),
         query_plan: evidenceBundle.queryPlan,
@@ -1604,15 +2486,34 @@ const server = http.createServer(async (req, res) => {
     req.method === 'POST'
     && /^\/v1\/interview\/sessions\/[^/]+\/turns\/stream$/.test(url.pathname)
   ) {
+    let sessionId = '';
+    let closed = false;
     try {
-      const sessionId = decodeURIComponent(url.pathname.split('/')[4] || '').trim();
+      sessionId = decodeURIComponent(url.pathname.split('/')[4] || '').trim();
       const body = await readBody(req);
 
       res.writeHead(200, {
         'Content-Type': 'text/event-stream; charset=utf-8',
         'Cache-Control': 'no-cache, no-transform',
         Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no',
         ...corsHeaders,
+      });
+      res.flushHeaders?.();
+
+      req.on('aborted', () => {
+        if (closed) return;
+        closed = true;
+        console.warn('[interview.turn.stream.aborted]', {
+          session_id: sessionId,
+        });
+      });
+      res.on('close', () => {
+        if (closed) return;
+        closed = true;
+        console.warn('[interview.turn.stream.closed]', {
+          session_id: sessionId,
+        });
       });
 
       console.log('[interview.turn.stream.start]', {
@@ -1620,21 +2521,38 @@ const server = http.createServer(async (req, res) => {
         question_id: String(body.question_id || '').trim() || null,
       });
       writeSse(res, 'meta', { session_id: sessionId, mode: 'interview_turn_stream' });
-      console.log('[interview.turn.stream.stage]', {
-        session_id: sessionId,
-        step: 'retrieval',
-        message: '正在检索简历、JD 与用户资料...',
-      });
-      writeSse(res, 'stage', { step: 'retrieval', message: '正在检索简历、JD 与用户资料...' });
-      await Promise.resolve();
-      console.log('[interview.turn.stream.stage]', {
-        session_id: sessionId,
-        step: 'evaluation',
-        message: '正在生成评分与反馈...',
-      });
-      writeSse(res, 'stage', { step: 'evaluation', message: '正在生成评分与反馈...' });
+      await flushSseFrame();
+      const writeStage = async (step, message) => {
+        if (closed) return;
+        console.log('[interview.turn.stream.stage]', {
+          session_id: sessionId,
+          step,
+          message,
+        });
+        writeSse(res, 'stage', { step, message });
+        await flushSseFrame();
+      };
+      const writeToken = async (textChunk) => {
+        if (closed || !textChunk) return;
+        console.log('[interview.turn.stream.token]', {
+          session_id: sessionId,
+          length: String(textChunk).length,
+          preview: String(textChunk).slice(0, 40),
+        });
+        writeSse(res, 'token', {
+          textChunk,
+          timestamp: new Date().toISOString(),
+        });
+        await flushSseFrame();
+      };
 
-      const result = await submitInterviewTurn({ sessionId, body });
+      await writeStage('saving', '已接收回答，正在准备评分...');
+      const result = await submitInterviewTurn({
+        sessionId,
+        body,
+        onPhase: writeStage,
+        onToken: writeToken,
+      });
       console.log('[interview.turn.stream.result]', {
         session_id: sessionId,
         turn_id: result.turn_id,
@@ -1642,17 +2560,23 @@ const server = http.createServer(async (req, res) => {
         evidence_refs_count: result.evidence_refs_count,
         next_question_id: result.next_question?.id || null,
       });
+      if (closed) {
+        return;
+      }
       writeSse(res, 'result', result);
+      await flushSseFrame();
       writeSse(res, 'done', {
         turn_id: result.turn_id,
         next_question_id: result.next_question?.id || null,
       });
+      closed = true;
       res.end();
       return;
     } catch (e) {
       if (!res.headersSent) {
         return json(res, e.statusCode || 400, { error: e.message || 'bad request' });
       }
+      closed = true;
       console.error('[interview.turn.stream.error]', {
         session_id: sessionId,
         error: e.message || 'stream failed',

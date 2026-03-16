@@ -1,7 +1,7 @@
 # Prompt 模板（MVP）
 
-- 版本：v0.3
-- 日期：2026-03-11
+- 版本：v0.4
+- 日期：2026-03-12
 
 ## 1) Query Planner
 
@@ -112,25 +112,102 @@
 4. 语气像真实面试官追问，不要像系统提示。
 5. 追问要能继续拿到可评分的信息，而不是泛泛让用户补充。
 
-## 3) Scoring
+## 3) Interview Intent Router
 
-你是前端面试评分官。请根据用户回答与证据片段评分。
+### 目标
 
-评分维度：
-1. 技术深度
-2. 表达结构
-3. 真实性与证据一致性
+在评分前先判断这一轮输入是不是“可评分回答”，避免把澄清、反问、流程提问误判成回答。
 
-要求：
-1. 返回 JSON。
-2. 所有扣分项必须引用 evidence_refs。
-3. 给出下一步可执行改进动作（24小时内可完成）。
+### 输出 JSON
 
-## 4) Review Feedback
+```json
+{
+  "intent": "answer|clarify|question_back|skip|meta|invalid",
+  "confidence": 0,
+  "reason": "简短原因"
+}
+```
 
-你是前端面试反馈助手。不能改分，只能把评分结果改写成自然、克制、可执行的点评。
+### 路由规则
 
-要求：
-1. 输出 `strengths/weaknesses/feedback`。
-2. `strengths`、`weaknesses` 各 1-3 条。
-3. `feedback` 只保留一句优先级最高的建议。
+1. `answer`：用户已经开始围绕当前题目作答，内容可进入评分链路。
+2. `clarify`：用户没理解题意，希望面试官换个说法或解释。
+3. `question_back`：用户在反问面试官，例如确认题目范围、背景、场景假设。
+4. `skip`：用户明确表示不会、想跳过、暂时答不上来。
+5. `meta`：用户在问流程、评分标准、是否结束、下一题等元问题。
+6. `invalid`：内容过短、无效、与面试无关。
+
+### Prompt 要点
+
+1. 如果输入同时包含少量寒暄和有效作答，以 `answer` 为准。
+2. 不要因为出现几个技术关键词就判成 `answer`，要看是否形成了连续表述。
+3. `question_back` 和 `clarify` 的区别在于：前者是在追问面试官，后者是在要求重述题意。
+
+## 4) Rubric Scoring
+
+### 目标
+
+只在 `intent=answer` 时进入该链路。评分由 LLM 完成，规则层仅做 fallback，不再按关键词命中直接定分。
+
+### 输出 JSON
+
+```json
+{
+  "dimension_scores": {
+    "technical_depth": 0,
+    "structure_clarity": 0,
+    "evidence_grounding": 0,
+    "role_fit": 0
+  },
+  "total_score": 0,
+  "strengths": ["..."],
+  "weaknesses": ["..."],
+  "feedback": "...",
+  "standard_answer": "..."
+}
+```
+
+### 评分维度
+
+1. `technical_depth`：是否讲清方案、取舍、关键细节。
+2. `structure_clarity`：表达是否有背景、动作、结果的清晰结构。
+3. `evidence_grounding`：回答是否能被简历/JD/检索证据支撑，不是单看关键词数量。
+4. `role_fit`：是否贴近岗位职责、面试题目标和真实业务场景。
+
+### 输入建议
+
+1. `question`
+2. `answer`
+3. `resume_summary`
+4. `job_description`
+5. `interview_context`
+6. `focus_terms`
+7. `evidence_refs`
+
+### 约束
+
+1. `strengths`、`weaknesses` 各 1-3 条。
+2. `feedback` 只保留一句最优先建议。
+3. `standard_answer` 必须优先参考检索证据，再用通用表达补齐。
+4. 不允许把“命中多少关键词”直接等同于高分。
+
+## 5) Final Review Feedback
+
+### 目标
+
+把 rubric 评分结果转成直接给前端展示的自然语言评价文本，支持流式输出。
+
+### 输出要求
+
+1. 不输出 JSON。
+2. 3-5 句中文。
+3. 顺序固定：
+   - 整体判断
+   - 1-2 个优点
+   - 最关键的改进点
+   - 一句更优回答组织建议
+
+### 注意
+
+1. 前端只消费这段自然语言，不再流式展示结构化 JSON。
+2. `standard_answer` 仍然保留在后端结果中，供详情面板、复盘或后续追问使用。

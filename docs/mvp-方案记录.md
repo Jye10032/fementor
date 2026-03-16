@@ -129,3 +129,79 @@
 1. 复盘接口新增 `long_term_memory`，由 LLM 输出结构化长期记忆提炼结果。
 2. 结构包含 `stable_strengths/stable_weaknesses/project_signals/role_fit_signals/recommended_focus`。
 3. 当前先把长期记忆提炼结果返回给前端，并同步写入现有 markdown memory 日志。
+
+## 2026-03-12 v0.16
+
+### 本次调整
+
+1. 面试回合作答前新增 `intent router`，先判断输入属于 `answer/clarify/question_back/skip/meta/invalid` 哪一类。
+2. 只有 `intent=answer` 才进入评分链路，避免把“反问面试官、问流程、要求解释题意”误判成可评分回答。
+3. 评分从“规则层关键词/长度/证据数启发式”升级为“LLM rubric 评分为主，规则层仅作 fallback”。
+4. rubric 固定四维：`technical_depth / structure_clarity / evidence_grounding / role_fit`。
+5. 评分后新增第二步“最终评价生成”，后端把 rubric 结果转成自然语言评价文本，再以 SSE token 流式推给前端。
+6. 前端不再先显示原始 JSON 再替换文案，只显示最终评价文本或非回答分支的面试官回复。
+7. `skip` 分支会把当前题记为跳过并推进到下一题；`clarify/question_back/meta/invalid` 分支只回复，不计分、不推进。
+
+### 当前链路
+
+1. `classify intent`
+2. `intent=answer` 时：
+   - 检索简历/JD/用户资料
+   - LLM rubric 评分
+   - 生成自然语言评价
+   - 写入 turn
+   - 决定是否插入 follow_up 和下一题
+3. `intent!=answer` 时：
+   - 生成面试官回复
+   - 视 intent 决定是否保留当前题或跳过当前题
+
+### 这样做的原因
+
+1. 之前所有输入都直接评分，更像“单次 LLM 调用”，不是一个有路由判断的面试 agent。
+2. 关键词命中和证据数量只能做弱信号，不能直接代表回答质量。
+3. 结构化 rubric 更适合内部存储和后续追问决策，但用户前台需要看到的是直接评价文本。
+
+### 当前风险
+
+1. 当前还是单 agent 多步骤编排，不是多 agent 协作；流程更清晰，但复杂场景的策略仍有限。
+2. `intent router` 仍依赖 LLM 判断，后续可以继续叠加更细的规则校验和样本回放。
+3. 非回答分支目前只做轻量回复，还没有接入更完整的会话策略树。
+
+## 2026-03-13 v0.17
+
+### 本次调整
+
+1. 新增 `question_type router`，在 `intent=answer` 后继续识别 `basic/project/knowledge/scenario/follow_up`。
+2. 面试评估链路的 Sirchmunk 检索改为显式走 `DEEP`，配合业务层先做题型路由和路径裁剪，优先提升项目题、场景题的证据召回质量。
+3. 检索入口不再默认传整目录，而是按题型规划证据路径：
+   - `basic`：活跃 JD
+   - `project/scenario`：活跃 JD + 相关知识文档
+   - `knowledge`：相关知识文档优先，必要时补充 JD
+4. `resume` 不再作为检索源文件参与 Sirchmunk / 本地检索，只保留 `resume_summary` 作为评分和标准答案生成的背景信息。
+5. rubric 评分 prompt 新增 `question_type` 和 `retrieval_plan`，要求 LLM 区分项目题、知识题、场景题的判分重点。
+6. 单题练习与模拟面试两条评分链路统一复用这套“题型路由 + 证据规划 + rubric”流程。
+7. 用户文档目录物理拆分为 `profile` 与 `knowledge` 两层：
+   - `profile`：仅存 `resume/jd`
+   - `knowledge`：仅存检索知识库文档
+   读取逻辑保留对旧平铺目录的兼容，避免历史数据立即失效。
+
+### 当前链路
+
+1. `intent router`
+2. `question_type router`
+3. `evidence planner`
+4. `sirchmunk/local/web evidence`
+5. `LLM rubric scoring`
+6. `自然语言评价生成`
+
+### 这样做的原因
+
+1. 之前 `sirchmunk` 在 `DEEP` 模式下会先做 `DocQA` 意图分流，自我介绍类问题容易被误判为整份资料 review。
+2. 项目题不能只对齐简历，还要结合知识库判断方案是否合理，因此必须先做题型路由再规划证据源。
+3. 评分应以“回答质量 + 证据支撑 + 项目/知识场景匹配”为主，而不是目录级总结或关键词命中。
+
+### 当前风险
+
+1. 题型识别仍是 LLM + fallback 混合判断，后续需要样本回放和命中统计。
+2. `knowledge` 路由当前主要依赖文件名提示选知识文档，后续可升级为更细的文档索引。
+3. WebSearch 仍是占位 fallback，尚未接入真实 provider。
