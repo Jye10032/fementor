@@ -20,3 +20,5 @@ data/user_docs/*
 !data/user_docs/.gitkeep
 data/memory/*
 !data/memory/.gitkeep
+docs/
+react-best-practices/
