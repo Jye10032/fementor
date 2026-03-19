@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { BookOpen, FileText, MessageSquare, Sparkles } from "lucide-react";
-import { RuntimeConfig, useRuntimeConfig } from "../components/runtime-config";
-import { apiRequest } from "../lib/api";
+import { ArrowRight, BookOpen, FileText, MessageSquare, Sparkles } from "lucide-react";
 import { useState } from "react";
+import { PageHero, PagePanel, PageShell } from "../components/page-shell";
+import { useRuntimeConfig } from "../components/runtime-config";
+import { apiRequest } from "../lib/api";
 
 type HealthResponse = {
   ok: boolean;
@@ -14,7 +15,7 @@ type HealthResponse = {
 };
 
 export default function HomePage() {
-  const { apiBase, setApiBase, userId, setUserId } = useRuntimeConfig();
+  const { apiBase } = useRuntimeConfig();
   const [health, setHealth] = useState<string>("");
   const [checking, setChecking] = useState(false);
 
@@ -58,86 +59,91 @@ export default function HomePage() {
   ] as const;
 
   return (
-    <section className="p-6">
-      <div className="mx-auto max-w-7xl space-y-6">
-        <header className="overflow-hidden rounded-3xl border border-border bg-card">
-          <div className="grid gap-6 px-6 py-8 lg:grid-cols-[1.2fr_0.8fr] lg:px-8">
+    <PageShell>
+      <PageHero
+        eyebrow="Interview Driven Practice"
+        title="把前端求职训练做成一条会沉淀的工作流"
+        description="FEMentor 不只是在问答，而是在把简历、JD、模拟面试、评分反馈和复习节奏串成一个闭环。每一场练习都应该让下一场更精准。"
+        actions={(
+          <>
+            <Link href="/resume" className="action-primary">
+              上传并解析资料
+            </Link>
+            <Link href="/interview" className="action-secondary">
+              开始模拟面试
+            </Link>
+          </>
+        )}
+        aside={(
+          <>
+            {[
+              { title: "Step 1", label: "简历解析", desc: "先把候选人画像和文档证据库建立起来。" },
+              { title: "Step 2", label: "模拟面试", desc: "围绕项目经历、基础能力和岗位要求逐轮追问。" },
+              { title: "Step 3", label: "题单回流", desc: "把薄弱点压回复习系统，而不是停在一份报告。" },
+            ].map((step) => (
+              <article key={step.title} className="panel-muted">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">{step.title}</p>
+                <h2 className="mt-2 text-base font-semibold text-foreground">{step.label}</h2>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">{step.desc}</p>
+              </article>
+            ))}
+          </>
+        )}
+      />
+
+      <section>
+        <PagePanel>
+          <div className="flex items-center justify-between gap-4">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary">Interview Driven Practice</p>
-              <h1 className="mt-4 text-4xl font-bold tracking-tight text-foreground sm:text-5xl">
-                把模拟面试、复盘与题单训练收成一条闭环
-              </h1>
-              <p className="mt-4 max-w-2xl text-sm leading-6 text-muted-foreground">
-                先解析用户资料，再在模拟面试中沉淀正式题目，最终回流到章节练习。检索、评分、复盘共用同一套用户文档证据。
-              </p>
-              <div className="mt-6 flex flex-wrap gap-3">
-                <Link href="/resume" className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
-                  上传并解析资料
-                </Link>
-                <Link href="/interview" className="rounded-xl border border-border bg-background px-4 py-2 text-sm font-medium hover:bg-secondary">
-                  开始模拟面试
-                </Link>
-              </div>
+              <span className="eyebrow-chip">System Health</span>
+              <h2 className="mt-3 text-2xl font-semibold text-foreground">服务状态</h2>
+              <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">快速确认 API、数据库和当前模型链路是否正常，减少联调时的环境噪声。</p>
             </div>
-
-            <section className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
-              {[
-                { title: "Step 1", label: "简历解析", desc: "上传原始资料，生成用户画像与本地文档库。" },
-                { title: "Step 2", label: "模拟面试", desc: "面试官追问、正式作答、按轮评分。" },
-                { title: "Step 3", label: "章节练习", desc: "把复盘结果回流到题单并安排复习。" },
-              ].map((step) => (
-                <article key={step.title} className="rounded-2xl border border-border bg-background/80 p-4">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{step.title}</p>
-                  <h2 className="mt-2 text-base font-semibold text-foreground">{step.label}</h2>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">{step.desc}</p>
-                </article>
-              ))}
-            </section>
-          </div>
-        </header>
-
-        <RuntimeConfig
-          apiBase={apiBase}
-          onApiBaseChange={setApiBase}
-          userId={userId}
-          onUserIdChange={setUserId}
-        />
-
-        <section className="rounded-3xl border border-border bg-card p-5">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-semibold">服务状态</h2>
-              <p className="mt-1 text-sm text-muted-foreground">确认 API、数据库和当前模型配置是否可用。</p>
-            </div>
-            <button
-              onClick={checkHealth}
-              disabled={checking}
-              className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-            >
+            <button onClick={checkHealth} disabled={checking} className="action-primary">
               {checking ? "检查中..." : "检查 Health"}
             </button>
           </div>
-          <div className="mt-4 rounded-2xl bg-secondary p-4">
-            <pre className="max-h-56 overflow-auto text-xs">{health || "尚未检查"}</pre>
+          <div className="mt-5 grid gap-3 sm:grid-cols-3">
+            {[
+              { label: "资料入库", value: "Resume + JD" },
+              { label: "对话模式", value: "SSE Streaming" },
+              { label: "记忆沉淀", value: "Review Loop" },
+            ].map((item) => (
+              <article key={item.label} className="metric-tile">
+                <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">{item.label}</p>
+                <p className="mt-3 text-lg font-semibold text-foreground">{item.value}</p>
+              </article>
+            ))}
           </div>
-        </section>
+          <div className="mt-5 rounded-[1.4rem] border border-border/70 bg-secondary/65 p-4">
+            <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-all text-xs leading-6 text-foreground">{health || "尚未检查"}</pre>
+          </div>
+        </PagePanel>
+      </section>
 
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {cards.map((card) => (
-            <Link
-              key={card.href}
-              href={card.href}
-              className="group rounded-2xl border border-border bg-card p-5 transition-all hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5"
-            >
-              <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {cards.map((card, index) => (
+          <Link
+            key={card.href}
+            href={card.href}
+            className="group panel-surface relative overflow-hidden transition-all hover:-translate-y-1 hover:border-primary/35"
+          >
+            <div className="absolute inset-x-0 top-0 h-1 bg-[linear-gradient(90deg,color-mix(in_oklab,var(--primary)_80%,white),color-mix(in_oklab,var(--accent)_75%,white))]" />
+            <div className="mb-8 flex items-center justify-between">
+              <div className="flex h-12 w-12 items-center justify-center rounded-[1.1rem] bg-primary/10">
                 <card.icon className="h-5 w-5 text-primary" />
               </div>
-              <h3 className="font-semibold text-card-foreground group-hover:text-primary">{card.title}</h3>
-              <p className="mt-2 text-sm text-muted-foreground">{card.desc}</p>
-            </Link>
-          ))}
-        </section>
-      </div>
-    </section>
+              <span className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">0{index + 1}</span>
+            </div>
+            <h3 className="text-xl font-semibold text-card-foreground group-hover:text-primary">{card.title}</h3>
+            <p className="mt-3 text-sm leading-6 text-muted-foreground">{card.desc}</p>
+            <div className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-foreground">
+              进入模块
+              <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+            </div>
+          </Link>
+        ))}
+      </section>
+    </PageShell>
   );
 }

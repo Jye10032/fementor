@@ -22,3 +22,8 @@ data/memory/*
 !data/memory/.gitkeep
 docs/
 react-best-practices/
+evals/sirchmunk-eval-cases.json
+AGENTS.md
+CODEX.md
+__pycache__/
+*/__pycache__/

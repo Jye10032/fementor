@@ -17,9 +17,11 @@ for (const line of envText.split(/\r?\n/)) {
 
 const {
   saveResumeDoc,
+} = require('../apps/api/src/resume');
+const {
   retrieveEvidence,
   getSirchmunkStatus,
-} = require('../apps/api/src/services');
+} = require('../apps/api/src/retrieval');
 
 const parseArgs = (argv) => {
   const result = {};

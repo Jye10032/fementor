@@ -1,7 +1,8 @@
 "use client";
 
 import { ChangeEvent, useMemo, useState } from "react";
-import { RuntimeConfig, useRuntimeConfig } from "../../components/runtime-config";
+import { PageHero, PagePanel, PageShell } from "../../components/page-shell";
+import { useRuntimeConfig } from "../../components/runtime-config";
 import { apiRequest } from "../../lib/api";
 
 type ResumeParseResponse = {
@@ -104,38 +105,52 @@ export default function ResumePage() {
   };
 
   return (
-    <section className="p-6">
-      <div className="mx-auto max-w-5xl space-y-6">
-        <RuntimeConfig apiBase={apiBase} onApiBaseChange={setApiBase} userId={userId} onUserIdChange={setUserId} />
-        <section className="rounded-3xl border border-border bg-card p-6">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight">简历解析</h1>
-              <p className="text-sm text-muted-foreground">上传文本资料，生成用户画像并同步进入本地检索库。</p>
-            </div>
-            <div className="rounded-2xl bg-secondary px-4 py-3 text-sm text-muted-foreground">
-              当前用户：<span className="font-medium text-foreground">{userId}</span>
-            </div>
+    <PageShell className="max-w-none">
+      <PageHero
+        eyebrow="Resume Parse"
+        title="把原始简历转成可检索、可评分、可复用的候选人画像"
+        description="上传 PDF、DOCX 或文本版简历后，系统会生成摘要并落入本地知识库，为后续 JD 对齐、面试提问和评分证据提供统一上下文。"
+        aside={(
+          <>
+            <article className="panel-muted">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">当前用户</p>
+              <p className="mt-3 text-lg font-semibold text-foreground">{userId}</p>
+            </article>
+            <article className="panel-muted">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">支持格式</p>
+              <p className="mt-3 text-sm leading-6 text-foreground">txt / md / json / html / pdf / docx</p>
+            </article>
+          </>
+        )}
+      />
+
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <PagePanel className="space-y-5">
+          <div>
+            <span className="eyebrow-chip">Resume Input</span>
+            <h2 className="mt-3 text-2xl font-semibold text-foreground">上传原始资料并整理成可解析文本</h2>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">左侧是本次解析的输入区。先确定候选人姓名和文件名，再上传文件或直接粘贴文本，最后执行解析并保存。</p>
           </div>
 
-          <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <div className="grid gap-3 md:grid-cols-2">
             <label className="text-sm">
               <span className="mb-1 block text-muted-foreground">姓名</span>
-              <input value={name} onChange={(e) => setName(e.target.value)} className="w-full rounded-xl border border-input bg-background px-3 py-2" />
+              <input value={name} onChange={(e) => setName(e.target.value)} className="field-shell w-full" />
             </label>
             <label className="text-sm">
               <span className="mb-1 block text-muted-foreground">文件名</span>
-              <input value={filename} onChange={(e) => setFilename(e.target.value)} className="w-full rounded-xl border border-input bg-background px-3 py-2" />
+              <input value={filename} onChange={(e) => setFilename(e.target.value)} className="field-shell w-full" />
             </label>
           </div>
-          <section className="mt-4 rounded-2xl border border-dashed border-border bg-background p-4">
+
+          <section className="rounded-[1.4rem] border border-dashed border-border bg-background/80 p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">上传简历文件</h2>
                 <p className="mt-2 text-sm text-muted-foreground">{fileStatus}</p>
                 {selectedFileName ? <p className="mt-1 text-xs text-muted-foreground">当前文件：{selectedFileName}</p> : null}
               </div>
-              <label className="inline-flex cursor-pointer items-center rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+              <label className="action-primary cursor-pointer">
                 {uploadingFile ? "读取中..." : "选择文件"}
                 <input
                   type="file"
@@ -146,18 +161,20 @@ export default function ResumePage() {
               </label>
             </div>
           </section>
-          <label className="mt-4 block text-sm">
+
+          <label className="block text-sm">
             <span className="mb-1 block text-muted-foreground">简历文本（上传后可继续修改）</span>
             <textarea
               value={resumeText}
               onChange={(e) => setResumeText(e.target.value)}
-              rows={14}
-              className="w-full rounded-xl border border-input bg-background px-3 py-2"
+              rows={16}
+              className="field-shell w-full"
               placeholder="可直接粘贴简历，或上传 txt / md / pdf / docx 文件。"
             />
           </label>
-          <div className="mt-4 flex flex-wrap gap-3">
-            <button onClick={onParse} disabled={!canParse || parsing} className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60">
+
+          <div className="flex flex-wrap gap-3">
+            <button onClick={onParse} disabled={!canParse || parsing} className="action-primary">
               {parsing ? "解析中..." : "解析并保存"}
             </button>
             <button
@@ -169,40 +186,64 @@ export default function ResumePage() {
                 setSelectedFileName("");
                 setFileStatus("支持上传 txt / md / json / html / pdf / docx。");
               }}
-              className="rounded-xl border border-border bg-background px-4 py-2 text-sm font-medium hover:bg-secondary"
+              className="action-secondary"
             >
               清空本页
             </button>
           </div>
 
-          <div className="mt-5 grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-            <section className="rounded-2xl border border-border bg-background p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">解析结果</p>
-              {parsed ? (
-                <div className="mt-3 space-y-3">
-                  <div className="rounded-xl bg-secondary p-4">
-                    <p className="text-xs text-muted-foreground">用户画像摘要</p>
-                    <p className="mt-2 text-sm leading-6 text-foreground">{parsed.resume_summary}</p>
-                  </div>
-                  <div className="rounded-xl bg-secondary p-4">
-                    <p className="text-xs text-muted-foreground">保存路径</p>
-                    <p className="mt-2 break-all text-sm text-foreground">{parsed.saved_path}</p>
-                  </div>
-                </div>
-              ) : (
-                <div className="mt-3 rounded-xl bg-secondary p-4 text-sm text-muted-foreground">
-                  解析成功后，这里会展示简历摘要和文档落盘位置。
-                </div>
-              )}
-            </section>
+          <section className="rounded-[1.4rem] border border-border bg-background/80 p-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">调试输出</p>
+            <pre className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap break-all rounded-xl bg-secondary p-3 text-xs leading-6">
+              {result || "暂无结果"}
+            </pre>
+          </section>
+        </PagePanel>
 
-            <section className="rounded-2xl border border-border bg-background p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">调试输出</p>
-              <pre className="mt-3 max-h-72 overflow-auto rounded-xl bg-secondary p-3 text-xs">{result || "暂无结果"}</pre>
-            </section>
-          </div>
-        </section>
+        <div className="space-y-6 xl:sticky xl:top-24 xl:self-start">
+          <PagePanel>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <span className="eyebrow-chip">Parse Status</span>
+                <h3 className="mt-3 text-xl font-semibold text-foreground">本次解析状态</h3>
+              </div>
+              <span className={`rounded-full px-3 py-1 text-xs font-medium ${parsed ? "bg-emerald-500/12 text-emerald-700" : "bg-amber-500/12 text-amber-700"}`}>
+                {parsed ? "已完成" : "待解析"}
+              </span>
+            </div>
+
+            {parsed ? (
+              <div className="mt-4 space-y-3">
+                <div className="rounded-xl bg-secondary p-4">
+                  <p className="text-xs text-muted-foreground">用户画像摘要</p>
+                  <p className="mt-2 text-sm leading-6 text-foreground">{parsed.resume_summary}</p>
+                </div>
+                <div className="rounded-xl bg-secondary p-4">
+                  <p className="text-xs text-muted-foreground">保存路径</p>
+                  <p className="mt-2 break-all text-sm leading-6 text-foreground">{parsed.saved_path}</p>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-4 rounded-xl bg-secondary p-4 text-sm leading-6 text-muted-foreground">
+                解析成功后，这里会展示画像摘要与落盘位置，方便你继续进入 JD 对齐和模拟面试。
+              </div>
+            )}
+          </PagePanel>
+
+          <PagePanel>
+            <span className="eyebrow-chip">Guidance</span>
+            <h3 className="mt-3 text-xl font-semibold text-foreground">排版与资料建议</h3>
+            <div className="mt-4 space-y-3 text-sm leading-6 text-muted-foreground">
+              <div className="rounded-xl bg-background/80 p-4">
+                优先上传结构清晰的 PDF 或 DOCX，项目经历、职责范围、技术栈和结果指标越明确，后续问答越稳定。
+              </div>
+              <div className="rounded-xl bg-background/80 p-4">
+                如果需要微调内容，建议先上传文件，再在左侧文本区补充项目背景、权衡和结果。
+              </div>
+            </div>
+          </PagePanel>
+        </div>
       </div>
-    </section>
+    </PageShell>
   );
 }

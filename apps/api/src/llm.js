@@ -1,10 +1,35 @@
-const OPENAI_BASE_URL = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '');
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
-const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+const DEFAULT_OPENAI_BASE_URL = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '');
+const DEFAULT_OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
+const DEFAULT_OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+
+let runtimeOpenAiBaseUrl = DEFAULT_OPENAI_BASE_URL;
+let runtimeOpenAiApiKey = DEFAULT_OPENAI_API_KEY;
+let runtimeOpenAiModel = DEFAULT_OPENAI_MODEL;
+
+const normalizeBaseUrl = (value) => String(value || '').trim().replace(/\/$/, '');
+
+const getLlmConfig = () => ({
+  baseUrl: normalizeBaseUrl(runtimeOpenAiBaseUrl || DEFAULT_OPENAI_BASE_URL),
+  apiKey: String(runtimeOpenAiApiKey || '').trim(),
+  model: String(runtimeOpenAiModel || DEFAULT_OPENAI_MODEL).trim() || DEFAULT_OPENAI_MODEL,
+});
+
+const setRuntimeLlmConfig = ({ baseUrl, apiKey, model } = {}) => {
+  if (baseUrl !== undefined) {
+    runtimeOpenAiBaseUrl = normalizeBaseUrl(baseUrl) || DEFAULT_OPENAI_BASE_URL;
+  }
+  if (apiKey !== undefined) {
+    runtimeOpenAiApiKey = String(apiKey || '').trim();
+  }
+  if (model !== undefined) {
+    runtimeOpenAiModel = String(model || '').trim() || DEFAULT_OPENAI_MODEL;
+  }
+  return getLlmConfig();
+};
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const hasRealLLM = () => Boolean(OPENAI_API_KEY);
+const hasRealLLM = () => Boolean(getLlmConfig().apiKey);
 
 const formatValidationError = (error) => {
   if (!error) return 'unknown validation error';
@@ -37,14 +62,15 @@ const extractJsonObject = (input) => {
 };
 
 async function requestChatCompletion({ messages, model, stream = false, temperature = 0.2 }) {
-  const response = await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
+  const llmConfig = getLlmConfig();
+  const response = await fetch(`${llmConfig.baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${OPENAI_API_KEY}`,
+      Authorization: `Bearer ${llmConfig.apiKey}`,
     },
     body: JSON.stringify({
-      model: model || OPENAI_MODEL,
+      model: model || llmConfig.model,
       messages,
       stream,
       temperature,
@@ -285,8 +311,10 @@ async function* streamCompletion({ messages, model, temperature = 0.2 }) {
 }
 
 module.exports = {
-  OPENAI_BASE_URL,
-  OPENAI_MODEL,
+  OPENAI_BASE_URL: DEFAULT_OPENAI_BASE_URL,
+  OPENAI_MODEL: DEFAULT_OPENAI_MODEL,
+  getLlmConfig,
+  setRuntimeLlmConfig,
   hasRealLLM,
   chatCompletion,
   jsonCompletion,

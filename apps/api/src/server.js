@@ -36,28 +36,37 @@ const {
   listChatMessages,
 } = require('./db');
 const {
+  saveJdDoc,
+  listUserDocs,
+  listJdDocs,
+  readUserDoc,
+  readJdDoc,
+} = require('./doc');
+const {
   summarizeResume,
   extractResumeTextFromBinary,
   saveResumeDoc,
-  saveJdDoc,
-  listUserDocs,
   listResumeDocs,
-  listJdDocs,
-  readUserDoc,
   readResumeDoc,
-  readJdDoc,
+  updateResumeDocMeta,
+} = require('./resume');
+const {
   appendMemoryEntry,
+} = require('./memory');
+const {
   localSearch,
+} = require('./search');
+const {
   buildQueryPlan,
   retrieveEvidence,
   getSirchmunkStatus,
-} = require('./services');
+} = require('./retrieval');
 const {
   hasRealLLM,
-  OPENAI_BASE_URL,
-  OPENAI_MODEL,
+  getLlmConfig,
   chatCompletion,
   jsonCompletion,
+  setRuntimeLlmConfig,
   streamJsonCompletion,
   streamCompletion,
 } = require('./llm');
@@ -1165,12 +1174,29 @@ const streamAssistantText = async ({ messages, fallback, onToken, logLabel }) =>
   }
 
   let full = '';
+  let firstDeltaAt = null;
+  const streamStartedAt = Date.now();
   for await (const delta of streamCompletion({ messages })) {
+    if (firstDeltaAt === null) {
+      firstDeltaAt = Date.now();
+      console.log('[interview.stream.first_delta]', {
+        log_label: logLabel || '[interview.stream.raw]',
+        latency_ms: firstDeltaAt - streamStartedAt,
+        preview: String(delta).slice(0, 80),
+        length: String(delta).length,
+      });
+    }
     full += delta;
     if (typeof onToken === 'function') {
       await onToken(delta);
     }
   }
+  console.log('[interview.stream.completed]', {
+    log_label: logLabel || '[interview.stream.raw]',
+    total_length: full.length,
+    first_delta_latency_ms: firstDeltaAt === null ? null : firstDeltaAt - streamStartedAt,
+    total_stream_ms: Date.now() - streamStartedAt,
+  });
   console.log(logLabel || '[interview.stream.raw]', { content: full });
   return String(full || fallback || '').trim() || String(fallback || '');
 };
@@ -1578,6 +1604,7 @@ const generateFollowUpQuestion = async ({ queuedQuestion, answer, weaknesses, in
 };
 
 const submitInterviewTurn = async ({ sessionId, body, onPhase, onToken }) => {
+  const turnStartedAt = Date.now();
   const emitPhase = async (phase, message) => {
     if (typeof onPhase === 'function') {
       await onPhase(phase, message);
@@ -1588,6 +1615,11 @@ const submitInterviewTurn = async ({ sessionId, body, onPhase, onToken }) => {
   const question = String(body.question || queuedQuestion?.stem || '').trim();
   const answer = String(body.answer || '').trim();
   const evidence_refs = Array.isArray(body.evidence_refs) ? body.evidence_refs : [];
+  console.log('[interview.turn.timing.start]', {
+    session_id: sessionId,
+    question_id: String(body.question_id || '').trim() || null,
+    started_at: new Date(turnStartedAt).toISOString(),
+  });
   if (!sessionId) throw new Error('session_id is required');
   if (!question) throw new Error('question is required');
   if (questionId && (!queuedQuestion || queuedQuestion.session_id !== sessionId)) throw new Error('question_id is invalid');
@@ -1753,6 +1785,12 @@ const submitInterviewTurn = async ({ sessionId, body, onPhase, onToken }) => {
     retrievalPlan: evidenceBundle.retrievalPlan,
   });
   await emitPhase('feedback', '正在整理最终评价...');
+  console.log('[interview.turn.timing.before_narration]', {
+    session_id: sessionId,
+    elapsed_ms: Date.now() - turnStartedAt,
+    score,
+    evidence_refs_count: rawEvidenceRefs.length,
+  });
   const evaluationText = await generateEvaluationNarration({
     question,
     answer,
@@ -1875,6 +1913,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === 'GET' && url.pathname === '/health') {
+    const llmConfig = getLlmConfig();
     return json(res, 200, {
       ok: true,
       service: 'fementor-api',
@@ -1882,11 +1921,35 @@ const server = http.createServer(async (req, res) => {
       db_path: DB_PATH,
       llm: {
         enabled: hasRealLLM(),
-        model: OPENAI_MODEL,
-        base_url: OPENAI_BASE_URL,
+        model: llmConfig.model,
+        base_url: llmConfig.baseUrl,
+        has_api_key: Boolean(llmConfig.apiKey),
       },
       sirchmunk: getSirchmunkStatus(),
     });
+  }
+
+  if (req.method === 'POST' && url.pathname === '/v1/runtime/llm-config') {
+    try {
+      const body = await readBody(req);
+      const nextConfig = setRuntimeLlmConfig({
+        baseUrl: body.base_url,
+        apiKey: body.api_key,
+        model: body.model,
+      });
+
+      return json(res, 200, {
+        ok: true,
+        message: 'LLM runtime config updated',
+        config: {
+          base_url: nextConfig.baseUrl,
+          model: nextConfig.model,
+          has_api_key: Boolean(nextConfig.apiKey),
+        },
+      });
+    } catch (e) {
+      return json(res, 400, { error: e.message || 'bad request' });
+    }
   }
 
   if (req.method === 'POST' && url.pathname === '/v1/chat/sessions/start') {
@@ -2108,6 +2171,7 @@ const server = http.createServer(async (req, res) => {
       let resumeText = '';
       let filename = '';
       let name = '';
+      let parseMeta = null;
 
       if (isMultipart) {
         const { fields, files } = await readMultipartForm(req);
@@ -2121,10 +2185,12 @@ const server = http.createServer(async (req, res) => {
           filename = filename || rawFile.originalFilename || rawFile.newFilename || 'resume';
           const ext = path.extname(String(filename || '')).toLowerCase();
           if (ext === '.pdf' || ext === '.docx') {
-            resumeText = await extractResumeTextFromBinary({
+            const parsedResume = await extractResumeTextFromBinary({
               filename,
               buffer: fs.readFileSync(rawFile.filepath),
             });
+            resumeText = typeof parsedResume === 'string' ? parsedResume : String(parsedResume?.text || '').trim();
+            parseMeta = parsedResume && typeof parsedResume === 'object' ? parsedResume.parse_meta || null : null;
           } else {
             resumeText = fs.readFileSync(rawFile.filepath, 'utf8').trim();
           }
@@ -2137,7 +2203,9 @@ const server = http.createServer(async (req, res) => {
         name = String(body.name || '').trim();
         const fileBase64 = String(body.file_base64 || '').trim();
         if (!resumeText && fileBase64) {
-          resumeText = await extractResumeTextFromBinary({ filename, fileBase64 });
+          const parsedResume = await extractResumeTextFromBinary({ filename, fileBase64 });
+          resumeText = typeof parsedResume === 'string' ? parsedResume : String(parsedResume?.text || '').trim();
+          parseMeta = parsedResume && typeof parsedResume === 'object' ? parsedResume.parse_meta || null : null;
         }
       }
 
@@ -2145,13 +2213,20 @@ const server = http.createServer(async (req, res) => {
       if (!resumeText) return json(res, 400, { error: 'resume_text is required' });
 
       const summary = await summarizeResumeWithLLM(resumeText, summarizeResume(resumeText));
-      const savedPath = saveResumeDoc({ userId, resumeText, filename });
+      const savedPath = saveResumeDoc({
+        userId,
+        resumeText,
+        filename,
+        summary,
+        originalFilename: filename,
+      });
       upsertUser({ id: userId, name, resume_summary: summary, active_resume_file: path.basename(savedPath) });
 
       return json(res, 200, {
         user_id: userId,
         resume_summary: summary,
         saved_path: savedPath,
+        parse_meta: parseMeta,
       });
     } catch (e) {
       return json(res, 400, { error: e.message || 'bad request' });
@@ -2164,18 +2239,20 @@ const server = http.createServer(async (req, res) => {
       if (!userId) return json(res, 400, { error: 'user_id is required' });
       const user = getUserById(userId);
       const files = listResumeDocs(userId);
+      const activeFile = files.find((item) => item.name === user?.active_resume_file) || null;
+      const activeSummary = String(activeFile?.summary || user?.resume_summary || '').trim();
       return json(res, 200, {
         user_id: userId,
         profile: user ? {
           id: user.id,
           name: user.name,
-          resume_summary: user.resume_summary,
+          resume_summary: activeSummary,
           active_resume_file: user.active_resume_file,
           active_jd_file: user.active_jd_file,
           updated_at: user.updated_at,
         } : null,
         files,
-        has_resume: Boolean(user?.resume_summary || files.length > 0),
+        has_resume: Boolean(activeSummary || files.length > 0),
       });
     } catch (e) {
       return json(res, 400, { error: e.message || 'bad request' });
@@ -2196,7 +2273,16 @@ const server = http.createServer(async (req, res) => {
       const doc = readResumeDoc({ userId, fileName });
       if (!doc) return json(res, 404, { error: 'resume file not found' });
 
-      const summary = await summarizeResumeWithLLM(doc.content, summarizeResume(doc.content));
+      const summary = String(doc.meta?.summary || '').trim()
+        || await summarizeResumeWithLLM(doc.content, summarizeResume(doc.content));
+      if (!String(doc.meta?.summary || '').trim()) {
+        updateResumeDocMeta({
+          userId,
+          fileName: doc.name,
+          summary,
+          originalFilename: doc.meta?.original_filename || doc.name,
+        });
+      }
       const updated = setActiveResumeFile({
         userId,
         fileName: doc.name,
@@ -2488,9 +2574,12 @@ const server = http.createServer(async (req, res) => {
   ) {
     let sessionId = '';
     let closed = false;
+    let streamRequestStartedAt = 0;
+    let firstTokenSentAt = null;
     try {
       sessionId = decodeURIComponent(url.pathname.split('/')[4] || '').trim();
       const body = await readBody(req);
+      streamRequestStartedAt = Date.now();
 
       res.writeHead(200, {
         'Content-Type': 'text/event-stream; charset=utf-8',
@@ -2519,6 +2608,7 @@ const server = http.createServer(async (req, res) => {
       console.log('[interview.turn.stream.start]', {
         session_id: sessionId,
         question_id: String(body.question_id || '').trim() || null,
+        started_at: new Date(streamRequestStartedAt).toISOString(),
       });
       writeSse(res, 'meta', { session_id: sessionId, mode: 'interview_turn_stream' });
       await flushSseFrame();
@@ -2534,6 +2624,15 @@ const server = http.createServer(async (req, res) => {
       };
       const writeToken = async (textChunk) => {
         if (closed || !textChunk) return;
+        if (firstTokenSentAt === null) {
+          firstTokenSentAt = Date.now();
+          console.log('[interview.turn.stream.first_token_sent]', {
+            session_id: sessionId,
+            latency_ms: firstTokenSentAt - streamRequestStartedAt,
+            length: String(textChunk).length,
+            preview: String(textChunk).slice(0, 80),
+          });
+        }
         console.log('[interview.turn.stream.token]', {
           session_id: sessionId,
           length: String(textChunk).length,
@@ -2559,6 +2658,8 @@ const server = http.createServer(async (req, res) => {
         score: result.score,
         evidence_refs_count: result.evidence_refs_count,
         next_question_id: result.next_question?.id || null,
+        elapsed_ms: Date.now() - streamRequestStartedAt,
+        first_token_latency_ms: firstTokenSentAt === null ? null : firstTokenSentAt - streamRequestStartedAt,
       });
       if (closed) {
         return;

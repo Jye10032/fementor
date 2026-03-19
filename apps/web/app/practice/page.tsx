@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { RuntimeConfig, useRuntimeConfig } from "../../components/runtime-config";
+import { PageHero, PagePanel, PageShell } from "../../components/page-shell";
+import { useRuntimeConfig } from "../../components/runtime-config";
 import { apiRequest } from "../../lib/api";
 
 type PracticeItem = {
@@ -166,12 +167,28 @@ export default function PracticePage() {
   };
 
   return (
-    <section className="p-6">
-      <div className="mx-auto max-w-6xl space-y-6">
-        <RuntimeConfig apiBase={apiBase} onApiBaseChange={setApiBase} userId={userId} onUserIdChange={setUserId} />
+    <PageShell>
+      <PageHero
+        eyebrow="Focused Practice"
+        title="把回流题目压缩成一轮真正可执行的章节训练"
+        description="你不需要每次都从空白开始。系统会从题单里拉出当前章节最该练的题，给出即时评分、标准答案和证据引用，再直接安排下一次复习。"
+        aside={(
+          <>
+            <article className="panel-muted">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">当前章节</p>
+              <p className="mt-3 text-lg font-semibold text-foreground">{chapter || "未选择"}</p>
+            </article>
+            <article className="panel-muted">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">练习题量</p>
+              <p className="mt-3 text-lg font-semibold text-foreground">{items.length}</p>
+            </article>
+          </>
+        )}
+      />
 
+      <div className="space-y-6">
         <section className="grid gap-6 xl:grid-cols-[260px_minmax(0,1fr)]">
-          <aside className="rounded-3xl border border-border bg-card p-5">
+          <PagePanel className="p-5">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h2 className="text-lg font-semibold text-foreground">章节列表</h2>
@@ -180,7 +197,7 @@ export default function PracticePage() {
               <button
                 onClick={() => void loadChapters()}
                 disabled={chaptersLoading}
-                className="rounded-xl border border-border bg-background px-3 py-2 text-xs font-medium text-foreground hover:bg-secondary disabled:opacity-60"
+                className="action-secondary px-3 py-2 text-xs disabled:opacity-60"
               >
                 {chaptersLoading ? "刷新中..." : "刷新"}
               </button>
@@ -192,7 +209,7 @@ export default function PracticePage() {
                   key={item.name}
                   onClick={() => setChapter(item.name)}
                   className={`w-full rounded-2xl border p-4 text-left transition-colors ${
-                    chapter === item.name ? "border-primary bg-primary/5" : "border-border bg-background hover:bg-secondary"
+                    chapter === item.name ? "border-primary bg-primary/5 shadow-sm" : "border-border bg-background/80 hover:bg-secondary"
                   }`}
                 >
                   <div className="flex items-center justify-between gap-3">
@@ -207,18 +224,9 @@ export default function PracticePage() {
                 </div>
               ) : null}
             </div>
-          </aside>
+          </PagePanel>
 
-          <section className="rounded-3xl border border-border bg-card p-6">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <h1 className="text-2xl font-bold tracking-tight">章节练习</h1>
-                <p className="text-sm text-muted-foreground">从回流题单里拉取待练题目，作答后立即查看评分与证据。</p>
-              </div>
-              <div className="rounded-2xl bg-secondary px-4 py-3 text-sm text-muted-foreground">
-                当前题量：<span className="font-medium text-foreground">{items.length}</span>
-              </div>
-            </div>
+          <PagePanel>
 
             <div className="mt-4 flex flex-wrap items-end gap-3">
               <div className="rounded-xl bg-secondary px-4 py-2 text-sm text-foreground">
@@ -228,7 +236,7 @@ export default function PracticePage() {
                 <input type="checkbox" checked={includeFuture} onChange={(e) => setIncludeFuture(e.target.checked)} />
                 include_future
               </label>
-              <button onClick={() => void load()} className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60" disabled={loading || !chapter}>
+              <button onClick={() => void load()} className="action-primary disabled:opacity-60" disabled={loading || !chapter}>
                 {loading ? "拉取中..." : "拉取练习题"}
               </button>
             </div>
@@ -280,7 +288,7 @@ export default function PracticePage() {
                         onChange={(e) => setAnswer(e.target.value)}
                         rows={8}
                         placeholder="按项目背景、方案选择、权衡取舍、结果复盘来组织回答。"
-                        className="w-full rounded-xl border border-input bg-card px-3 py-2"
+                        className="field-shell w-full"
                       />
                     </label>
 
@@ -288,13 +296,13 @@ export default function PracticePage() {
                       <button
                         onClick={submitAnswer}
                         disabled={submitting || !answer.trim()}
-                        className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+                        className="action-primary"
                       >
                         {submitting ? "评分中..." : "提交评分"}
                       </button>
                       <button
                         onClick={() => setAnswer("")}
-                        className="rounded-xl border border-border bg-card px-4 py-2 text-sm font-medium"
+                        className="action-secondary"
                       >
                         清空回答
                       </button>
@@ -310,13 +318,13 @@ export default function PracticePage() {
                           <div className="mt-4 flex flex-col gap-2">
                             <button
                               onClick={() => scheduleReview("done")}
-                              className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                              className="action-primary"
                             >
                               掌握较好，标记完成
                             </button>
                             <button
                               onClick={() => scheduleReview("pending")}
-                              className="rounded-xl border border-border bg-background px-4 py-2 text-sm font-medium"
+                              className="action-secondary"
                             >
                               仍需复习，2天后再看
                             </button>
@@ -375,9 +383,9 @@ export default function PracticePage() {
               <p className="text-xs uppercase tracking-wider text-muted-foreground">调试输出</p>
               <pre className="mt-3 max-h-64 overflow-auto rounded-xl bg-secondary p-3 text-xs">{output || "暂无输出"}</pre>
             </section>
-          </section>
+          </PagePanel>
         </section>
       </div>
-    </section>
+    </PageShell>
   );
 }

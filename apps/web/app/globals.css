@@ -2,25 +2,27 @@
 @import "tw-animate-css";
 
 :root {
-  --background: oklch(0.985 0.002 240);
-  --foreground: oklch(0.13 0.028 261);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.13 0.028 261);
-  --primary: oklch(0.55 0.19 255);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.95 0.01 240);
-  --secondary-foreground: oklch(0.25 0.03 261);
-  --muted: oklch(0.95 0.01 240);
-  --muted-foreground: oklch(0.50 0.02 261);
-  --accent: oklch(0.72 0.19 155);
-  --border: oklch(0.91 0.01 240);
-  --input: oklch(0.91 0.01 240);
-  --ring: oklch(0.55 0.19 255);
-  --radius: 0.625rem;
+  --background: oklch(0.98 0.012 95);
+  --foreground: oklch(0.24 0.03 248);
+  --card: oklch(0.995 0.01 95);
+  --card-foreground: oklch(0.24 0.03 248);
+  --primary: oklch(0.57 0.16 244);
+  --primary-foreground: oklch(0.98 0.01 95);
+  --secondary: oklch(0.95 0.02 95);
+  --secondary-foreground: oklch(0.3 0.03 248);
+  --muted: oklch(0.955 0.015 95);
+  --muted-foreground: oklch(0.53 0.028 248);
+  --accent: oklch(0.73 0.13 170);
+  --border: oklch(0.89 0.018 90);
+  --input: oklch(0.9 0.02 90);
+  --ring: oklch(0.57 0.16 244);
+  --radius: 1rem;
+  --shadow-soft: 0 22px 60px color-mix(in oklab, var(--foreground) 8%, transparent);
+  --shadow-card: 0 12px 30px color-mix(in oklab, var(--foreground) 7%, transparent);
 }
 
 @theme inline {
-  --font-sans: "Geist", "Geist Fallback", system-ui, sans-serif;
+  --font-sans: var(--font-body), "Helvetica Neue", sans-serif;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -48,5 +50,126 @@
 
   body {
     @apply bg-background font-sans text-foreground antialiased;
+    background-image:
+      radial-gradient(circle at top left, color-mix(in oklab, var(--accent) 16%, transparent) 0, transparent 28%),
+      radial-gradient(circle at top right, color-mix(in oklab, var(--primary) 14%, transparent) 0, transparent 34%),
+      linear-gradient(180deg, color-mix(in oklab, var(--secondary) 55%, transparent), transparent 16rem);
+    min-height: 100vh;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--primary) 20%, white);
+  }
+}
+
+@layer base {
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display), sans-serif;
+    letter-spacing: -0.03em;
+  }
+
+  input,
+  textarea,
+  select,
+  button {
+    transition:
+      border-color 160ms ease,
+      background-color 160ms ease,
+      color 160ms ease,
+      box-shadow 160ms ease,
+      transform 160ms ease;
+  }
+
+  input,
+  textarea,
+  select {
+    color: var(--foreground);
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: color-mix(in oklab, var(--muted-foreground) 86%, white);
+  }
+}
+
+@layer components {
+  .page-shell {
+    @apply px-4 py-6 sm:px-6 lg:px-8;
+  }
+
+  .page-shell__inner {
+    @apply mx-auto flex max-w-7xl flex-col gap-6;
+  }
+
+  .page-hero {
+    @apply grid gap-5 overflow-hidden rounded-[2rem] border border-border/80 bg-card/90 p-6 shadow-[var(--shadow-soft)] backdrop-blur md:p-8 lg:grid-cols-[minmax(0,1.15fr)_320px];
+    position: relative;
+    isolation: isolate;
+  }
+
+  .page-hero::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(circle at 18% 20%, color-mix(in oklab, var(--accent) 16%, transparent), transparent 30%),
+      radial-gradient(circle at 84% 14%, color-mix(in oklab, var(--primary) 15%, transparent), transparent 25%);
+    pointer-events: none;
+    z-index: -1;
+  }
+
+  .page-hero__body {
+    @apply relative z-10;
+  }
+
+  .page-hero__eyebrow {
+    @apply text-[0.7rem] font-semibold uppercase tracking-[0.34em] text-primary;
+  }
+
+  .page-hero__title {
+    @apply mt-4 max-w-4xl text-balance text-4xl font-semibold text-foreground sm:text-5xl lg:text-6xl;
+  }
+
+  .page-hero__description {
+    @apply mt-4 max-w-2xl text-sm leading-7 text-muted-foreground sm:text-[0.95rem];
+  }
+
+  .page-hero__actions {
+    @apply mt-7 flex flex-wrap gap-3;
+  }
+
+  .page-hero__aside {
+    @apply grid gap-3 self-start;
+  }
+
+  .panel-surface {
+    @apply rounded-[1.75rem] border border-border/80 bg-card/90 p-5 shadow-[var(--shadow-card)] backdrop-blur md:p-6;
+  }
+
+  .panel-muted {
+    @apply rounded-[1.25rem] border border-border/70 bg-secondary/60 p-4;
+  }
+
+  .field-shell {
+    @apply rounded-[1rem] border border-input bg-background/88 px-3 py-2.5 shadow-sm;
+  }
+
+  .action-primary {
+    @apply inline-flex items-center justify-center rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm hover:-translate-y-0.5 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .action-secondary {
+    @apply inline-flex items-center justify-center rounded-xl border border-border bg-background/90 px-4 py-2.5 text-sm font-semibold text-foreground hover:-translate-y-0.5 hover:bg-secondary;
+  }
+
+  .eyebrow-chip {
+    @apply inline-flex items-center rounded-full border border-border/80 bg-background/80 px-3 py-1 text-[0.68rem] font-semibold uppercase tracking-[0.22em] text-muted-foreground;
+  }
+
+  .metric-tile {
+    @apply rounded-[1.4rem] border border-border/80 bg-background/80 p-4;
   }
 }

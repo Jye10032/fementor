@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
+  ChevronDown,
   CircleCheckBig,
   Clock3,
   FileSearch,
@@ -206,45 +207,45 @@ function SessionHeader({
   onFinish: () => void;
 }) {
   return (
-    <section className="rounded-3xl border border-border bg-card/90 p-4 shadow-sm backdrop-blur xl:p-5">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+    <section className="rounded-[2rem] border border-border/80 bg-card/90 p-5 shadow-[var(--shadow-card)] backdrop-blur xl:p-6">
+      <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
         <div className="flex items-start gap-3">
-          <Link href="/interview" className="mt-0.5 inline-flex h-10 w-10 items-center justify-center rounded-xl border border-border bg-background text-muted-foreground hover:bg-secondary hover:text-foreground">
+          <Link href="/interview" className="mt-0.5 inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-border bg-background/90 text-muted-foreground hover:bg-secondary hover:text-foreground">
             <ArrowLeft className="h-4 w-4" />
           </Link>
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-xl font-semibold tracking-tight text-foreground">综合模拟面试</h1>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">综合模拟面试</h1>
               <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">基于简历与 JD</span>
             </div>
-            <p className="mt-1 text-sm text-muted-foreground">已完成 {answeredCount}/{totalCount} 题 · 当前用户 {userId}</p>
-            <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
-              <span className="rounded-full bg-secondary px-3 py-1">
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">已完成 {answeredCount}/{totalCount} 题，当前用户 {userId}。本场会根据你的回答质量和资料证据动态插入追问。</p>
+            <div className="mt-4 flex flex-wrap gap-2 text-xs text-muted-foreground">
+              <span className="rounded-full bg-secondary px-3 py-1.5">
                 {interviewCompleted ? "本场已完成" : currentQuestion ? `当前第 ${currentQuestion.order_no} 题` : "等待下一题"}
               </span>
               {currentQuestion ? (
                 <>
-                  <span className="rounded-full bg-secondary px-3 py-1">{questionTypeLabel[currentQuestion.question_type]}</span>
-                  <span className="rounded-full bg-secondary px-3 py-1">{currentQuestion.difficulty}</span>
-                  <span className="rounded-full bg-secondary px-3 py-1">source {currentQuestion.source}</span>
+                  <span className="rounded-full bg-secondary px-3 py-1.5">{questionTypeLabel[currentQuestion.question_type]}</span>
+                  <span className="rounded-full bg-secondary px-3 py-1.5">{currentQuestion.difficulty}</span>
+                  <span className="rounded-full bg-secondary px-3 py-1.5">source {currentQuestion.source}</span>
                 </>
               ) : null}
             </div>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground">
+        <div className="flex flex-wrap items-center gap-2 xl:max-w-[360px] xl:justify-end">
+          <div className="inline-flex items-center gap-2 rounded-2xl border border-border bg-background/90 px-3 py-2.5 text-sm text-foreground">
             <Clock3 className="h-4 w-4 text-muted-foreground" />
             {elapsedLabel}
           </div>
-          <button onClick={onRefresh} disabled={queueLoading} className="rounded-xl border border-border bg-background px-4 py-2 text-sm font-medium text-foreground hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60">
+          <button onClick={onRefresh} disabled={queueLoading} className="action-secondary px-4 py-2 disabled:cursor-not-allowed disabled:opacity-60">
             {queueLoading ? "刷新中..." : "刷新队列"}
           </button>
-          <button onClick={onRetrospect} disabled={retrospecting || !canRetrospect} className="rounded-xl border border-border bg-background px-4 py-2 text-sm font-medium text-foreground hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60">
+          <button onClick={onRetrospect} disabled={retrospecting || !canRetrospect} className="action-secondary px-4 py-2 disabled:cursor-not-allowed disabled:opacity-60">
             {retrospecting ? "复盘中..." : "生成复盘"}
           </button>
-          <button onClick={onFinish} disabled={finishing} className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-medium text-rose-600 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60">
+          <button onClick={onFinish} disabled={finishing} className="inline-flex items-center justify-center rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-600 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60">
             {finishing ? "结束中..." : "结束面试"}
           </button>
         </div>
@@ -261,17 +262,17 @@ function ConversationTranscript({
   transcriptEndRef: { current: HTMLDivElement | null };
 }) {
   return (
-    <div className="flex-1 overflow-y-auto px-5 py-5">
+    <div className="flex-1 overflow-y-auto px-4 py-5 md:px-6">
       <div className="mx-auto max-w-3xl space-y-4">
         {conversationRows.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-border bg-background p-5 text-sm text-muted-foreground">
+          <div className="rounded-[1.5rem] border border-dashed border-border bg-background/80 p-5 text-sm leading-6 text-muted-foreground">
             面试开始后，AI 面试官的问题、你的回答、评分评价都会直接出现在这里。
           </div>
         ) : null}
 
         {conversationRows.map((item) => (
           <article key={item.id} className={item.role === "assistant" ? "flex justify-start" : "flex justify-end"}>
-            <div className={item.role === "assistant" ? "max-w-[78%] rounded-[22px] rounded-tl-md border border-border bg-background px-4 py-3" : "max-w-[78%] rounded-[22px] rounded-tr-md bg-primary px-4 py-3 text-primary-foreground"}>
+            <div className={item.role === "assistant" ? "max-w-[82%] rounded-[24px] rounded-tl-md border border-border bg-background/92 px-4 py-3 shadow-sm" : "max-w-[82%] rounded-[24px] rounded-tr-md bg-primary px-4 py-3 text-primary-foreground shadow-sm"}>
               <p className={item.role === "assistant" ? "text-[11px] text-muted-foreground" : "text-[11px] text-primary-foreground/80"}>
                 {getConversationLabel(item)}
               </p>
@@ -301,10 +302,10 @@ function Composer({
   onSubmit: () => void;
 }) {
   return (
-    <div className="border-t border-border bg-card/95 px-4 py-4 md:px-5">
+    <div className="border-t border-border bg-card/95 px-4 py-4 md:px-6">
       <div className="mx-auto max-w-3xl space-y-3">
         {interviewCompleted ? (
-          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm text-emerald-800">
+          <div className="rounded-[1.4rem] border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm leading-6 text-emerald-800">
             本场面试题目已全部完成。建议先点击“生成复盘”，再结束面试。
           </div>
         ) : null}
@@ -313,12 +314,12 @@ function Composer({
           onChange={(event) => onAnswerChange(event.target.value)}
           rows={4}
           placeholder={currentQuestion ? "在这里输入你的回答，发送后会直接出现在上方对话中。" : interviewCompleted ? "本场题目已结束，可先复盘或结束面试。" : "当前没有待回答题目，可先复盘或结束面试。"}
-          className="w-full rounded-2xl border border-input bg-background px-4 py-3 text-sm leading-7 text-foreground"
+          className="field-shell w-full min-h-[120px] text-sm leading-7"
           disabled={!currentQuestion}
         />
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-xs text-muted-foreground">发送后会基于当前简历和资料检索证据，并把 AI 评价以流式方式写入对话。</p>
-          <button onClick={onSubmit} disabled={submittingTurn || !currentQuestion || !answer.trim()} className="inline-flex items-center gap-2 rounded-2xl bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60">
+          <p className="max-w-xl text-xs leading-6 text-muted-foreground">发送后会基于当前简历和资料检索证据，并把 AI 评价以流式方式写入对话。</p>
+          <button onClick={onSubmit} disabled={submittingTurn || !currentQuestion || !answer.trim()} className="action-primary rounded-2xl disabled:cursor-not-allowed disabled:opacity-60">
             {submittingTurn ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             {submittingTurn ? "发送中..." : currentQuestion ? "发送回答" : "已无待答题目"}
           </button>
@@ -338,8 +339,14 @@ function QueuePanel({
   recentInsertedQuestionId: string | null;
 }) {
   return (
-    <section className="rounded-3xl border border-border bg-card/90 p-5 shadow-sm">
-      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">题目队列</p>
+    <details className="rounded-[1.75rem] border border-border/80 bg-card/90 p-5 shadow-[var(--shadow-card)] group" open={false}>
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">题目队列</p>
+          <p className="mt-1 text-sm text-foreground">{queueItems.length > 0 ? `${queueItems.length} 道题，点击展开查看顺序与状态` : "当前还没有加载到题目队列"}</p>
+        </div>
+        <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-180" />
+      </summary>
       <div className="mt-4 space-y-3">
         {queueItems.map((item) => (
           <div
@@ -351,7 +358,7 @@ function QueuePanel({
                   ? "border border-primary bg-primary/5"
                   : item.question_type === "follow_up"
                     ? "border border-amber-200 bg-amber-50/70"
-                    : "bg-background"
+                    : "border border-border/70 bg-background/80"
             }`}
           >
             <div className="flex items-start justify-between gap-3">
@@ -373,7 +380,7 @@ function QueuePanel({
         ))}
         {queueItems.length === 0 ? <p className="text-sm text-muted-foreground">当前还没有加载到题目队列。</p> : null}
       </div>
-    </section>
+    </details>
   );
 }
 
@@ -395,11 +402,11 @@ function StatusPanel({
   ];
 
   return (
-    <section className="rounded-3xl border border-border bg-card/90 p-5 shadow-sm">
+    <section className="rounded-[1.75rem] border border-border/80 bg-card/90 p-5 shadow-[var(--shadow-card)]">
       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">面试状态</p>
       <div className="mt-4 grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
         {stats.map((item) => (
-          <div key={item.label} className="rounded-2xl bg-background p-4">
+          <div key={item.label} className="rounded-[1.25rem] bg-background/80 p-4">
             <div className="flex items-center justify-between gap-2">
               <p className="text-xs text-muted-foreground">{item.label}</p>
               <item.icon className="h-4 w-4 text-primary" />
@@ -415,7 +422,7 @@ function StatusPanel({
 
 function RetrospectPanel({ retrospect }: { retrospect: RetrospectResponse | null }) {
   return (
-    <section className="rounded-3xl border border-border bg-card/90 p-5 shadow-sm">
+    <section className="rounded-[1.75rem] border border-border/80 bg-card/90 p-5 shadow-[var(--shadow-card)]">
       <div className="flex items-center gap-2">
         <CircleCheckBig className="h-4 w-4 text-primary" />
         <p className="text-sm font-semibold text-foreground">复盘结果</p>
@@ -423,30 +430,30 @@ function RetrospectPanel({ retrospect }: { retrospect: RetrospectResponse | null
       {retrospect ? (
         <div className="mt-4 space-y-3">
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-2">
-            <div className="rounded-2xl bg-background p-4">
+            <div className="rounded-[1.25rem] bg-background/80 p-4">
               <p className="text-xs text-muted-foreground">平均分</p>
               <p className="mt-2 text-2xl font-semibold text-foreground">{retrospect.avg_score}</p>
             </div>
-            <div className="rounded-2xl bg-background p-4">
+            <div className="rounded-[1.25rem] bg-background/80 p-4">
               <p className="text-xs text-muted-foreground">回流题目</p>
               <p className="mt-2 text-2xl font-semibold text-foreground">{retrospect.promoted_questions}</p>
             </div>
           </div>
-          <div className="rounded-2xl bg-background p-4 text-sm text-muted-foreground">
+          <div className="rounded-[1.25rem] bg-background/80 p-4 text-sm text-muted-foreground">
             共 {retrospect.turns_count} 轮，新增 {retrospect.promoted_new_questions} 道，更新 {retrospect.promoted_updated_questions} 道。
           </div>
           {retrospect.long_term_memory ? (
-            <div className="space-y-2 rounded-2xl bg-background p-4 text-sm text-muted-foreground">
+            <div className="space-y-2 rounded-[1.25rem] bg-background/80 p-4 text-sm text-muted-foreground">
               <p className="text-xs text-muted-foreground">长期记忆提炼</p>
               {retrospect.long_term_memory.stable_strengths.length > 0 ? <p>稳定优势：{retrospect.long_term_memory.stable_strengths.join("；")}</p> : null}
               {retrospect.long_term_memory.stable_weaknesses.length > 0 ? <p>稳定弱项：{retrospect.long_term_memory.stable_weaknesses.join("；")}</p> : null}
               {retrospect.long_term_memory.recommended_focus.length > 0 ? <p>建议重点：{retrospect.long_term_memory.recommended_focus.join("；")}</p> : null}
             </div>
           ) : null}
-          {retrospect.memory_path ? <div className="rounded-2xl bg-background p-4 text-xs break-all text-muted-foreground">memory: {retrospect.memory_path}</div> : null}
+          {retrospect.memory_path ? <div className="rounded-[1.25rem] bg-background/80 p-4 text-xs break-all text-muted-foreground">memory: {retrospect.memory_path}</div> : null}
         </div>
       ) : (
-        <div className="mt-4 rounded-2xl bg-background p-4 text-sm text-muted-foreground">点击“生成复盘”后，这里展示本场面试沉淀结果。</div>
+        <div className="mt-4 rounded-[1.25rem] bg-background/80 p-4 text-sm text-muted-foreground">点击“生成复盘”后，这里展示本场面试沉淀结果。</div>
       )}
     </section>
   );
@@ -454,9 +461,9 @@ function RetrospectPanel({ retrospect }: { retrospect: RetrospectResponse | null
 
 function DebugPanel({ output, sessionId, userId }: { output: string; sessionId: string; userId: string }) {
   return (
-    <details className="rounded-3xl border border-border bg-card/90 p-5 shadow-sm">
+    <details className="rounded-[1.75rem] border border-border/80 bg-card/90 p-5 shadow-[var(--shadow-card)]">
       <summary className="cursor-pointer text-sm font-semibold text-foreground">调试输出</summary>
-      <pre className="mt-4 max-h-64 overflow-auto whitespace-pre-wrap rounded-2xl bg-background p-4 text-xs text-foreground">
+      <pre className="mt-4 max-h-64 overflow-auto whitespace-pre-wrap rounded-[1.25rem] bg-background/80 p-4 text-xs leading-6 text-foreground">
         {output || `session: ${sessionId}\nuser: ${userId}`}
       </pre>
     </details>
@@ -815,8 +822,8 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
   }
 
   return (
-    <section className="min-h-[calc(100vh-57px)] bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.10),transparent_38%),linear-gradient(180deg,#f7f9fc_0%,#f3f5f8_100%)] p-4 md:p-6">
-      <div className="mx-auto flex max-w-7xl flex-col gap-4">
+    <section className="min-h-[calc(100vh-57px)] px-4 py-4 md:px-6 md:py-6">
+      <div className="mx-auto flex max-w-7xl flex-col gap-5">
         <SessionHeader
           userId={userId}
           answeredCount={answeredCount}
@@ -839,8 +846,19 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
           }}
         />
 
-        <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
-          <div className="flex h-[calc(100vh-220px)] min-h-[620px] flex-col overflow-hidden rounded-3xl border border-border bg-card/90 shadow-sm">
+        <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+          <div className="flex h-[calc(100vh-220px)] min-h-[620px] flex-col overflow-hidden rounded-[2rem] border border-border/80 bg-card/92 shadow-[var(--shadow-soft)]">
+            <div className="border-b border-border bg-background/70 px-4 py-3 md:px-6">
+              <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Live Transcript</p>
+                  <p className="mt-1 text-sm text-foreground">{currentQuestion ? currentQuestion.stem : "等待下一题或查看复盘结果"}</p>
+                </div>
+                <div className="rounded-full bg-secondary px-3 py-1.5 text-xs text-muted-foreground">
+                  {conversationRows.length} 条对话
+                </div>
+              </div>
+            </div>
             <ConversationTranscript conversationRows={conversationRows} transcriptEndRef={transcriptEndRef} />
             <Composer
               answer={answer}
@@ -854,17 +872,17 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
             />
           </div>
 
-          <aside className="space-y-4">
-            <QueuePanel
-              queueItems={queueItems}
-              currentQuestionId={currentQuestionId}
-              recentInsertedQuestionId={recentInsertedQuestionId}
-            />
+          <aside className="space-y-4 xl:sticky xl:top-24 xl:self-start">
             <StatusPanel
               answeredCount={answeredCount}
               totalCount={queueItems.length}
               averageScore={averageScore}
               latestTurn={latestTurn}
+            />
+            <QueuePanel
+              queueItems={queueItems}
+              currentQuestionId={currentQuestionId}
+              recentInsertedQuestionId={recentInsertedQuestionId}
             />
             <RetrospectPanel retrospect={retrospect} />
             <DebugPanel output={output} sessionId={sessionId} userId={userId} />

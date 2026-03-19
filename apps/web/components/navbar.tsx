@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BookOpen, GraduationCap, Home, MessageSquare, NotebookPen } from "lucide-react";
+import { BookOpen, GraduationCap, Home, MessageSquare, NotebookPen, Settings2 } from "lucide-react";
+import { useState } from "react";
+import { useRuntimeConfig } from "./runtime-config";
 
 const NAV_ITEMS = [
   { href: "/", label: "首页", icon: Home },
@@ -17,35 +19,123 @@ const isActive = (pathname: string, href: string) =>
 
 export function Navbar() {
   const pathname = usePathname();
+  const [configOpen, setConfigOpen] = useState(false);
+  const {
+    apiBase,
+    setApiBase,
+    userId,
+    setUserId,
+    llmBaseUrl,
+    setLlmBaseUrl,
+    llmApiKey,
+    setLlmApiKey,
+    llmModel,
+    setLlmModel,
+    llmSyncing,
+    llmSyncStatus,
+    syncLlmConfig,
+  } = useRuntimeConfig();
 
   return (
-    <header className="sticky top-0 z-50 border-b border-border bg-background/80 backdrop-blur-xl">
-      <nav className="mx-auto flex max-w-7xl items-center justify-between px-6 py-3">
-        <Link href="/" className="flex items-center gap-2.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-            <GraduationCap className="h-4.5 w-4.5 text-primary-foreground" />
+    <header className="sticky top-0 z-50 border-b border-border/70 bg-background/72 backdrop-blur-2xl">
+      <nav className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-3 sm:px-6">
+        <Link href="/" className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary shadow-sm">
+            <GraduationCap className="h-5 w-5 text-primary-foreground" />
           </div>
-          <span className="text-lg font-bold tracking-tight text-foreground">
-            FE<span className="text-primary">Mentor</span>
-          </span>
+          <div>
+            <span className="block text-lg font-bold tracking-tight text-foreground">
+              FE<span className="text-primary">Mentor</span>
+            </span>
+            <span className="hidden text-[11px] uppercase tracking-[0.22em] text-muted-foreground sm:block">
+              Frontend Interview Studio
+            </span>
+          </div>
         </Link>
 
-        <div className="rounded-2xl border border-border bg-card/70 p-1">
-          <div className="flex items-center gap-1">
-          {NAV_ITEMS.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={
-                isActive(pathname, item.href)
-                  ? "flex items-center gap-2 rounded-xl bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground shadow-sm"
-                  : "flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
-              }
+        <div className="flex items-center gap-3">
+          <div className="hidden rounded-full border border-border/80 bg-card/75 px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.2em] text-muted-foreground lg:inline-flex">
+            面试驱动训练闭环
+          </div>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setConfigOpen((previous) => !previous)}
+              className="flex items-center gap-2 rounded-2xl border border-border/80 bg-card/75 px-3.5 py-2 text-sm font-medium text-muted-foreground shadow-sm hover:bg-secondary hover:text-foreground"
             >
-              <item.icon className="h-4 w-4" />
-              <span className="hidden sm:inline">{item.label}</span>
-            </Link>
-          ))}
+              <Settings2 className="h-4 w-4" />
+              <span className="hidden md:inline">运行配置</span>
+            </button>
+            {configOpen ? (
+              <div className="absolute right-0 top-[calc(100%+12px)] z-50 w-[min(92vw,420px)] rounded-[1.6rem] border border-border/80 bg-card/95 p-5 shadow-[var(--shadow-soft)] backdrop-blur">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-foreground">运行配置</p>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">这里可以设置 API Base、User ID，以及运行时 LLM 的 Base URL / API Key。</p>
+                </div>
+                <span className="rounded-full border border-border/70 bg-secondary/70 px-3 py-1 text-[11px] text-muted-foreground">
+                  浏览器本地存储
+                </span>
+              </div>
+
+              <div className="mt-4 grid gap-3">
+                <label className="text-sm">
+                  <span className="mb-1 block text-muted-foreground">API Base</span>
+                  <input value={apiBase} onChange={(e) => setApiBase(e.target.value)} className="field-shell w-full" />
+                </label>
+                <label className="text-sm">
+                  <span className="mb-1 block text-muted-foreground">User ID</span>
+                  <input value={userId} onChange={(e) => setUserId(e.target.value)} className="field-shell w-full" />
+                </label>
+                <label className="text-sm">
+                  <span className="mb-1 block text-muted-foreground">LLM Base URL</span>
+                  <input value={llmBaseUrl} onChange={(e) => setLlmBaseUrl(e.target.value)} className="field-shell w-full" placeholder="https://api.openai.com/v1" />
+                </label>
+                <label className="text-sm">
+                  <span className="mb-1 block text-muted-foreground">LLM Model</span>
+                  <input value={llmModel} onChange={(e) => setLlmModel(e.target.value)} className="field-shell w-full" placeholder="gpt-4o-mini" />
+                </label>
+                <label className="text-sm">
+                  <span className="mb-1 block text-muted-foreground">LLM API Key</span>
+                  <input value={llmApiKey} onChange={(e) => setLlmApiKey(e.target.value)} className="field-shell w-full" type="password" placeholder="sk-..." />
+                </label>
+              </div>
+
+              <div className="mt-4 flex items-center justify-between gap-3">
+                <p className="text-xs leading-5 text-muted-foreground">{llmSyncStatus}</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void syncLlmConfig().then(() => {
+                      setConfigOpen(false);
+                    }).catch(() => {});
+                  }}
+                  disabled={llmSyncing}
+                  className="action-primary shrink-0"
+                >
+                  {llmSyncing ? "同步中..." : "保存并上传"}
+                </button>
+              </div>
+              </div>
+            ) : null}
+          </div>
+          <div className="rounded-[1.25rem] border border-border/80 bg-card/75 p-1 shadow-sm">
+            <div className="flex items-center gap-1">
+              {NAV_ITEMS.map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={
+                    isActive(pathname, item.href)
+                      ? "flex items-center gap-2 rounded-xl bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground shadow-sm"
+                      : "flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
+                  }
+                >
+                  <item.icon className="h-4 w-4" />
+                  <span className="hidden sm:inline">{item.label}</span>
+                </Link>
+              ))}
+            </div>
           </div>
         </div>
       </nav>
