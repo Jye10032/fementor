@@ -6,6 +6,9 @@
     "dev": "concurrently -k -n api,web -c blue,green \"npm --prefix apps/api run dev\" \"npm --prefix apps/web run dev\"",
     "dev:api": "npm --prefix apps/api run dev",
     "dev:web": "npm --prefix apps/web run dev",
+    "start": "npm --prefix apps/api run start",
+    "start:api": "npm --prefix apps/api run start",
+    "start:web": "npm --prefix apps/web run start",
     "build:web": "npm --prefix apps/web run build",
     "eval:sirchmunk": "node scripts/eval-sirchmunk.js"
   },
