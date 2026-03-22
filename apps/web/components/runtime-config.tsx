@@ -27,7 +27,7 @@ type RuntimeConfigContextValue = {
   syncLlmConfig: () => Promise<void>;
 };
 
-const DEFAULT_API_BASE = "http://localhost:3300";
+const DEFAULT_API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:3300";
 const DEFAULT_USER_ID = "u_web_001";
 const DEFAULT_LLM_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_LLM_MODEL = "gpt-4o-mini";

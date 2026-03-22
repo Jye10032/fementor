@@ -1,11 +1,12 @@
 import { InterviewSessionRoom } from "../../../components/interview-session-room";
 
 type PageProps = {
-  searchParams?: {
+  searchParams?: Promise<{
     session_id?: string;
-  };
+  }>;
 };
 
-export default function InterviewSessionPage({ searchParams }: PageProps) {
-  return <InterviewSessionRoom initialSessionId={String(searchParams?.session_id || "")} />;
+export default async function InterviewSessionPage({ searchParams }: PageProps) {
+  const resolvedSearchParams = searchParams ? await searchParams : undefined;
+  return <InterviewSessionRoom initialSessionId={String(resolvedSearchParams?.session_id || "")} />;
 }
