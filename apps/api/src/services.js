@@ -8,7 +8,6 @@ const {
   ensureUserKnowledgeDir,
 } = require('./doc');
 const {
-  summarizeResume,
   extractResumeTextFromBinary,
   saveResumeDoc,
   listResumeDocs,
@@ -24,7 +23,6 @@ const {
 
 module.exports = {
   DATA_ROOT,
-  summarizeResume,
   extractResumeTextFromBinary,
   saveResumeDoc,
   saveJdDoc,

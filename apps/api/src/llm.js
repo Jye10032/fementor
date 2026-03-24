@@ -14,20 +14,20 @@ const getLlmConfig = () => ({
   model: String(runtimeOpenAiModel || DEFAULT_OPENAI_MODEL).trim() || DEFAULT_OPENAI_MODEL,
 });
 
+const hasProvidedValue = (value) => value !== undefined && String(value).trim() !== '';
+
 const setRuntimeLlmConfig = ({ baseUrl, apiKey, model } = {}) => {
-  if (baseUrl !== undefined) {
+  if (hasProvidedValue(baseUrl)) {
     runtimeOpenAiBaseUrl = normalizeBaseUrl(baseUrl) || DEFAULT_OPENAI_BASE_URL;
   }
-  if (apiKey !== undefined) {
+  if (hasProvidedValue(apiKey)) {
     runtimeOpenAiApiKey = String(apiKey || '').trim();
   }
-  if (model !== undefined) {
+  if (hasProvidedValue(model)) {
     runtimeOpenAiModel = String(model || '').trim() || DEFAULT_OPENAI_MODEL;
   }
   return getLlmConfig();
 };
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const hasRealLLM = () => Boolean(getLlmConfig().apiKey);
 
@@ -81,8 +81,7 @@ async function requestChatCompletion({ messages, model, stream = false, temperat
 
 async function chatCompletion({ messages, model, temperature }) {
   if (!hasRealLLM()) {
-    const lastUser = [...messages].reverse().find((m) => m.role === 'user')?.content || '';
-    return `Mock应答：已收到你的问题「${String(lastUser).slice(0, 80)}」，当前环境未配置 OPENAI_API_KEY。`;
+    throw new Error('OPENAI_API_KEY is required');
   }
 
   const response = await requestChatCompletion({
@@ -149,14 +148,15 @@ const buildRepairMessages = ({ baseMessages, rawContent, validationError, repair
 async function jsonCompletion({
   messages,
   model,
-  fallback,
   temperature = 0.2,
   validator,
   normalizer,
   retries = 1,
   repairPrompt,
 }) {
-  if (!hasRealLLM()) return fallback;
+  if (!hasRealLLM()) {
+    throw new Error('OPENAI_API_KEY is required');
+  }
 
   let activeMessages = messages;
 
@@ -192,13 +192,12 @@ async function jsonCompletion({
     }
   }
 
-  return fallback;
+  throw new Error('LLM JSON completion failed');
 }
 
 async function streamJsonCompletion({
   messages,
   model,
-  fallback,
   temperature = 0.2,
   validator,
   normalizer,
@@ -207,14 +206,7 @@ async function streamJsonCompletion({
   onToken,
 }) {
   if (!hasRealLLM()) {
-    if (typeof onToken === 'function') {
-      const preview = JSON.stringify(fallback);
-      for (const part of preview.match(/.{1,10}/g) || []) {
-        onToken(part);
-        await sleep(40);
-      }
-    }
-    return fallback;
+    throw new Error('OPENAI_API_KEY is required');
   }
 
   let activeMessages = messages;
@@ -257,19 +249,12 @@ async function streamJsonCompletion({
     }
   }
 
-  return fallback;
+  throw new Error('LLM stream JSON completion failed');
 }
 
 async function* streamCompletion({ messages, model, temperature = 0.2 }) {
   if (!hasRealLLM()) {
-    const lastUser = [...messages].reverse().find((m) => m.role === 'user')?.content || '';
-    const mock = `Mock流式应答：已接收「${String(lastUser).slice(0, 80)}」。请配置 OPENAI_API_KEY 以启用真实 LLM。`;
-    const parts = mock.match(/.{1,10}/g) || [];
-    for (const part of parts) {
-      yield part;
-      await sleep(40);
-    }
-    return;
+    throw new Error('OPENAI_API_KEY is required');
   }
 
   const response = await requestChatCompletion({

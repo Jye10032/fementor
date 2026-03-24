@@ -95,6 +95,45 @@
   }
 }
 
+@keyframes status-pulse {
+  0% {
+    transform: scale(0.72);
+    opacity: 0.45;
+  }
+
+  70% {
+    transform: scale(1.25);
+    opacity: 0;
+  }
+
+  100% {
+    transform: scale(1.25);
+    opacity: 0;
+  }
+}
+
+@keyframes question-card-settle {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes auto-advance-progress {
+  0% {
+    transform: scaleX(0);
+  }
+
+  100% {
+    transform: scaleX(1);
+  }
+}
+
 @layer components {
   .page-shell {
     @apply px-4 py-6 sm:px-6 lg:px-8;
@@ -171,5 +210,170 @@
 
   .metric-tile {
     @apply rounded-[1.4rem] border border-border/80 bg-background/80 p-4;
+  }
+
+  .status-indicator {
+    @apply inline-flex h-10 w-10 items-center justify-center rounded-full;
+  }
+
+  .status-indicator__dot {
+    @apply relative inline-block h-3 w-3 rounded-full;
+  }
+
+  .status-indicator__dot::after {
+    content: "";
+    position: absolute;
+    inset: -6px;
+    border-radius: 9999px;
+    animation: status-pulse 1.8s ease-out infinite;
+    opacity: 0.35;
+  }
+
+  .status-indicator__dot--ok {
+    background: color-mix(in oklab, var(--accent) 82%, white);
+    box-shadow: 0 0 0 4px color-mix(in oklab, var(--accent) 18%, transparent);
+  }
+
+  .status-indicator__dot--ok::after {
+    background: color-mix(in oklab, var(--accent) 32%, transparent);
+  }
+
+  .status-indicator__dot--error {
+    background: oklch(0.63 0.22 25);
+    box-shadow: 0 0 0 4px color-mix(in oklab, oklch(0.63 0.22 25) 18%, transparent);
+  }
+
+  .status-indicator__dot--error::after {
+    background: color-mix(in oklab, oklch(0.63 0.22 25) 28%, transparent);
+  }
+
+  .status-indicator__dot--checking {
+    background: color-mix(in oklab, var(--primary) 76%, white);
+    box-shadow: 0 0 0 4px color-mix(in oklab, var(--primary) 18%, transparent);
+  }
+
+  .status-indicator__dot--checking::after {
+    background: color-mix(in oklab, var(--primary) 26%, transparent);
+  }
+
+  .question-card-settle {
+    animation: question-card-settle 260ms ease-out;
+  }
+
+  .auto-advance-progress {
+    transform-origin: left center;
+    animation: auto-advance-progress 1000ms linear forwards;
+  }
+
+  .tool-page {
+    @apply mx-auto flex w-full max-w-7xl flex-col gap-5;
+  }
+
+  .tool-header {
+    @apply flex flex-col gap-3 border-b border-border/80 pb-4 lg:flex-row lg:items-center lg:justify-between;
+  }
+
+  .tool-header__title {
+    @apply text-2xl font-semibold text-foreground sm:text-3xl;
+  }
+
+  .tool-header__meta {
+    @apply flex flex-wrap items-center gap-2 text-sm text-muted-foreground;
+  }
+
+  .tool-chip {
+    @apply inline-flex items-center rounded-full border border-border bg-background px-3 py-1 text-xs text-muted-foreground;
+  }
+
+  .tool-layout {
+    @apply grid gap-5 xl:grid-cols-[240px_minmax(0,1fr)];
+  }
+
+  .tool-sidebar {
+    @apply space-y-4 xl:sticky xl:top-22 xl:self-start;
+  }
+
+  .tool-sidebar-section {
+    @apply border-b border-border/70 pb-4 last:border-b-0 last:pb-0;
+  }
+
+  .tool-main {
+    @apply min-w-0 space-y-5;
+  }
+
+  .tool-surface {
+    @apply rounded-[1.2rem] border border-border/80 bg-background p-4 shadow-sm;
+  }
+
+  .tool-panel {
+    @apply rounded-[1.2rem] border border-border/80 bg-card p-5 shadow-sm;
+  }
+
+  .tool-section {
+    @apply min-w-0 w-full space-y-4 rounded-[1.2rem] border border-border/80 bg-card p-5;
+  }
+
+  .tool-section-title {
+    @apply text-base font-semibold text-foreground;
+  }
+
+  .tool-grid {
+    @apply grid gap-3 md:grid-cols-2;
+  }
+
+  .tool-dropzone {
+    @apply rounded-[1.2rem] border border-dashed border-border bg-background p-5;
+  }
+
+  .tool-dropzone textarea {
+    @apply min-h-[280px] resize-y border-0 bg-transparent p-0 shadow-none focus:outline-none;
+  }
+
+  .tool-list {
+    @apply space-y-2;
+  }
+
+  .tool-list-item {
+    @apply flex items-start justify-between gap-3 border-b border-border/60 py-2 last:border-b-0 last:pb-0;
+  }
+
+  .tool-list-item__label {
+    @apply text-sm text-muted-foreground;
+  }
+
+  .tool-list-item__value {
+    @apply text-right text-sm text-foreground;
+  }
+
+  .tool-radio-list {
+    @apply max-h-72 space-y-2 overflow-auto pr-1;
+  }
+
+  .tool-radio-item {
+    @apply flex cursor-pointer items-start gap-3 rounded-xl border border-border bg-background px-3 py-2.5;
+  }
+
+  .tool-inline-status {
+    @apply flex flex-wrap items-center gap-2 text-sm text-muted-foreground;
+  }
+
+  .tool-status-dot {
+    @apply inline-block h-2.5 w-2.5 rounded-full;
+  }
+
+  .tool-footer-bar {
+    @apply sticky bottom-4 z-20 flex flex-col gap-3 rounded-[1.2rem] border border-border/80 bg-card/95 p-4 shadow-[var(--shadow-card)] backdrop-blur md:flex-row md:items-center md:justify-between;
+  }
+
+  .tool-footer-bar__hint {
+    @apply text-sm text-muted-foreground;
+  }
+
+  .tool-empty {
+    @apply rounded-[1rem] border border-dashed border-border bg-background px-4 py-6 text-sm text-muted-foreground;
+  }
+
+  .tool-debug {
+    @apply rounded-[1rem] border border-border/70 bg-secondary/50 p-4 text-xs leading-6 text-foreground;
   }
 }

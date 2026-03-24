@@ -1,14 +1,5 @@
-const fs = require('fs');
 const {
-  ensureUserKnowledgeDir,
-} = require('../doc');
-const {
-  localSearch,
-} = require('../search');
-const {
-  sirchmunkSearch,
   getSirchmunkStatus,
-  mapSirchmunkItemsToEvidence,
 } = require('./sirchmunk');
 
 const normalizeInlineWhitespace = (input) => String(input || '').replace(/\s+/g, ' ').trim();
@@ -97,46 +88,14 @@ const buildQueryPlan = ({ question, resumeSummary = '', plannedKeywords = [] }) 
       intent_terms: uniq.slice(4, 6),
       evidence_terms: uniq.slice(6, 10),
     },
-    next_action: 'sirchmunk_search_first',
-  };
-};
-
-const mapLocalHitsToEvidence = (hits) =>
-  (hits || []).map((hit) => ({
-    source_type: 'local_doc',
-    source_uri: `${hit.file}:${hit.line}`,
-    quote: hit.text,
-    confidence: Math.min(0.95, 0.45 + hit.keywords.length * 0.1),
-  }));
-
-const webSearchFallback = ({ enabled, reason, query }) => {
-  if (!enabled) {
-    return { enabled: false, reason, items: [] };
-  }
-  return {
-    enabled: true,
-    reason,
-    items: [
-      {
-        source_type: 'web',
-        source_uri: 'placeholder://websearch',
-        quote: `WebSearch placeholder for query: ${query}`,
-      },
-    ],
+    next_action: 'retrieval_disabled',
   };
 };
 
 const retrieveEvidence = async ({
-  userId,
   question,
   answer = '',
   resumeSummary = '',
-  limit = 6,
-  strategy = 'auto',
-  enableWebFallback = false,
-  questionType = 'basic',
-  paths = [],
-  sirchmunkMode = null,
   plannedQuery = '',
   plannedKeywords = [],
   retrievalGoal = 'find_evidence',
@@ -154,14 +113,7 @@ const retrieveEvidence = async ({
     ...(Array.isArray(plannedKeywords) ? plannedKeywords : []).slice(0, 8),
     answerKeywordSummary,
   ].filter(Boolean).join(' '));
-  const validPaths = (Array.isArray(paths) && paths.length > 0 ? paths : [ensureUserKnowledgeDir(userId)])
-    .map((item) => String(item || '').trim())
-    .filter((item) => item && fs.existsSync(item));
-  const effectiveSirchmunkMode = String(sirchmunkMode || 'FAST').trim().toUpperCase() || 'FAST';
   console.log('[retrieval.query]', {
-    user_id: userId,
-    strategy,
-    question_type: questionType,
     retrieval_goal: retrievalGoal,
     question: String(question || ''),
     answer: String(answer || ''),
@@ -171,69 +123,21 @@ const retrieveEvidence = async ({
     rewritten_query: plan.rewritten_query,
     answer_keyword_summary: answerKeywordSummary,
     sirchmunk_query: sirchmunkQuery,
-    paths: validPaths,
-    sirchmunk_mode: effectiveSirchmunkMode,
   });
-  const keywordPool = [
-    ...plan.keyword_groups.entity_terms,
-    ...plan.keyword_groups.intent_terms,
-    ...plan.keyword_groups.evidence_terms,
-  ].filter(Boolean);
-  const shouldUseLocal = strategy === 'local';
-  const localHits = shouldUseLocal
-    ? localSearch({
-      userId,
-      keywords: keywordPool,
-      limit,
-      paths: validPaths,
-    })
-    : [];
-  const localEvidence = mapLocalHitsToEvidence(localHits);
-
-  let sirchmunk = { available: false, items: [], message: 'not_requested' };
-  const shouldTrySirchmunk = strategy === 'sirchmunk' || strategy === 'auto';
-  if (shouldTrySirchmunk) {
-    sirchmunk = await sirchmunkSearch({
-      query: sirchmunkQuery || plan.rewritten_query,
-      paths: validPaths,
-      limit: Math.min(3, limit),
-      mode: effectiveSirchmunkMode,
-    });
-  }
-  const sirchmunkEvidence = mapSirchmunkItemsToEvidence(sirchmunk.items);
-
-  const needFallback = localEvidence.length === 0 && sirchmunkEvidence.length === 0;
-  const webFallback = webSearchFallback({
-    enabled: enableWebFallback,
-    reason: needFallback ? 'local_evidence_insufficient' : 'not_needed',
-    query: plan.rewritten_query,
-  });
-  const webEvidence = (webFallback.items || []).map((item) => ({
-    source_type: item.source_type || 'web',
-    source_uri: item.source_uri || '',
-    quote: item.quote || '',
-    confidence: typeof item.confidence === 'number' ? item.confidence : 0.5,
-  }));
-
-  const primaryStrategy = sirchmunkEvidence.length > 0
-    ? 'sirchmunk'
-    : localEvidence.length > 0
-      ? 'local'
-      : webEvidence.length > 0
-        ? 'web'
-        : 'none';
 
   return {
-    strategy: primaryStrategy,
+    strategy: 'none',
     plan,
     local: {
-      items: localHits,
-      evidence_refs: localEvidence,
+      items: [],
+      evidence_refs: [],
     },
-    sirchmunk,
-    web_fallback: webFallback,
-    evidence_refs: [...localEvidence, ...sirchmunkEvidence, ...webEvidence],
-    need_fallback: needFallback,
+    sirchmunk: {
+      available: false,
+      items: [],
+      message: 'retrieval_disabled',
+    },
+    evidence_refs: [],
   };
 };
 

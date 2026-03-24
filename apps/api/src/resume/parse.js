@@ -7,13 +7,16 @@ const { PDFParse } = require('pdf-parse');
 
 const ROOT_DIR = path.resolve(__dirname, '../../../..');
 const RESUME_PDF_PARSER = String(process.env.RESUME_PDF_PARSER || 'legacy').trim().toLowerCase();
-const DEFAULT_DOCLING_PYTHON = path.join(ROOT_DIR, 'apps/api/.venv-sirchmunk/bin/python');
-const DOCLING_PYTHON_BIN = process.env.DOCLING_PYTHON_BIN
-  || (fs.existsSync(DEFAULT_DOCLING_PYTHON) ? DEFAULT_DOCLING_PYTHON : 'python3');
-const DOCLING_SCRIPT_PATH = process.env.DOCLING_SCRIPT_PATH
-  ? path.resolve(ROOT_DIR, process.env.DOCLING_SCRIPT_PATH)
-  : path.join(ROOT_DIR, 'scripts/parse_resume_docling.py');
-const DOCLING_TIMEOUT_MS = Number(process.env.DOCLING_TIMEOUT_MS || 90000);
+const DEFAULT_PYTHON_BIN = path.join(ROOT_DIR, 'apps/api/.venv-sirchmunk/bin/python');
+const DEFAULT_RUNTIME_PYTHON_BIN = process.env.RESUME_PARSE_PYTHON_BIN
+  || (fs.existsSync(DEFAULT_PYTHON_BIN) ? DEFAULT_PYTHON_BIN : 'python3');
+const VOLCENGINE_PYTHON_BIN = process.env.VOLCENGINE_PYTHON_BIN
+  || DEFAULT_RUNTIME_PYTHON_BIN;
+const VOLCENGINE_SCRIPT_PATH = process.env.VOLCENGINE_SCRIPT_PATH
+  ? path.resolve(ROOT_DIR, process.env.VOLCENGINE_SCRIPT_PATH)
+  : path.join(ROOT_DIR, 'scripts/parse_resume_volcengine.py');
+const VOLCENGINE_TIMEOUT_MS = Number(process.env.VOLCENGINE_TIMEOUT_MS || 120000);
+const formatElapsedMs = (startedAt) => `${Date.now() - startedAt}ms`;
 
 const normalizeExtractedText = (input) => String(input || '')
   .replace(/\u0000/g, '')
@@ -50,19 +53,6 @@ const createTempFileFromBuffer = ({ ext, fileBuffer }) => {
   };
 };
 
-const extractPdfTextWithMdls = ({ filePath }) => {
-  if (!filePath || !hasCommand('mdls')) return '';
-  const result = spawnSync(
-    'mdls',
-    ['-raw', '-name', 'kMDItemTextContent', filePath],
-    { encoding: 'utf8' },
-  );
-  if (result.error || result.status !== 0) return '';
-  const output = String(result.stdout || '').trim();
-  if (!output || output === '(null)') return '';
-  return normalizeExtractedText(output);
-};
-
 const extractPdfTextWithPdfParse = async ({ fileBuffer }) => {
   const parser = new PDFParse({ data: fileBuffer });
   try {
@@ -75,7 +65,7 @@ const extractPdfTextWithPdfParse = async ({ fileBuffer }) => {
   }
 };
 
-const parseDoclingOutput = (raw) => {
+const parseJsonOutput = (raw) => {
   try {
     const parsed = JSON.parse(String(raw || '').trim());
     return parsed && typeof parsed === 'object' ? parsed : null;
@@ -84,81 +74,105 @@ const parseDoclingOutput = (raw) => {
   }
 };
 
-const pickDoclingPreview = (debug) =>
-  String(
-    debug?.pages?.[0]?.vlm_text_preview
-      || debug?.remote_ocr?.content_preview
-      || debug?.remote_ocr?.preview
-      || debug?.remote_ocr?.body_preview
-      || '',
-  ).trim();
-
-const runDoclingResumeParser = ({ filename, fileBuffer }) => {
-  if (RESUME_PDF_PARSER !== 'docling') {
-    return { ok: false, reason: 'docling_disabled' };
+const runVolcengineResumeParser = ({ filename, fileBuffer }) => {
+  const startedAt = Date.now();
+  if (RESUME_PDF_PARSER !== 'volcengine') {
+    console.log('[resume.parse.pdf.volcengine.skip]', {
+      filename,
+      reason: 'volcengine_disabled',
+      elapsed_ms: 0,
+    });
+    return { ok: false, reason: 'volcengine_disabled' };
   }
-  if (!fs.existsSync(DOCLING_SCRIPT_PATH)) {
-    return { ok: false, reason: 'docling_script_missing' };
+  if (!fs.existsSync(VOLCENGINE_SCRIPT_PATH)) {
+    console.log('[resume.parse.pdf.volcengine.skip]', {
+      filename,
+      reason: 'volcengine_script_missing',
+      elapsed_ms: 0,
+    });
+    return { ok: false, reason: 'volcengine_script_missing' };
   }
-
-  const tempPdf = createTempFileFromBuffer({
-    ext: path.extname(String(filename || '')).toLowerCase() || '.pdf',
-    fileBuffer,
-  });
 
   try {
-    const result = spawnSync(
-      DOCLING_PYTHON_BIN,
-      [DOCLING_SCRIPT_PATH, tempPdf.filePath],
-      {
-        encoding: 'utf8',
-        timeout: DOCLING_TIMEOUT_MS,
-        env: process.env,
-      },
-    );
-    if (result.error) {
-      return { ok: false, reason: result.error.message || 'docling_spawn_failed' };
-    }
-    const parsed = parseDoclingOutput(result.stdout);
-    if (!parsed || parsed.ok !== true) {
-      return {
-        ok: false,
-        reason: parsed?.error || String(result.stderr || '').trim() || 'docling_parse_failed',
-        raw_stdout_preview: normalizeExtractedText(String(result.stdout || '')).slice(0, 400),
-        raw_stderr_preview: normalizeExtractedText(String(result.stderr || '')).slice(0, 400),
-      };
-    }
+    const tempPdf = createTempFileFromBuffer({
+      ext: path.extname(String(filename || '')).toLowerCase() || '.pdf',
+      fileBuffer,
+    });
+    try {
+      const result = spawnSync(
+        VOLCENGINE_PYTHON_BIN,
+        [VOLCENGINE_SCRIPT_PATH, tempPdf.filePath],
+        {
+          encoding: 'utf8',
+          timeout: VOLCENGINE_TIMEOUT_MS,
+          env: process.env,
+        },
+      );
+      if (result.error) {
+        console.log('[resume.parse.pdf.volcengine.error]', {
+          filename,
+          reason: result.error.message || 'volcengine_spawn_failed',
+          elapsed_ms: Date.now() - startedAt,
+        });
+        return { ok: false, reason: result.error.message || 'volcengine_spawn_failed' };
+      }
+      const parsed = parseJsonOutput(result.stdout);
+      if (!parsed || parsed.ok !== true) {
+        console.log('[resume.parse.pdf.volcengine.fail]', {
+          filename,
+          reason: parsed?.error || String(result.stderr || '').trim() || 'volcengine_parse_failed',
+          elapsed_ms: Date.now() - startedAt,
+        });
+        return {
+          ok: false,
+          reason: parsed?.error || String(result.stderr || '').trim() || 'volcengine_parse_failed',
+          raw_stdout_preview: normalizeExtractedText(String(result.stdout || '')).slice(0, 400),
+          raw_stderr_preview: normalizeExtractedText(String(result.stderr || '')).slice(0, 400),
+        };
+      }
 
+      console.log('[resume.parse.pdf.volcengine.ok]', {
+        filename,
+        used_ocr: Boolean(parsed.used_ocr),
+        text_length: normalizeExtractedText(parsed.raw_text || parsed.markdown || '').length,
+        elapsed_ms: Date.now() - startedAt,
+      });
+      return {
+        ok: true,
+        parser: String(parsed.parser || 'volcengine'),
+        used_ocr: Boolean(parsed.used_ocr),
+        markdown: normalizeExtractedText(parsed.markdown || ''),
+        raw_text: normalizeExtractedText(parsed.raw_text || parsed.markdown || ''),
+        debug: parsed.debug || null,
+      };
+    } finally {
+      tempPdf.cleanup();
+    }
+  } catch (error) {
+    console.log('[resume.parse.pdf.volcengine.error]', {
+      filename,
+      reason: error?.message || String(error),
+      elapsed_ms: Date.now() - startedAt,
+    });
     return {
-      ok: true,
-      parser: String(parsed.parser || 'docling'),
-      used_ocr: Boolean(parsed.used_ocr),
-      markdown: normalizeExtractedText(parsed.markdown || ''),
-      raw_text: normalizeExtractedText(parsed.raw_text || parsed.markdown || ''),
-      debug: parsed.debug || null,
+      ok: false,
+      reason: error?.message || String(error),
     };
-  } finally {
-    tempPdf.cleanup();
   }
 };
 
-const summarizeResume = (resumeText) => {
-  const lines = String(resumeText || '')
-    .split(/\r?\n/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-
-  const skillHints = ['react', 'vue', 'angular', 'typescript', 'javascript', 'node', 'zustand', 'redux'];
-  const lowered = lines.join(' ').toLowerCase();
-  const skills = skillHints.filter((item) => lowered.includes(item)).slice(0, 6);
-  const yearsMatch = lowered.match(/(\d+)\s*年/);
-  const years = yearsMatch ? `${yearsMatch[1]}年经验` : '经验年限未明确';
-  const topLines = lines.slice(0, 3).join('；').slice(0, 140);
-
-  return `候选人${years}，核心技能：${skills.join('、') || '待补充'}。简历摘要：${topLines || '待补充'}`;
-};
+const buildVolcengineParseMeta = ({ filename, result }) => ({
+  parser: result.parser || 'volcengine',
+  used_ocr: Boolean(result.used_ocr),
+  quality: 'good',
+  original_filename: filename,
+  remote_ocr_preview: normalizeExtractedText(result.markdown || result.raw_text).slice(0, 300),
+  volcengine_request_id: String(result.debug?.request_id || '').trim(),
+  volcengine_time_elapsed: String(result.debug?.time_elapsed || '').trim(),
+});
 
 const extractResumeTextFromBinary = async ({ filename, fileBase64, buffer }) => {
+  const startedAt = Date.now();
   const ext = path.extname(String(filename || '')).toLowerCase();
   const fileBuffer = buffer && Buffer.isBuffer(buffer)
     ? buffer
@@ -169,80 +183,87 @@ const extractResumeTextFromBinary = async ({ filename, fileBase64, buffer }) => 
   }
 
   if (ext === '.pdf') {
-    const doclingResult = runDoclingResumeParser({ filename, fileBuffer });
-    if (doclingResult.ok && hasUsablePdfText(doclingResult.raw_text)) {
+    console.log('[resume.parse.binary.start]', {
+      filename,
+      ext,
+      size_bytes: fileBuffer.length,
+    });
+    if (RESUME_PDF_PARSER === 'volcengine') {
+      const volcengineResult = runVolcengineResumeParser({ filename, fileBuffer });
+      if (!volcengineResult.ok || !hasUsablePdfText(volcengineResult.raw_text)) {
+        throw new Error(volcengineResult.reason || 'volcengine pdf parse failed');
+      }
+      console.log('[resume.parse.binary.done]', {
+        filename,
+        ext,
+        parser: volcengineResult.parser,
+        text_length: String(volcengineResult.raw_text || '').length,
+        elapsed_ms: Date.now() - startedAt,
+      });
       return {
-        text: doclingResult.raw_text,
+        text: volcengineResult.raw_text,
+        parse_meta: buildVolcengineParseMeta({ filename, result: volcengineResult }),
+      };
+    }
+
+    const pdfParseStartedAt = Date.now();
+    const primaryText = await extractPdfTextWithPdfParse({ fileBuffer });
+    console.log('[resume.parse.pdf.pdf_parse.done]', {
+      filename,
+      text_length: primaryText.length,
+      usable: hasUsablePdfText(primaryText),
+      elapsed_ms: Date.now() - pdfParseStartedAt,
+    });
+    if (hasUsablePdfText(primaryText)) {
+      console.log('[resume.parse.binary.done]', {
+        filename,
+        ext,
+        parser: 'legacy',
+        stage: 'pdf_parse',
+        text_length: primaryText.length,
+        elapsed_ms: Date.now() - startedAt,
+      });
+      return {
+        text: primaryText,
         parse_meta: {
-          parser: doclingResult.parser || 'docling',
-          used_ocr: Boolean(doclingResult.used_ocr),
-          fallback_used: false,
+          parser: 'legacy',
+          used_ocr: false,
           quality: 'good',
           original_filename: filename,
-          remote_ocr_preview: pickDoclingPreview(doclingResult.debug),
-          format_fallback: doclingResult.debug?.format_fallback || '',
-          docling_stdout_preview: '',
-          docling_stderr_preview: '',
         },
       };
     }
 
-    try {
-      const primaryText = await extractPdfTextWithPdfParse({ fileBuffer });
-      if (hasUsablePdfText(primaryText)) {
-        return {
-          text: primaryText,
-          parse_meta: {
-            parser: 'legacy',
-            used_ocr: false,
-            fallback_used: Boolean(doclingResult.reason),
-            quality: 'good',
-            original_filename: filename,
-            fallback_reason: doclingResult.reason || '',
-            docling_stdout_preview: doclingResult.raw_stdout_preview || '',
-            docling_stderr_preview: doclingResult.raw_stderr_preview || '',
-            remote_ocr_preview: pickDoclingPreview(doclingResult.debug),
-            format_fallback: doclingResult.debug?.format_fallback || '',
-          },
-        };
-      }
-    } catch {}
-
-    const tempPdf = createTempFileFromBuffer({ ext, fileBuffer });
-    try {
-      const fallbackText = extractPdfTextWithMdls({ filePath: tempPdf.filePath });
-      if (hasUsablePdfText(fallbackText)) {
-        return {
-          text: fallbackText,
-          parse_meta: {
-            parser: 'legacy',
-            used_ocr: false,
-            fallback_used: true,
-            quality: 'good',
-            original_filename: filename,
-            fallback_reason: doclingResult.reason || 'pdf_parse_insufficient',
-            docling_stdout_preview: doclingResult.raw_stdout_preview || '',
-            docling_stderr_preview: doclingResult.raw_stderr_preview || '',
-            remote_ocr_preview: pickDoclingPreview(doclingResult.debug),
-            format_fallback: doclingResult.debug?.format_fallback || '',
-          },
-        };
-      }
-    } finally {
-      tempPdf.cleanup();
-    }
-
-    throw new Error('pdf text extraction failed or returned insufficient text');
+    console.log('[resume.parse.binary.fail]', {
+      filename,
+      ext,
+      elapsed_ms: Date.now() - startedAt,
+    });
+    throw new Error('pdf text extraction returned insufficient text');
   }
 
   if (ext === '.docx') {
+    console.log('[resume.parse.binary.start]', {
+      filename,
+      ext,
+      size_bytes: fileBuffer.length,
+    });
+    const mammothStartedAt = Date.now();
     const parsed = await mammoth.extractRawText({ buffer: fileBuffer });
+    const text = normalizeExtractedText(parsed?.value || '');
+    console.log('[resume.parse.binary.done]', {
+      filename,
+      ext,
+      parser: 'mammoth',
+      text_length: text.length,
+      extract_elapsed_ms: Date.now() - mammothStartedAt,
+      elapsed_ms: Date.now() - startedAt,
+    });
     return {
-      text: normalizeExtractedText(parsed?.value || ''),
+      text,
       parse_meta: {
         parser: 'mammoth',
         used_ocr: false,
-        fallback_used: false,
         quality: 'good',
       },
     };
@@ -253,9 +274,6 @@ const extractResumeTextFromBinary = async ({ filename, fileBase64, buffer }) => 
 
 module.exports = {
   normalizeExtractedText,
-  summarizeResume,
   extractResumeTextFromBinary,
-  parseDoclingOutput,
-  pickDoclingPreview,
   hasUsablePdfText,
 };

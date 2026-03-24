@@ -2,16 +2,21 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BookOpen, GraduationCap, Home, MessageSquare, NotebookPen, Settings2 } from "lucide-react";
-import { useState } from "react";
+import { GraduationCap, Home, MessageSquare, NotebookPen, Settings2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { apiRequest } from "../lib/api";
 import { useRuntimeConfig } from "./runtime-config";
+
+const HEALTH_POLL_INTERVAL_MS = 30000;
+
+type HealthResponse = {
+  ok: boolean;
+};
 
 const NAV_ITEMS = [
   { href: "/", label: "首页", icon: Home },
-  { href: "/resume", label: "简历解析", icon: NotebookPen },
+  { href: "/resume", label: "档案管理", icon: NotebookPen },
   { href: "/interview", label: "模拟面试", icon: MessageSquare },
-  { href: "/bank", label: "题单", icon: BookOpen },
-  { href: "/practice", label: "章节练习", icon: GraduationCap },
 ] as const;
 
 const isActive = (pathname: string, href: string) =>
@@ -20,6 +25,19 @@ const isActive = (pathname: string, href: string) =>
 export function Navbar() {
   const pathname = usePathname();
   const [configOpen, setConfigOpen] = useState(false);
+  const configPanelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!configOpen) return;
+    function handleMouseDown(e: MouseEvent) {
+      if (configPanelRef.current && !configPanelRef.current.contains(e.target as Node)) {
+        setConfigOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleMouseDown);
+    return () => document.removeEventListener("mousedown", handleMouseDown);
+  }, [configOpen]);
+  const [healthStatus, setHealthStatus] = useState<"checking" | "ok" | "error">("checking");
   const {
     apiBase,
     setApiBase,
@@ -35,6 +53,34 @@ export function Navbar() {
     llmSyncStatus,
     syncLlmConfig,
   } = useRuntimeConfig();
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const checkHealth = async () => {
+      if (!cancelled) setHealthStatus("checking");
+      try {
+        const result = await apiRequest<HealthResponse>(apiBase, "/health");
+        if (!cancelled) {
+          setHealthStatus(result.ok ? "ok" : "error");
+        }
+      } catch {
+        if (!cancelled) {
+          setHealthStatus("error");
+        }
+      }
+    };
+
+    void checkHealth();
+    const timer = window.setInterval(() => {
+      void checkHealth();
+    }, HEALTH_POLL_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [apiBase]);
 
   return (
     <header className="sticky top-0 z-50 border-b border-border/70 bg-background/72 backdrop-blur-2xl">
@@ -57,7 +103,15 @@ export function Navbar() {
           <div className="hidden rounded-full border border-border/80 bg-card/75 px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.2em] text-muted-foreground lg:inline-flex">
             面试驱动训练闭环
           </div>
-          <div className="relative">
+          <button
+            type="button"
+            aria-label={healthStatus === "ok" ? "系统状态正常" : healthStatus === "error" ? "系统状态异常" : "正在检查系统状态"}
+            title={healthStatus === "ok" ? "系统状态正常" : healthStatus === "error" ? "系统状态异常" : "正在检查系统状态"}
+            className="status-indicator"
+          >
+            <span className={`status-indicator__dot status-indicator__dot--${healthStatus}`} />
+          </button>
+          <div className="relative" ref={configPanelRef}>
             <button
               type="button"
               onClick={() => setConfigOpen((previous) => !previous)}
@@ -101,20 +155,22 @@ export function Navbar() {
                 </label>
               </div>
 
-              <div className="mt-4 flex items-center justify-between gap-3">
-                <p className="text-xs leading-5 text-muted-foreground">{llmSyncStatus}</p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    void syncLlmConfig().then(() => {
-                      setConfigOpen(false);
-                    }).catch(() => {});
-                  }}
-                  disabled={llmSyncing}
-                  className="action-primary shrink-0"
-                >
-                  {llmSyncing ? "同步中..." : "保存并上传"}
-                </button>
+              <div className="mt-4 flex flex-col gap-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className={`text-xs leading-5 ${llmSyncStatus.startsWith("✓") ? "text-emerald-600" : llmSyncStatus.startsWith("⚠") ? "text-amber-600" : "text-muted-foreground"}`}>{llmSyncStatus}</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void syncLlmConfig().then(() => {
+                        setConfigOpen(false);
+                      }).catch(() => {});
+                    }}
+                    disabled={llmSyncing}
+                    className="action-primary shrink-0"
+                  >
+                    {llmSyncing ? "检测中..." : "保存并检测"}
+                  </button>
+                </div>
               </div>
               </div>
             ) : null}

@@ -1,4 +1,4 @@
-const { summarizeResume, extractResumeTextFromBinary } = require('./parse');
+const { extractResumeTextFromBinary } = require('./parse');
 const {
   normalizeStoredTextFilename,
   encodeResumeMetaBlock,
@@ -13,7 +13,6 @@ const {
 } = require('./meta');
 
 module.exports = {
-  summarizeResume,
   extractResumeTextFromBinary,
   normalizeStoredTextFilename,
   encodeResumeMetaBlock,
