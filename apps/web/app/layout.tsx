@@ -15,8 +15,8 @@ const displayFont = Space_Grotesk({
 });
 
 export const metadata: Metadata = {
-  title: "FEMentor · 面试驱动题单",
-  description: "模拟面试 -> 复盘 -> 题单沉淀 -> 章节练习",
+  title: "FEMentor · 前端面试训练",
+  description: "简历解析 -> 模拟面试 -> 评分反馈 -> 持续迭代",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

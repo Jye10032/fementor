@@ -417,6 +417,19 @@ const listInterviewTurns = (sessionId) =>
       weaknesses: JSON.parse(row.weaknesses_json || '[]'),
     }));
 
+const listInterviewSessions = ({ userId, limit = 20 }) =>
+  db
+    .prepare(
+      `
+      SELECT id, user_id, status, summary, started_at, ended_at, created_at, updated_at
+      FROM interview_session
+      WHERE user_id = ?
+      ORDER BY created_at DESC
+      LIMIT ?
+    `,
+    )
+    .all(userId, limit);
+
 const finishInterviewSession = ({ sessionId, summary }) => {
   const now = new Date().toISOString();
   db.prepare(
@@ -806,6 +819,7 @@ module.exports = {
   listAttemptsByUser,
   createInterviewSession,
   getInterviewSession,
+  listInterviewSessions,
   addInterviewTurn,
   listInterviewTurns,
   finishInterviewSession,

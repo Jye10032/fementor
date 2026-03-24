@@ -68,8 +68,6 @@ npm run dev:web
 - `/`：总览
 - `/resume`：简历解析
 - `/interview`：模拟面试会话
-- `/bank`：题单管理
-- `/practice`：章节练习拉题
 
 ## 主要页面
 
@@ -85,11 +83,6 @@ npm run dev:web
 - 支持逐轮回答、逐轮评分、追问与反馈
 - 支持 SSE 流式阶段信息与最终结果
 
-### 题库与练习
-
-- 支持章节练习和题单式训练
-- 为后续“知识点块级训练 + 画像更新”提供基础数据
-
 ## 当前数据库
 
 - 本地 SQLite：`data/fementor.db`
@@ -102,23 +95,23 @@ npm run dev:web
 - `OPENAI_API_KEY`
 - `OPENAI_MODEL`（默认 `gpt-4o-mini`）
 
-未配置 `OPENAI_API_KEY` 时，聊天接口自动返回 mock 文本/流，便于前后端联调。
+未配置 `OPENAI_API_KEY` 时，依赖 LLM 的接口会直接报错。
 
 当前已经接入 LLM 的链路：
 
-- `/v1/resume/parse`：优先使用 LLM 生成简历摘要，失败时回退规则摘要
+- `/v1/resume/parse`：使用 LLM 生成简历摘要
 - `/v1/scoring/evaluate`：分数仍走规则评分，优点/缺点/反馈优先使用 LLM 重写
 - `/v1/chat/sessions/*`：对话与 SSE 流式输出
 
 ## 检索策略（当前）
 
 1. `POST /v1/retrieval/search` 为统一入口。
-2. 后端通过统一检索适配层输出 `query_plan / evidence_refs / strategy / need_fallback`。
-3. 默认 `strategy=auto`：直接走 `sirchmunk`，不再自动触发本地 `rg`。
-4. 本地 `rg` 仅保留为显式 `strategy=local` 的调试入口。
-5. 若 `sirchmunk` 证据不足，则返回 `web_fallback`（默认关闭，设置 `ENABLE_WEBSEARCH=1` 开启占位模式）。
+2. 后端通过统一检索适配层输出 `query_plan / evidence_refs / strategy`。
+3. 默认 `strategy=auto`：不再自动触发 `sirchmunk`，当前仅走本地检索链路。
+4. `sirchmunk` 仅保留为显式 `strategy=sirchmunk` 的独立调试入口。
+5. 不再提供 `web_fallback` 占位兜底。
 
-当前上层业务只依赖统一返回结构，不依赖 `sirchmunk` 的 `FAST/DEEP/primary/fallback` 等内部概念。
+当前上层业务只依赖统一返回结构，不依赖 `sirchmunk` 的 `FAST/DEEP` 等内部概念。
 
 可选的 `sirchmunk` 环境变量：
 

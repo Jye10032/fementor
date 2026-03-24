@@ -17,6 +17,7 @@ const {
   listAttemptsByUser,
   createInterviewSession,
   getInterviewSession,
+  listInterviewSessions,
   addInterviewTurn,
   listInterviewTurns,
   finishInterviewSession,
@@ -43,19 +44,16 @@ const {
   readJdDoc,
 } = require('./doc');
 const {
-  summarizeResume,
   extractResumeTextFromBinary,
   saveResumeDoc,
   listResumeDocs,
   readResumeDoc,
   updateResumeDocMeta,
+  parseResumeMetaBlock,
 } = require('./resume');
 const {
   appendMemoryEntry,
 } = require('./memory');
-const {
-  localSearch,
-} = require('./search');
 const {
   buildQueryPlan,
   retrieveEvidence,
@@ -367,45 +365,6 @@ const validateRetrievalPlannerResult = (value) => {
   return { ok: true };
 };
 
-const buildRetrievalPlannerFallback = ({ question, answer = '', questionType = 'project', intent = 'answer' }) => {
-  if (intent !== 'answer') {
-    return {
-      should_retrieve: false,
-      retrieval_goal: 'not_needed',
-      query: '',
-      keywords: [],
-      reason: '当前输入不是可评分回答，不需要检索',
-    };
-  }
-
-  if (questionType === 'basic' && String(answer || '').trim().length < 30) {
-    return {
-      should_retrieve: false,
-      retrieval_goal: 'not_needed',
-      query: '',
-      keywords: [],
-      reason: '开场背景题且回答较短，先不触发知识检索',
-    };
-  }
-
-  const keywordSeed = Array.from(new Set(
-    `${String(question || '')} ${String(answer || '')}`
-      .split(/[\s,，。！？?!.;；:：()（）[\]【】{}"“”'`]+/)
-      .map((item) => String(item || '').trim())
-      .filter(Boolean)
-      .filter((item) => item.length >= 2)
-      .filter((item) => /[A-Za-z@#./:_-]/.test(item) || /[\u4e00-\u9fa5]/.test(item)),
-  )).slice(0, 8);
-
-  return {
-    should_retrieve: true,
-    retrieval_goal: 'verify_answer',
-    query: `检索与 ${keywordSeed.slice(0, 4).join('、') || normalizeString(question, '当前问题', 40)} 相关的证据片段`,
-    keywords: keywordSeed,
-    reason: '当前为可评分回答，需要查找证据来校验回答是否准确',
-  };
-};
-
 const planRetrievalWithLLM = async ({
   question,
   answer,
@@ -413,9 +372,7 @@ const planRetrievalWithLLM = async ({
   intent = 'answer',
   interviewContext = '',
 }) => {
-  const fallback = buildRetrievalPlannerFallback({ question, answer, questionType, intent });
   const result = await jsonCompletion({
-    fallback,
     normalizer: normalizeRetrievalPlannerResult,
     validator: validateRetrievalPlannerResult,
     repairPrompt: '只返回合法 JSON：{"should_retrieve":true,"retrieval_goal":"verify_answer|find_evidence|not_needed","query":"...","keywords":["..."],"reason":"..."}。不要输出解释。',
@@ -443,30 +400,7 @@ const planRetrievalWithLLM = async ({
       },
     ],
   });
-
   return result;
-};
-
-const detectQuestionTypeFallback = ({ question, answer = '', queuedQuestionType = '' }) => {
-  const normalizedQueuedType = String(queuedQuestionType || '').trim();
-  if (['basic', 'project', 'scenario', 'follow_up'].includes(normalizedQueuedType)) {
-    return {
-      question_type: normalizedQueuedType,
-      reason: '沿用题目队列中已有的 question_type',
-    };
-  }
-
-  const text = `${String(question || '')} ${String(answer || '')}`.trim();
-  if (/(自我介绍|介绍一下自己|简单介绍|最有代表性的项目|为什么想加入|离职原因)/i.test(text)) {
-    return { question_type: 'basic', reason: '题面更像开场背景题或自我介绍题' };
-  }
-  if (/(如果|假如|遇到|出现|会怎么做|如何处理|怎么排查|取舍|权衡|线上|故障|压力)/i.test(text)) {
-    return { question_type: 'scenario', reason: '题面包含明显场景处理和方案判断信号' };
-  }
-  if (/(什么是|区别|原理|为什么|机制|生命周期|浏览器|css|html|javascript|react|vue|typescript|网络|操作系统)/i.test(text)) {
-    return { question_type: 'knowledge', reason: '题面更像知识点解释、原理或概念辨析' };
-  }
-  return { question_type: 'project', reason: '默认按项目经历和实现细节题处理' };
 };
 
 const classifyQuestionType = async ({
@@ -475,9 +409,7 @@ const classifyQuestionType = async ({
   queuedQuestionType = '',
   interviewContext = '',
 }) => {
-  const fallback = detectQuestionTypeFallback({ question, answer, queuedQuestionType });
   const result = await jsonCompletion({
-    fallback,
     normalizer: normalizeQuestionTypeResult,
     validator: validateQuestionTypeResult,
     repairPrompt: '只返回合法 JSON：{"question_type":"basic|project|knowledge|scenario|follow_up","reason":"..."}。不要输出解释。',
@@ -561,8 +493,7 @@ const planEvidenceDocPaths = ({ userId, questionType, question, answer = '', use
     .filter((item) => item.relevance > 0)
     .slice(0, 4)
     .map((item) => item.path);
-  const fallbackKnowledgePaths = knowledgeDocs.slice(0, 4).map((item) => item.path);
-  const selectedKnowledgePaths = topKnowledgePaths.length > 0 ? topKnowledgePaths : fallbackKnowledgePaths;
+  const selectedKnowledgePaths = topKnowledgePaths;
 
   let selectedPaths = [];
   if (questionType === 'basic') {
@@ -576,69 +507,14 @@ const planEvidenceDocPaths = ({ userId, questionType, question, answer = '', use
   }
 
   const uniqueSelectedPaths = uniqPaths(selectedPaths).filter((item) => fs.existsSync(item));
-  const fallbackPaths = uniqPaths(allDocs.slice(0, 5).map((item) => item.path));
 
   return {
     question_type: questionType,
-    paths: uniqueSelectedPaths.length > 0 ? uniqueSelectedPaths : fallbackPaths,
+    paths: uniqueSelectedPaths,
     active_resume_path: activeResume?.path || null,
     active_jd_path: activeJd?.path || null,
     selected_knowledge_paths: selectedKnowledgePaths,
   };
-};
-
-const buildStandardAnswerFallback = ({ question, evidenceRefs }) => {
-  const evidenceQuotes = (evidenceRefs || [])
-    .map((item) => String(item?.quote || '').trim())
-    .filter(Boolean)
-    .slice(0, 3);
-
-  if (evidenceQuotes.length === 0) {
-    return `回答这道题时，建议先说明对“${normalizeString(question, '当前问题', 80)}”的理解，再补充具体场景、方案取舍、结果验证和复盘。`;
-  }
-
-  return [
-    `参考这道题的更优回答，可以先结合资料说明：${evidenceQuotes[0].slice(0, 120)}。`,
-    evidenceQuotes[1] ? `随后补充相关背景或能力证明：${evidenceQuotes[1].slice(0, 120)}。` : '',
-    evidenceQuotes[2] ? `最后用结果或复盘收束：${evidenceQuotes[2].slice(0, 120)}。` : '最后补充你的具体做法、取舍理由和结果验证。',
-  ].filter(Boolean).join('');
-};
-
-const buildInterviewReplyFallback = ({ intent, queuedQuestion, input }) => {
-  const questionStem = String(queuedQuestion?.stem || '').trim();
-  const expectedPoints = Array.isArray(queuedQuestion?.expected_points)
-    ? queuedQuestion.expected_points.filter(Boolean).slice(0, 3)
-    : [];
-  const expectedHint = expectedPoints.length > 0 ? `你可以优先围绕 ${expectedPoints.join('、')} 来回答。` : '';
-
-  if (intent === 'clarify') {
-    return [
-      questionStem ? `我换个说法，这题我主要想了解的是：${questionStem}` : '我换个说法再问一遍。',
-      expectedHint,
-      '你可以直接开始回答，不用太铺垫。',
-    ].filter(Boolean).join('');
-  }
-
-  if (intent === 'question_back') {
-    return [
-      '可以，我先补充一下题意：我关注的是你在真实项目或场景里的做法、判断依据和结果。',
-      expectedHint,
-      questionStem ? `还是回到这题本身：${questionStem}` : '你继续按这个方向回答即可。',
-    ].filter(Boolean).join('');
-  }
-
-  if (intent === 'meta') {
-    return [
-      '这轮先聚焦当前题目本身，我会根据你的回答看技术深度、表达结构、证据支撑和岗位匹配度。',
-      questionStem ? `你继续回答这题：${questionStem}` : '你继续当前题即可。',
-    ].join('');
-  }
-
-  if (intent === 'skip') {
-    return '这题先记为跳过，我们直接进入下一题。';
-  }
-
-  return `我还没有拿到可评分的回答。${input ? `你刚才说的是“${input.slice(0, 40)}”` : ''}请直接结合项目经历或具体场景回答当前问题。`;
 };
 
 // server 层只拿统一证据包，避免评分、面试回合、检索接口分别拼装底层策略。
@@ -671,14 +547,8 @@ const buildEvidenceBundle = async ({
         items: [],
         message: 'skipped_by_retrieval_planner',
       },
-      webFallback: {
-        enabled: false,
-        reason: 'skipped_by_retrieval_planner',
-        items: [],
-      },
       evidenceRefs: [],
       strategy: 'none',
-      needFallback: false,
       retrievalPlan: {
         ...retrievalPlan,
         paths: [],
@@ -695,21 +565,17 @@ const buildEvidenceBundle = async ({
     strategy,
     questionType,
     paths: retrievalPlan.paths,
-    sirchmunkMode: 'DEEP',
     plannedQuery: retrievalPlanner?.query || '',
     plannedKeywords: retrievalPlanner?.keywords || [],
     retrievalGoal: retrievalPlanner?.retrieval_goal || 'find_evidence',
-    enableWebFallback: process.env.ENABLE_WEBSEARCH === '1',
   });
 
   return {
     queryPlan: result.plan,
     localHits: result.local.items,
     sirchmunk: result.sirchmunk,
-    webFallback: result.web_fallback,
     evidenceRefs: result.evidence_refs,
     strategy: result.strategy,
-    needFallback: result.need_fallback,
     retrievalPlan,
     retrievalPlanner,
   };
@@ -725,34 +591,12 @@ const formatTurnForContext = (turn) => [
   `weaknesses=${(turn.weaknesses || []).join('、') || '无'}`,
 ].join('\n');
 
-const buildContextSummaryFallback = ({ overflowTurns }) => {
-  const topics = overflowTurns
-    .map((turn) => String(turn.question || '').trim())
-    .filter(Boolean)
-    .slice(0, 4);
-  const weaknesses = Array.from(new Set(
-    overflowTurns.flatMap((turn) => Array.isArray(turn.weaknesses) ? turn.weaknesses : []),
-  )).slice(0, 4);
-  const strengths = Array.from(new Set(
-    overflowTurns.flatMap((turn) => Array.isArray(turn.strengths) ? turn.strengths : []),
-  )).slice(0, 3);
-
-  return {
-    summary: [
-      topics.length > 0 ? `已讨论主题：${topics.join('；')}` : '',
-      strengths.length > 0 ? `已体现优势：${strengths.join('、')}` : '',
-      weaknesses.length > 0 ? `历史薄弱点：${weaknesses.join('、')}` : '',
-    ].filter(Boolean).join('\n'),
-    open_points: weaknesses,
-  };
-};
-
 const summarizeInterviewOverflow = async ({ overflowTurns, currentQuestion }) => {
-  const fallback = buildContextSummaryFallback({ overflowTurns });
-  if (overflowTurns.length === 0) return fallback;
+  if (overflowTurns.length === 0) {
+    return { summary: '', open_points: [] };
+  }
 
   const result = await jsonCompletion({
-    fallback,
     normalizer: normalizeInterviewSummaryResult,
     validator: validateInterviewSummaryResult,
     repairPrompt: '只返回合法 JSON：{"summary":"...","open_points":["..."]}。summary 必须是字符串，open_points 必须是字符串数组，不要输出解释。',
@@ -789,10 +633,10 @@ const summarizeInterviewOverflow = async ({ overflowTurns, currentQuestion }) =>
   });
 
   return {
-    summary: String(result?.summary || fallback.summary).trim() || fallback.summary,
-    open_points: Array.isArray(result?.open_points)
+    summary: String(result.summary || '').trim(),
+    open_points: Array.isArray(result.open_points)
       ? result.open_points.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 4)
-      : fallback.open_points,
+      : [],
   };
 };
 
@@ -837,19 +681,6 @@ const buildInterviewContextWindow = async ({
   };
 };
 
-const summarizeLongTermMemoryFallback = ({ strengths, weaknesses, turns, jobQuestionTypes }) => ({
-  stable_strengths: (strengths || []).slice(0, 3),
-  stable_weaknesses: (weaknesses || []).slice(0, 5),
-  project_signals: Array.from(new Set(
-    (turns || [])
-      .filter((turn) => String(turn.question || '').includes('项目'))
-      .map((turn) => String(turn.question || '').trim())
-      .filter(Boolean),
-  )).slice(0, 3),
-  role_fit_signals: Array.from(new Set(jobQuestionTypes || [])).slice(0, 3),
-  recommended_focus: (weaknesses || []).slice(0, 3),
-});
-
 const summarizeLongTermMemory = async ({
   resumeSummary,
   strengths,
@@ -864,15 +695,7 @@ const summarizeLongTermMemory = async ({
       .filter(Boolean),
   )).slice(0, 4);
 
-  const fallback = summarizeLongTermMemoryFallback({
-    strengths,
-    weaknesses,
-    turns,
-    jobQuestionTypes,
-  });
-
   const result = await jsonCompletion({
-    fallback,
     normalizer: normalizeLongTermMemoryResult,
     validator: validateLongTermMemoryResult,
     repairPrompt: '只返回合法 JSON：{"stable_strengths":[],"stable_weaknesses":[],"project_signals":[],"role_fit_signals":[],"recommended_focus":[]}。所有字段都必须是字符串数组，不要输出解释。',
@@ -919,21 +742,11 @@ const summarizeLongTermMemory = async ({
       : [];
 
   return {
-    stable_strengths: normalizeList(result?.stable_strengths, 4).length > 0
-      ? normalizeList(result?.stable_strengths, 4)
-      : fallback.stable_strengths,
-    stable_weaknesses: normalizeList(result?.stable_weaknesses, 5).length > 0
-      ? normalizeList(result?.stable_weaknesses, 5)
-      : fallback.stable_weaknesses,
-    project_signals: normalizeList(result?.project_signals, 4).length > 0
-      ? normalizeList(result?.project_signals, 4)
-      : fallback.project_signals,
-    role_fit_signals: normalizeList(result?.role_fit_signals, 4).length > 0
-      ? normalizeList(result?.role_fit_signals, 4)
-      : fallback.role_fit_signals,
-    recommended_focus: normalizeList(result?.recommended_focus, 4).length > 0
-      ? normalizeList(result?.recommended_focus, 4)
-      : fallback.recommended_focus,
+    stable_strengths: normalizeList(result?.stable_strengths, 4),
+    stable_weaknesses: normalizeList(result?.stable_weaknesses, 5),
+    project_signals: normalizeList(result?.project_signals, 4),
+    role_fit_signals: normalizeList(result?.role_fit_signals, 4),
+    recommended_focus: normalizeList(result?.recommended_focus, 4),
   };
 };
 
@@ -981,67 +794,12 @@ const evaluateAnswer = ({ question, answer, evidenceRefs, focusTerms = [] }) => 
   return { score, strengths, weaknesses, feedback };
 };
 
-const buildRubricFallback = ({ question, answer, evidenceRefs, focusTerms }) => {
-  const draft = evaluateAnswer({ question, answer, evidenceRefs, focusTerms });
-  const score = clampNumber(draft.score, 0, 100);
-  const technicalDepth = clampNumber(Math.round(score * 0.3), 0, 25);
-  const structureClarity = clampNumber(Math.round(score * 0.2), 0, 25);
-  const evidenceGrounding = clampNumber(Math.min(25, (evidenceRefs || []).length * 6), 0, 25);
-  const roleFit = clampNumber(score - technicalDepth - structureClarity - evidenceGrounding, 0, 25);
-
-  return {
-    dimension_scores: {
-      technical_depth: technicalDepth,
-      structure_clarity: structureClarity,
-      evidence_grounding: evidenceGrounding,
-      role_fit: roleFit,
-    },
-    total_score: technicalDepth + structureClarity + evidenceGrounding + roleFit,
-    strengths: draft.strengths,
-    weaknesses: draft.weaknesses,
-    feedback: draft.feedback,
-    standard_answer: buildStandardAnswerFallback({ question, evidenceRefs }),
-  };
-};
-
-const classifyInterviewIntentFallback = ({ input }) => {
-  const text = String(input || '').trim();
-
-  if (!text) {
-    return { intent: 'invalid', confidence: 100, reason: '空输入，无法判断为有效回答' };
-  }
-
-  if (/(跳过|skip|pass|不会|没想好|答不上来|不太会)/i.test(text)) {
-    return { intent: 'skip', confidence: 88, reason: '用户明确表达跳过或暂时不会回答' };
-  }
-
-  if (/(什么意思|没太懂|没听清|再说一遍|换个说法|解释一下|能具体一点吗)/i.test(text)) {
-    return { intent: 'clarify', confidence: 86, reason: '用户在要求澄清题意或让面试官重述' };
-  }
-
-  if (/(评分标准|怎么评|为什么问|下一题|结束了吗|流程|第几题|多久)/i.test(text)) {
-    return { intent: 'meta', confidence: 82, reason: '用户在询问流程、规则或面试元信息' };
-  }
-
-  if ((/[?？]$/.test(text) || /请问|方便说下|能否|可以先/i.test(text)) && text.length <= 80) {
-    return { intent: 'question_back', confidence: 72, reason: '输入更像是反问面试官，而不是直接作答' };
-  }
-
-  if (text.length < 8) {
-    return { intent: 'invalid', confidence: 70, reason: '内容过短，缺少可评分信息' };
-  }
-
-  return { intent: 'answer', confidence: text.length >= 40 ? 80 : 62, reason: '输入包含连续表述，更接近候选人作答' };
-};
-
 const classifyInterviewTurnIntent = async ({
   question,
   input,
   interviewContext,
 }) => {
-  const fallback = classifyInterviewIntentFallback({ input });
   const result = await jsonCompletion({
-    fallback,
     normalizer: normalizeInterviewIntentResult,
     validator: validateInterviewIntentResult,
     repairPrompt: '只返回合法 JSON：{"intent":"answer|clarify|question_back|skip|meta|invalid","confidence":0,"reason":"..."}。不要输出解释。',
@@ -1085,9 +843,7 @@ const scoreAnswerWithRubricLLM = async ({
   questionType = 'project',
   retrievalPlan = null,
 }) => {
-  const fallback = buildRubricFallback({ question, answer, evidenceRefs, focusTerms });
   const result = await jsonCompletion({
-    fallback,
     normalizer: normalizeRubricScoreResult,
     validator: validateRubricScoreResult,
     repairPrompt: '只返回合法 JSON：{"dimension_scores":{"technical_depth":0,"structure_clarity":0,"evidence_grounding":0,"role_fit":0},"total_score":0,"strengths":["..."],"weaknesses":["..."],"feedback":"...","standard_answer":"..."}。不要输出解释。',
@@ -1141,38 +897,13 @@ const scoreAnswerWithRubricLLM = async ({
   return {
     score: clampNumber(result.total_score, 0, 100),
     dimension_scores: result.dimension_scores,
-    strengths: result.strengths.length > 0 ? result.strengths : fallback.strengths,
-    weaknesses: result.weaknesses.length > 0 ? result.weaknesses : fallback.weaknesses,
-    feedback: result.feedback || fallback.feedback,
-    standard_answer: result.standard_answer || fallback.standard_answer,
+    strengths: result.strengths,
+    weaknesses: result.weaknesses,
+    feedback: result.feedback,
+    standard_answer: result.standard_answer,
   };
 };
-
-const buildEvaluationNarrationFallback = ({
-  score,
-  strengths,
-  weaknesses,
-  feedback,
-  standardAnswer,
-}) => [
-  `本轮回答得分 ${score} 分。`,
-  feedback ? `总体判断：${feedback}` : '',
-  strengths.length > 0 ? `相对做得好的部分是：${strengths.join('；')}。` : '',
-  weaknesses.length > 0 ? `当前最需要补强的是：${weaknesses.join('；')}。` : '',
-  standardAnswer ? `如果你想把这题答得更完整，可以这样组织：${standardAnswer}` : '',
-].filter(Boolean).join('\n');
-
-const streamAssistantText = async ({ messages, fallback, onToken, logLabel }) => {
-  if (!hasRealLLM()) {
-    const parts = String(fallback || '').match(/.{1,12}/g) || [];
-    for (const part of parts) {
-      if (typeof onToken === 'function') {
-        await onToken(part);
-      }
-    }
-    return String(fallback || '');
-  }
-
+const streamAssistantText = async ({ messages, onToken, logLabel }) => {
   let full = '';
   let firstDeltaAt = null;
   const streamStartedAt = Date.now();
@@ -1198,7 +929,7 @@ const streamAssistantText = async ({ messages, fallback, onToken, logLabel }) =>
     total_stream_ms: Date.now() - streamStartedAt,
   });
   console.log(logLabel || '[interview.stream.raw]', { content: full });
-  return String(full || fallback || '').trim() || String(fallback || '');
+  return String(full || '').trim();
 };
 
 const generateEvaluationNarration = async ({
@@ -1213,16 +944,7 @@ const generateEvaluationNarration = async ({
   interviewContext,
   onToken,
 }) => {
-  const fallback = buildEvaluationNarrationFallback({
-    score,
-    strengths,
-    weaknesses,
-    feedback,
-    standardAnswer,
-  });
-
   return streamAssistantText({
-    fallback,
     onToken,
     logLabel: '[interview.evaluation.raw]',
     messages: [
@@ -1261,9 +983,7 @@ const generateInterviewerReply = async ({
   interviewContext,
   onToken,
 }) => {
-  const fallback = buildInterviewReplyFallback({ intent, queuedQuestion, input });
   return streamAssistantText({
-    fallback,
     onToken,
     logLabel: '[interview.reply.raw]',
     messages: [
@@ -1290,64 +1010,6 @@ const generateInterviewerReply = async ({
   });
 };
 
-const buildQuestionQueueFallback = ({ resumeSummary, jobDescription, targetLevel }) => {
-  const resumeHint = String(resumeSummary || '').trim();
-  const jdHint = String(jobDescription || '').trim();
-  const hasResume = resumeHint.length > 0;
-  const hasJd = jdHint.length > 0;
-  const jdSnippet = hasJd ? jdHint.slice(0, 120) : '常见前端岗位要求';
-
-  return [
-    {
-      source: hasResume ? 'resume' : 'llm',
-      question_type: 'project',
-      difficulty: 'easy',
-      stem: hasResume
-        ? '请先做一个简短自我介绍，并挑一段你最能代表自己前端能力的项目经历展开说明。'
-        : '请先做一个简短自我介绍，并说明你最近一段最有代表性的前端项目经历。',
-      expected_points: ['项目背景', '个人职责', '技术亮点'],
-      resume_anchor: hasResume ? resumeHint.slice(0, 80) : '',
-      source_ref: hasResume ? 'resume_summary' : 'llm_fallback',
-    },
-    {
-      source: hasJd ? 'doc' : 'llm',
-      question_type: 'basic',
-      difficulty: 'medium',
-      stem: `结合这份 JD 的要求：${jdSnippet}。你认为这个岗位最看重候选人的哪三项前端能力？你会如何证明自己具备这些能力？`,
-      expected_points: ['JD 要求拆解', '能力映射', '证明方式'],
-      resume_anchor: '',
-      source_ref: hasJd ? 'job_description' : 'llm_fallback',
-    },
-    {
-      source: hasResume ? 'resume' : 'llm',
-      question_type: 'project',
-      difficulty: 'medium',
-      stem: '从你的简历里挑一个最复杂的前端项目，说明业务目标、技术难点、你的方案，以及最后结果。',
-      expected_points: ['业务目标', '技术难点', '方案', '结果'],
-      resume_anchor: hasResume ? resumeHint.slice(0, 120) : '',
-      source_ref: hasResume ? 'resume_summary' : 'llm_fallback',
-    },
-    {
-      source: hasJd ? 'doc' : 'llm',
-      question_type: 'scenario',
-      difficulty: targetLevel === 'senior' ? 'hard' : 'medium',
-      stem: '如果你入职这个岗位后要在两周内接手核心前端模块，你会如何理解现状、识别风险，并制定前 30 天的推进计划？',
-      expected_points: ['接手策略', '风险识别', '推进节奏'],
-      resume_anchor: '',
-      source_ref: hasJd ? 'job_description' : 'llm_generated',
-    },
-    {
-      source: 'llm',
-      question_type: 'scenario',
-      difficulty: 'hard',
-      stem: '假设线上核心页面出现性能或稳定性问题，但业务方要求本周必须上线新需求，你会如何做排查、沟通和技术取舍？',
-      expected_points: ['排查顺序', '沟通策略', '技术取舍'],
-      resume_anchor: '',
-      source_ref: 'llm_generated',
-    },
-  ];
-};
-
 const normalizeGeneratedQuestions = (items) =>
   (Array.isArray(items) ? items : [])
     .map((item, index) => ({
@@ -1366,19 +1028,7 @@ const normalizeGeneratedQuestions = (items) =>
     .slice(0, 5);
 
 const generateInterviewQuestionQueue = async ({ user, jobDescription, targetLevel }) => {
-  const fallbackItems = buildQuestionQueueFallback({
-    resumeSummary: user?.resume_summary || '',
-    jobDescription,
-    targetLevel,
-  }).map((item, index) => ({
-    id: randomUUID(),
-    order_no: index + 1,
-    ...item,
-    status: index === 0 ? 'asked' : 'pending',
-  }));
-
   const result = await jsonCompletion({
-    fallback: { questions: fallbackItems },
     normalizer: (value) => ({ questions: normalizeGeneratedQuestions(value?.questions || value?.items || value) }),
     validator: (value) => {
       const base = validateObjectShape(value, ['questions']);
@@ -1443,14 +1093,15 @@ const generateInterviewQuestionQueue = async ({ user, jobDescription, targetLeve
     ],
   });
 
-  const normalized = normalizeGeneratedQuestions(result?.questions);
-  return normalized.length > 0 ? normalized : fallbackItems;
+  return normalizeGeneratedQuestions(result?.questions);
 };
 
-const summarizeResumeWithLLM = async (resumeText, fallbackSummary) => {
-  const fallback = { summary: fallbackSummary };
+const summarizeResumeWithLLM = async (resumeText) => {
+  const startedAt = Date.now();
+  console.log('[resume.summary.start]', {
+    text_length: String(resumeText || '').length,
+  });
   const result = await jsonCompletion({
-    fallback,
     normalizer: normalizeSummaryResult,
     validator: validateSummaryResult,
     repairPrompt: '只返回合法 JSON：{"summary":"..."}。summary 必须是非空字符串，不要输出解释。',
@@ -1465,7 +1116,11 @@ const summarizeResumeWithLLM = async (resumeText, fallbackSummary) => {
       },
     ],
   });
-  return String(result?.summary || fallbackSummary).trim() || fallbackSummary;
+  console.log('[resume.summary.done]', {
+    elapsed_ms: Date.now() - startedAt,
+    summary_length: String(result?.summary || '').trim().length,
+  });
+  return String(result?.summary || '').trim();
 };
 
 const enhanceEvaluationWithLLM = async ({
@@ -1510,40 +1165,18 @@ const shouldInsertFollowUp = ({ queuedQuestion, score, weaknesses, queueItems })
   return !existedFollowUp;
 };
 
-const buildFollowUpFallback = ({ queuedQuestion, answer, weaknesses }) => {
-  const weakness = String((weaknesses || [])[0] || '关键技术点说明不足').trim();
-  const expectedPoints = Array.isArray(queuedQuestion?.expected_points)
-    ? queuedQuestion.expected_points.slice(0, 2)
-    : [];
-  const expectedHint = expectedPoints.length > 0 ? `请至少补充 ${expectedPoints.join('、')}。` : '请补充更具体的实现细节、判断依据与结果。';
-  const answerPreview = String(answer || '').trim().slice(0, 60);
-
-  return {
-    source: 'llm',
-    question_type: 'follow_up',
-    difficulty: queuedQuestion?.difficulty === 'hard' ? 'hard' : 'medium',
-    stem: `你刚才这题里“${weakness}”。请围绕“${queuedQuestion?.stem || ''}”继续补充，如果基于项目回答，请说清背景、方案取舍与结果。${answerPreview ? `你上一轮提到：${answerPreview}。` : ''}${expectedHint}`,
-    expected_points: expectedPoints.length > 0 ? expectedPoints : ['补足技术细节', '说明取舍理由', '给出结果验证'],
-    resume_anchor: queuedQuestion?.resume_anchor || '',
-    source_ref: `follow_up_of:${queuedQuestion?.id || ''}`,
-    status: 'asked',
-  };
-};
-
 const generateFollowUpQuestion = async ({ queuedQuestion, answer, weaknesses, interviewContext }) => {
-  const fallback = buildFollowUpFallback({ queuedQuestion, answer, weaknesses });
   const result = await jsonCompletion({
-    fallback,
     normalizer: (value) => ({
       source: 'llm',
       question_type: 'follow_up',
       difficulty: ['easy', 'medium', 'hard'].includes(String(value?.difficulty || '').trim())
         ? String(value.difficulty).trim()
-        : fallback.difficulty,
-      stem: normalizeString(value?.stem, fallback.stem, 300),
+        : 'medium',
+      stem: normalizeString(value?.stem, '', 300),
       expected_points: normalizeStringList(value?.expected_points, 4),
-      resume_anchor: normalizeString(value?.resume_anchor, fallback.resume_anchor, 160),
-      source_ref: fallback.source_ref,
+      resume_anchor: normalizeString(value?.resume_anchor, queuedQuestion?.resume_anchor || '', 160),
+      source_ref: `follow_up_of:${queuedQuestion?.id || ''}`,
       status: 'asked',
     }),
     validator: (value) => {
@@ -1586,19 +1219,17 @@ const generateFollowUpQuestion = async ({ queuedQuestion, answer, weaknesses, in
   });
 
   return {
-    ...fallback,
-    ...result,
     source: 'llm',
     question_type: 'follow_up',
     difficulty: ['easy', 'medium', 'hard'].includes(String(result?.difficulty || '').trim())
       ? String(result.difficulty).trim()
-      : fallback.difficulty,
-    stem: String(result?.stem || fallback.stem).trim() || fallback.stem,
+      : 'medium',
+    stem: String(result?.stem || '').trim(),
     expected_points: Array.isArray(result?.expected_points)
       ? result.expected_points.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 4)
-      : fallback.expected_points,
-    resume_anchor: String(result?.resume_anchor || fallback.resume_anchor).trim(),
-    source_ref: fallback.source_ref,
+      : [],
+    resume_anchor: String(result?.resume_anchor || queuedQuestion?.resume_anchor || '').trim(),
+    source_ref: `follow_up_of:${queuedQuestion?.id || ''}`,
     status: 'asked',
   };
 };
@@ -2044,7 +1675,6 @@ const server = http.createServer(async (req, res) => {
       writeSse(res, 'meta', {
         session_id: sessionId,
         model: model || OPENAI_MODEL,
-        mock: !hasRealLLM(),
       });
 
       let full = '';
@@ -2126,7 +1756,6 @@ const server = http.createServer(async (req, res) => {
         resumeSummary: user?.resume_summary || '',
         limit: Number.isNaN(limit) ? 20 : limit,
         strategy,
-        enableWebFallback: process.env.ENABLE_WEBSEARCH === '1',
       });
 
       return json(res, 200, {
@@ -2134,9 +1763,7 @@ const server = http.createServer(async (req, res) => {
         query_plan: result.plan,
         local_hits: result.local.items,
         evidence_refs: result.evidence_refs,
-        need_fallback: result.need_fallback,
         sirchmunk: result.sirchmunk,
-        web_fallback: result.web_fallback,
       });
     } catch (e) {
       return json(res, 400, { error: e.message || 'bad request' });
@@ -2148,23 +1775,19 @@ const server = http.createServer(async (req, res) => {
     try {
       const body = await readBody(req);
       const userId = String(body.user_id || '').trim();
-      const keywords = Array.isArray(body.keywords) ? body.keywords : [];
-      const limit = Number(body.limit || 20);
       if (!userId) return json(res, 400, { error: 'user_id is required' });
-      if (keywords.length === 0) return json(res, 400, { error: 'keywords is required' });
-
-      const rows = localSearch({
-        userId,
-        keywords,
-        limit: Number.isNaN(limit) ? 20 : limit,
+      return json(res, 200, {
+        user_id: userId,
+        items: [],
+        message: 'retrieval_disabled',
       });
-      return json(res, 200, { user_id: userId, items: rows });
     } catch (e) {
       return json(res, 400, { error: e.message || 'bad request' });
     }
   }
 
   if (req.method === 'POST' && url.pathname === '/v1/resume/parse') {
+    const requestStartedAt = Date.now();
     try {
       const isMultipart = String(req.headers['content-type'] || '').includes('multipart/form-data');
       let userId = '';
@@ -2172,9 +1795,16 @@ const server = http.createServer(async (req, res) => {
       let filename = '';
       let name = '';
       let parseMeta = null;
+      console.log('[resume.parse.request.start]', {
+        is_multipart: isMultipart,
+      });
 
       if (isMultipart) {
+        const multipartStartedAt = Date.now();
         const { fields, files } = await readMultipartForm(req);
+        console.log('[resume.parse.request.multipart.done]', {
+          elapsed_ms: Date.now() - multipartStartedAt,
+        });
         userId = pickFormValue(fields.user_id);
         resumeText = pickFormValue(fields.resume_text);
         filename = pickFormValue(fields.filename);
@@ -2185,25 +1815,48 @@ const server = http.createServer(async (req, res) => {
           filename = filename || rawFile.originalFilename || rawFile.newFilename || 'resume';
           const ext = path.extname(String(filename || '')).toLowerCase();
           if (ext === '.pdf' || ext === '.docx') {
+            const binaryReadStartedAt = Date.now();
             const parsedResume = await extractResumeTextFromBinary({
               filename,
               buffer: fs.readFileSync(rawFile.filepath),
             });
+            console.log('[resume.parse.request.binary_extract.done]', {
+              filename,
+              ext,
+              elapsed_ms: Date.now() - binaryReadStartedAt,
+            });
             resumeText = typeof parsedResume === 'string' ? parsedResume : String(parsedResume?.text || '').trim();
             parseMeta = parsedResume && typeof parsedResume === 'object' ? parsedResume.parse_meta || null : null;
           } else {
+            const textReadStartedAt = Date.now();
             resumeText = fs.readFileSync(rawFile.filepath, 'utf8').trim();
+            console.log('[resume.parse.request.text_read.done]', {
+              filename,
+              ext,
+              text_length: resumeText.length,
+              elapsed_ms: Date.now() - textReadStartedAt,
+            });
           }
         }
       } else {
+        const bodyStartedAt = Date.now();
         const body = await readBody(req);
+        console.log('[resume.parse.request.body.done]', {
+          elapsed_ms: Date.now() - bodyStartedAt,
+        });
         userId = String(body.user_id || '').trim();
         resumeText = String(body.resume_text || '').trim();
         filename = String(body.filename || '').trim();
         name = String(body.name || '').trim();
         const fileBase64 = String(body.file_base64 || '').trim();
         if (!resumeText && fileBase64) {
+          const binaryReadStartedAt = Date.now();
           const parsedResume = await extractResumeTextFromBinary({ filename, fileBase64 });
+          console.log('[resume.parse.request.binary_extract.done]', {
+            filename,
+            ext: path.extname(String(filename || '')).toLowerCase(),
+            elapsed_ms: Date.now() - binaryReadStartedAt,
+          });
           resumeText = typeof parsedResume === 'string' ? parsedResume : String(parsedResume?.text || '').trim();
           parseMeta = parsedResume && typeof parsedResume === 'object' ? parsedResume.parse_meta || null : null;
         }
@@ -2212,7 +1865,20 @@ const server = http.createServer(async (req, res) => {
       if (!userId) return json(res, 400, { error: 'user_id is required' });
       if (!resumeText) return json(res, 400, { error: 'resume_text is required' });
 
-      const summary = await summarizeResumeWithLLM(resumeText, summarizeResume(resumeText));
+      console.log('[resume.parse.request.ready]', {
+        user_id: userId,
+        filename,
+        text_length: resumeText.length,
+        parser: parseMeta?.parser || 'plain_text',
+        elapsed_ms: Date.now() - requestStartedAt,
+      });
+
+      const summaryStartedAt = Date.now();
+      const summary = await summarizeResumeWithLLM(resumeText);
+      console.log('[resume.parse.request.summary.done]', {
+        elapsed_ms: Date.now() - summaryStartedAt,
+      });
+      const saveStartedAt = Date.now();
       const savedPath = saveResumeDoc({
         userId,
         resumeText,
@@ -2220,7 +1886,16 @@ const server = http.createServer(async (req, res) => {
         summary,
         originalFilename: filename,
       });
+      console.log('[resume.parse.request.save.done]', {
+        saved_path: savedPath,
+        elapsed_ms: Date.now() - saveStartedAt,
+      });
       upsertUser({ id: userId, name, resume_summary: summary, active_resume_file: path.basename(savedPath) });
+      console.log('[resume.parse.request.done]', {
+        user_id: userId,
+        filename,
+        total_elapsed_ms: Date.now() - requestStartedAt,
+      });
 
       return json(res, 200, {
         user_id: userId,
@@ -2274,7 +1949,7 @@ const server = http.createServer(async (req, res) => {
       if (!doc) return json(res, 404, { error: 'resume file not found' });
 
       const summary = String(doc.meta?.summary || '').trim()
-        || await summarizeResumeWithLLM(doc.content, summarizeResume(doc.content));
+        || await summarizeResumeWithLLM(doc.content);
       if (!String(doc.meta?.summary || '').trim()) {
         updateResumeDocMeta({
           userId,
@@ -2293,6 +1968,46 @@ const server = http.createServer(async (req, res) => {
         user_id: userId,
         active_resume_file: updated?.active_resume_file || doc.name,
         resume_summary: updated?.resume_summary || summary,
+      });
+    } catch (e) {
+      return json(res, 400, { error: e.message || 'bad request' });
+    }
+  }
+
+  if (req.method === 'GET' && url.pathname === '/v1/resume/read') {
+    try {
+      const userId = String(url.searchParams.get('user_id') || '').trim();
+      const fileName = String(url.searchParams.get('file_name') || '').trim();
+      if (!userId) return json(res, 400, { error: 'user_id is required' });
+      if (!fileName) return json(res, 400, { error: 'file_name is required' });
+      const doc = readResumeDoc({ userId, fileName });
+      if (!doc) return json(res, 404, { error: 'resume not found' });
+      const { meta, content } = parseResumeMetaBlock(doc.content);
+      return json(res, 200, {
+        user_id: userId,
+        name: doc.name,
+        content,
+        summary: meta?.summary || '',
+        original_filename: meta?.original_filename || doc.name,
+        updated_at: meta?.updated_at || '',
+      });
+    } catch (e) {
+      return json(res, 400, { error: e.message || 'bad request' });
+    }
+  }
+
+  if (req.method === 'GET' && url.pathname === '/v1/jd/read') {
+    try {
+      const userId = String(url.searchParams.get('user_id') || '').trim();
+      const fileName = String(url.searchParams.get('file_name') || '').trim();
+      if (!userId) return json(res, 400, { error: 'user_id is required' });
+      if (!fileName) return json(res, 400, { error: 'file_name is required' });
+      const doc = readJdDoc({ userId, fileName });
+      if (!doc) return json(res, 404, { error: 'jd not found' });
+      return json(res, 200, {
+        user_id: userId,
+        name: doc.name,
+        content: doc.content,
       });
     } catch (e) {
       return json(res, 400, { error: e.message || 'bad request' });
@@ -2491,7 +2206,6 @@ const server = http.createServer(async (req, res) => {
         query_plan: evidenceBundle.queryPlan,
         local_hits: evidenceBundle.localHits,
         sirchmunk: evidenceBundle.sirchmunk,
-        web_fallback: evidenceBundle.webFallback,
         memory_path: memoryPath,
       });
     } catch (e) {
@@ -2499,6 +2213,14 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+
+  if (req.method === 'GET' && url.pathname === '/v1/interview/sessions') {
+    const userId = String(url.searchParams.get('user_id') || '').trim();
+    if (!userId) return json(res, 400, { error: 'user_id is required' });
+    const limit = Number(url.searchParams.get('limit') || 20);
+    const items = listInterviewSessions({ userId, limit: Number.isNaN(limit) ? 20 : limit });
+    return json(res, 200, { user_id: userId, items });
+  }
 
   if (req.method === 'POST' && url.pathname === '/v1/interview/sessions/start') {
     try {
