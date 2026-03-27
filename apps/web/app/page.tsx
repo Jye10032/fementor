@@ -2,9 +2,33 @@
 
 import Link from "next/link";
 import { ArrowRight, BookOpen, FileText, MessageSquare, Settings2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useAuthState } from "../components/auth-provider";
 import { PageShell } from "../components/page-shell";
+import { apiRequest } from "../lib/api";
+import { useRuntimeConfig } from "../components/runtime-config";
+
+function useHomeStats(apiBase: string, isSignedIn: boolean) {
+  const [stats, setStats] = useState({ resumes: 0, sessions: 0, bank: 0, loaded: false });
+
+  useEffect(() => {
+    if (!isSignedIn || !apiBase) return;
+    Promise.all([
+      apiRequest<{ files: unknown[] }>(apiBase, "/v1/resume/library", { auth: "required" }).catch(() => ({ files: [] })),
+      apiRequest<{ items: unknown[] }>(apiBase, "/v1/interview/sessions", { auth: "required" }).catch(() => ({ items: [] })),
+      apiRequest<{ items: unknown[] }>(apiBase, "/v1/question-bank", { auth: "required" }).catch(() => ({ items: [] })),
+    ]).then(([r, s, b]) => {
+      setStats({ resumes: r.files?.length ?? 0, sessions: s.items?.length ?? 0, bank: b.items?.length ?? 0, loaded: true });
+    });
+  }, [apiBase, isSignedIn]);
+
+  return stats;
+}
 
 export default function HomePage() {
+  const { isSignedIn } = useAuthState();
+  const { apiBase } = useRuntimeConfig();
+  const stats = useHomeStats(apiBase, !!isSignedIn);
   const cards = [
     {
       type: "static" as const,

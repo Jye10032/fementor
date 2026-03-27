@@ -14,8 +14,6 @@ import {
 type RuntimeConfigContextValue = {
   apiBase: string;
   setApiBase: (value: string) => void;
-  userId: string;
-  setUserId: (value: string) => void;
   llmBaseUrl: string;
   setLlmBaseUrl: (value: string) => void;
   llmApiKey: string;
@@ -28,7 +26,6 @@ type RuntimeConfigContextValue = {
 };
 
 const DEFAULT_API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:3300";
-const DEFAULT_USER_ID = "u_web_001";
 const DEFAULT_LLM_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_LLM_MODEL = "gpt-4o-mini";
 
@@ -48,7 +45,6 @@ type ProviderProps = {
 
 export function RuntimeConfigProvider({ children }: ProviderProps) {
   const [apiBase, setApiBase] = useState(DEFAULT_API_BASE);
-  const [userId, setUserId] = useState(DEFAULT_USER_ID);
   const [llmBaseUrl, setLlmBaseUrl] = useState(DEFAULT_LLM_BASE_URL);
   const [llmApiKey, setLlmApiKey] = useState("");
   const [llmModel, setLlmModel] = useState(DEFAULT_LLM_MODEL);
@@ -59,13 +55,11 @@ export function RuntimeConfigProvider({ children }: ProviderProps) {
 
   useEffect(() => {
     const savedApi = window.localStorage.getItem("fementor.apiBase") || DEFAULT_API_BASE;
-    const savedUser = window.localStorage.getItem("fementor.userId");
     const savedLlmBaseUrl = window.localStorage.getItem("fementor.llmBaseUrl");
     const savedLlmApiKey = window.localStorage.getItem("fementor.llmApiKey");
     const savedLlmModel = window.localStorage.getItem("fementor.llmModel");
 
     setApiBase(savedApi);
-    if (savedUser) setUserId(savedUser);
     if (savedLlmBaseUrl) setLlmBaseUrl(savedLlmBaseUrl);
     if (savedLlmApiKey) setLlmApiKey(savedLlmApiKey);
     if (savedLlmModel) setLlmModel(savedLlmModel);
@@ -96,11 +90,6 @@ export function RuntimeConfigProvider({ children }: ProviderProps) {
     if (!initializedRef.current) return;
     window.localStorage.setItem("fementor.apiBase", apiBase);
   }, [apiBase]);
-
-  useEffect(() => {
-    if (!initializedRef.current) return;
-    window.localStorage.setItem("fementor.userId", userId);
-  }, [userId]);
 
   useEffect(() => {
     if (!initializedRef.current) return;
@@ -198,8 +187,6 @@ export function RuntimeConfigProvider({ children }: ProviderProps) {
   const value = useMemo<RuntimeConfigContextValue>(() => ({
     apiBase,
     setApiBase,
-    userId,
-    setUserId,
     llmBaseUrl,
     setLlmBaseUrl,
     llmApiKey,
@@ -211,7 +198,6 @@ export function RuntimeConfigProvider({ children }: ProviderProps) {
     syncLlmConfig,
   }), [
     apiBase,
-    userId,
     llmBaseUrl,
     llmApiKey,
     llmModel,

@@ -1,5 +1,7 @@
+import { ClerkProvider } from "@clerk/nextjs";
 import type { Metadata } from "next";
 import { Manrope, Space_Grotesk } from "next/font/google";
+import { AuthProvider } from "../components/auth-provider";
 import { Navbar } from "../components/navbar";
 import { RuntimeConfigProvider } from "../components/runtime-config";
 import "./globals.css";
@@ -23,10 +25,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="zh-CN">
       <body className={`${bodyFont.variable} ${displayFont.variable}`}>
-        <RuntimeConfigProvider>
-          <Navbar />
-          <main className="min-h-[calc(100vh-57px)] bg-background">{children}</main>
-        </RuntimeConfigProvider>
+        <ClerkProvider>
+          <RuntimeConfigProvider>
+            <AuthProvider>
+              <Navbar />
+              <main className="min-h-[calc(100vh-57px)] bg-background">{children}</main>
+            </AuthProvider>
+          </RuntimeConfigProvider>
+        </ClerkProvider>
       </body>
     </html>
   );

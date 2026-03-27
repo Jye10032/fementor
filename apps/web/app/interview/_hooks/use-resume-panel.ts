@@ -6,10 +6,10 @@ import { ResumeLibraryResponse } from "../_lib/interview-page.types";
 
 type UseResumePanelParams = {
   apiBase: string;
-  userId: string;
+  enabled: boolean;
 };
 
-export function useResumePanel({ apiBase, userId }: UseResumePanelParams) {
+export function useResumePanel({ apiBase, enabled }: UseResumePanelParams) {
   const [resumeLibrary, setResumeLibrary] = useState<ResumeLibraryResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [switchingResume, setSwitchingResume] = useState("");
@@ -22,13 +22,15 @@ export function useResumePanel({ apiBase, userId }: UseResumePanelParams) {
   );
 
   const refreshResumeLibrary = async () => {
-    if (!userId) return;
+    if (!enabled) {
+      setResumeLibrary(null);
+      return;
+    }
     setLoading(true);
     try {
-      const resumeData = await apiRequest<ResumeLibraryResponse>(
-        apiBase,
-        `/v1/resume/library?user_id=${encodeURIComponent(userId)}`,
-      );
+      const resumeData = await apiRequest<ResumeLibraryResponse>(apiBase, "/v1/resume/library", {
+        auth: "required",
+      });
       setResumeLibrary(resumeData);
     } catch {
       // ignore
@@ -39,14 +41,15 @@ export function useResumePanel({ apiBase, userId }: UseResumePanelParams) {
 
   useEffect(() => {
     void refreshResumeLibrary();
-  }, [apiBase, userId]);
+  }, [apiBase, enabled]);
 
   const onSelectResume = async (fileName: string) => {
     setSwitchingResume(fileName);
     try {
       await apiRequest(apiBase, "/v1/resume/select", {
         method: "POST",
-        body: JSON.stringify({ user_id: userId, file_name: fileName }),
+        body: JSON.stringify({ file_name: fileName }),
+        auth: "required",
       });
       await refreshResumeLibrary();
       setResumePickerOpen(false);

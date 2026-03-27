@@ -6,21 +6,23 @@ import { InterviewSession, SessionListResponse } from "../_lib/interview-page.ty
 
 type UseInterviewHistoryParams = {
   apiBase: string;
-  userId: string;
+  enabled: boolean;
 };
 
-export function useInterviewHistory({ apiBase, userId }: UseInterviewHistoryParams) {
+export function useInterviewHistory({ apiBase, enabled }: UseInterviewHistoryParams) {
   const [sessionHistory, setSessionHistory] = useState<InterviewSession[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
   const refreshSessionHistory = async () => {
-    if (!userId) return;
+    if (!enabled) {
+      setSessionHistory([]);
+      return;
+    }
     setLoadingHistory(true);
     try {
-      const data = await apiRequest<SessionListResponse>(
-        apiBase,
-        `/v1/interview/sessions?user_id=${encodeURIComponent(userId)}`,
-      );
+      const data = await apiRequest<SessionListResponse>(apiBase, "/v1/interview/sessions", {
+        auth: "required",
+      });
       setSessionHistory(data.items);
     } catch {
       // ignore
@@ -31,7 +33,7 @@ export function useInterviewHistory({ apiBase, userId }: UseInterviewHistoryPara
 
   useEffect(() => {
     void refreshSessionHistory();
-  }, [apiBase, userId]);
+  }, [apiBase, enabled]);
 
   return {
     sessionHistory,

@@ -19,6 +19,12 @@ const normalizeWhitespace = (value) =>
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 
+const tokenizeKeyword = (value) =>
+  String(value || '')
+    .split(/[\s,，。！？?!.;；:：()（）[\]【】{}<>《》\-_/]+/)
+    .map((item) => item.trim().toLowerCase())
+    .filter((item) => item.length >= 1);
+
 const decodeHtmlEntities = (value) =>
   String(value || '')
     .replace(/&nbsp;/gi, ' ')
@@ -213,6 +219,18 @@ const findPublishedAt = (html) => {
   return '';
 };
 
+const extractBlockByClass = (html, className) => {
+  const classPattern = className.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(
+    `<([a-z]+)[^>]*class=["'][^"']*${classPattern}[^"']*["'][^>]*>([\\s\\S]*?)<\\/\\1>`,
+    'i',
+  );
+  const match = html.match(regex);
+  return match?.[2] || '';
+};
+
+const extractTextByClass = (html, className) => stripHtml(extractBlockByClass(html, className));
+
 const extractCandidateBlocks = (html) => {
   const blocks = [];
   const blockRegex = /<(article|main|section|div)[^>]*>([\s\S]*?)<\/\1>/gi;
@@ -342,6 +360,23 @@ const extractArticleLinks = (html) => {
 };
 
 const selectBestBodyText = (html, jsonArticle) => {
+  const preferredBlocks = [
+    extractBlockByClass(html, 'feed-content-text'),
+    extractBlockByClass(html, 'nc-slate-editor-content'),
+  ]
+    .map((block) => stripHtml(block))
+    .filter(Boolean);
+
+  const combinedPreferred = normalizeWhitespace(
+    preferredBlocks
+      .filter((block) => block.length >= 20)
+      .join('\n\n')
+  );
+
+  if (combinedPreferred.length >= 60) {
+    return combinedPreferred;
+  }
+
   if (jsonArticle?.content && jsonArticle.content.length >= 200) {
     return jsonArticle.content;
   }
@@ -359,11 +394,18 @@ const extractArticle = (url, html) => {
   const title = findTitle(html) || jsonArticle?.title || '';
   const content = selectBestBodyText(html, jsonArticle);
   const summary = findMetaContent(html, ['description', 'og:description', 'twitter:description']);
-  const author =
-    findMetaContent(html, ['author', 'article:author']) ||
-    jsonArticle?.author ||
-    '';
-  const publishedAt = findPublishedAt(html) || jsonArticle?.publishedAt || '';
+  const author = normalizeWhitespace(
+    extractTextByClass(html, 'user-nickname') ||
+      findMetaContent(html, ['author', 'article:author']) ||
+      jsonArticle?.author ||
+      ''
+  );
+  const publishedAt = normalizeWhitespace(
+    extractTextByClass(html, 'time-text') ||
+      findPublishedAt(html) ||
+      jsonArticle?.publishedAt ||
+      ''
+  );
   const tags = [
     ...new Set(
       [
@@ -379,13 +421,43 @@ const extractArticle = (url, html) => {
   return {
     url,
     title: normalizeWhitespace(title),
-    author: normalizeWhitespace(author),
-    publishedAt: normalizeWhitespace(publishedAt),
+    author,
+    publishedAt,
     summary: normalizeWhitespace(summary),
     content,
     tags,
     wordCount: content.length,
     crawledAt: new Date().toISOString(),
+  };
+};
+
+const scoreArticleRelevance = (article, keyword) => {
+  const tokens = tokenizeKeyword(keyword);
+  if (tokens.length === 0) {
+    return { matchedTokens: [], score: 0, isRelevant: true };
+  }
+
+  const haystack = [
+    article.title,
+    article.summary,
+    article.content,
+    ...(article.tags || []),
+  ]
+    .join('\n')
+    .toLowerCase();
+
+  const matchedTokens = tokens.filter((token) => haystack.includes(token));
+  const titleMatchedTokens = tokens.filter((token) => String(article.title || '').toLowerCase().includes(token));
+  const score = matchedTokens.length * 2 + titleMatchedTokens.length * 3;
+  const isRelevant =
+    matchedTokens.length === tokens.length ||
+    score >= Math.min(4, tokens.length * 2) ||
+    (tokens.length === 1 && matchedTokens.length === 1);
+
+  return {
+    matchedTokens,
+    score,
+    isRelevant,
   };
 };
 
@@ -468,6 +540,7 @@ const crawlNiukeExperiences = async (options = {}) => {
   const articleQueue = [];
   const seenUrls = new Set();
   const listPages = [];
+  const maxCandidateLinks = Math.max(maxItems * 5, 50);
 
   for (const articleUrl of directArticleUrls) {
     if (!seenUrls.has(articleUrl)) {
@@ -477,7 +550,7 @@ const crawlNiukeExperiences = async (options = {}) => {
   }
 
   if (articleQueue.length === 0) {
-    for (let page = 1; page <= pages && articleQueue.length < maxItems; page += 1) {
+    for (let page = 1; page <= pages && articleQueue.length < maxCandidateLinks; page += 1) {
       const listResult = await crawlListPage({
         keyword,
         page,
@@ -494,7 +567,7 @@ const crawlNiukeExperiences = async (options = {}) => {
       });
 
       for (const link of listResult.links) {
-        if (articleQueue.length >= maxItems) {
+        if (articleQueue.length >= maxCandidateLinks) {
           break;
         }
 
@@ -512,15 +585,41 @@ const crawlNiukeExperiences = async (options = {}) => {
 
   const items = [];
   const failures = [];
+  const skipped = [];
 
   for (let index = 0; index < articleQueue.length; index += 1) {
     const url = articleQueue[index];
     try {
       const article = await crawlArticlePage({ url, timeoutMs });
-      items.push(article);
-      if (verbose) {
-        console.log(`[niuke-crawler.article.ok] ${index + 1}/${articleQueue.length} ${article.title || url}`);
+
+      const relevance = scoreArticleRelevance(article, keyword);
+      if (!relevance.isRelevant) {
+        skipped.push({
+          url,
+          title: article.title,
+          matchedTokens: relevance.matchedTokens,
+          score: relevance.score,
+        });
+        if (verbose) {
+          console.warn(`[niuke-crawler.article.skipped] ${url} score=${relevance.score}`);
+        }
+      } else {
+        items.push({
+          ...article,
+          relevance: {
+            matchedTokens: relevance.matchedTokens,
+            score: relevance.score,
+          },
+        });
+        if (verbose) {
+          console.log(`[niuke-crawler.article.ok] ${items.length}/${maxItems} ${article.title || url}`);
+        }
       }
+
+      if (items.length >= maxItems) {
+        break;
+      }
+
     } catch (error) {
       failures.push({
         url,
@@ -547,10 +646,12 @@ const crawlNiukeExperiences = async (options = {}) => {
       discoveredCount: articleQueue.length,
       successCount: items.length,
       failureCount: failures.length,
+      skippedCount: skipped.length,
     },
     listPages,
     items,
     failures,
+    skipped,
   };
 };
 

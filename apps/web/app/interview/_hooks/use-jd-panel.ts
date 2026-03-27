@@ -6,10 +6,10 @@ import { JdLibraryResponse } from "../_lib/interview-page.types";
 
 type UseJdPanelParams = {
   apiBase: string;
-  userId: string;
+  enabled: boolean;
 };
 
-export function useJdPanel({ apiBase, userId }: UseJdPanelParams) {
+export function useJdPanel({ apiBase, enabled }: UseJdPanelParams) {
   const [jdLibrary, setJdLibrary] = useState<JdLibraryResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [switchingJd, setSwitchingJd] = useState("");
@@ -24,13 +24,15 @@ export function useJdPanel({ apiBase, userId }: UseJdPanelParams) {
   );
 
   const refreshJdLibrary = async () => {
-    if (!userId) return;
+    if (!enabled) {
+      setJdLibrary(null);
+      return;
+    }
     setLoading(true);
     try {
-      const jdData = await apiRequest<JdLibraryResponse>(
-        apiBase,
-        `/v1/jd/library?user_id=${encodeURIComponent(userId)}`,
-      );
+      const jdData = await apiRequest<JdLibraryResponse>(apiBase, "/v1/jd/library", {
+        auth: "required",
+      });
       setJdLibrary(jdData);
     } catch {
       // ignore
@@ -41,14 +43,15 @@ export function useJdPanel({ apiBase, userId }: UseJdPanelParams) {
 
   useEffect(() => {
     void refreshJdLibrary();
-  }, [apiBase, userId]);
+  }, [apiBase, enabled]);
 
   const onSelectJd = async (fileName: string) => {
     setSwitchingJd(fileName);
     try {
       await apiRequest(apiBase, "/v1/jd/select", {
         method: "POST",
-        body: JSON.stringify({ user_id: userId, file_name: fileName }),
+        body: JSON.stringify({ file_name: fileName }),
+        auth: "required",
       });
       await refreshJdLibrary();
       setJdPickerOpen(false);

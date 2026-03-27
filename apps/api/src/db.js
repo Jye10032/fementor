@@ -9,6 +9,16 @@ fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
 const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 
+const parseJsonArray = (value) => {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
 const ensureColumn = (table, column, definition) => {
   const columns = db.prepare(`PRAGMA table_info(${table})`).all();
   const exists = columns.some((item) => item.name === column);
@@ -161,6 +171,106 @@ const init = () => {
   ensureColumn('question_bank', 'source_question_id', 'TEXT');
   ensureColumn('question_bank', 'source_question_type', "TEXT NOT NULL DEFAULT ''");
   ensureColumn('question_bank', 'source_question_source', "TEXT NOT NULL DEFAULT ''");
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS experience_sync_job (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      keyword TEXT NOT NULL,
+      status TEXT NOT NULL,
+      requested_limit INTEGER NOT NULL DEFAULT 10,
+      created_count INTEGER NOT NULL DEFAULT 0,
+      skipped_count INTEGER NOT NULL DEFAULT 0,
+      failed_count INTEGER NOT NULL DEFAULT 0,
+      started_at TEXT,
+      finished_at TEXT,
+      error_message TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_experience_sync_job_user_created
+      ON experience_sync_job(user_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_experience_sync_job_status
+      ON experience_sync_job(status, updated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS experience_post (
+      id TEXT PRIMARY KEY,
+      source_platform TEXT NOT NULL,
+      source_post_id TEXT NOT NULL,
+      source_url TEXT NOT NULL,
+      keyword TEXT NOT NULL DEFAULT '',
+      title TEXT NOT NULL,
+      author_name TEXT NOT NULL DEFAULT '',
+      published_at TEXT NOT NULL DEFAULT '',
+      content_raw TEXT NOT NULL,
+      content_cleaned TEXT NOT NULL DEFAULT '',
+      summary TEXT NOT NULL DEFAULT '',
+      company_name TEXT NOT NULL DEFAULT '',
+      role_name TEXT NOT NULL DEFAULT '',
+      interview_stage TEXT NOT NULL DEFAULT '未知',
+      quality_score INTEGER NOT NULL DEFAULT 0,
+      is_valid INTEGER NOT NULL DEFAULT 1,
+      clean_status TEXT NOT NULL DEFAULT 'pending',
+      crawl_job_id TEXT,
+      content_hash TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_experience_post_source_unique
+      ON experience_post(source_platform, source_post_id);
+    CREATE INDEX IF NOT EXISTS idx_experience_post_published
+      ON experience_post(published_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_experience_post_job
+      ON experience_post(crawl_job_id);
+    CREATE INDEX IF NOT EXISTS idx_experience_post_company_role
+      ON experience_post(company_name, role_name, published_at DESC);
+
+    CREATE TABLE IF NOT EXISTS experience_question_group (
+      id TEXT PRIMARY KEY,
+      post_id TEXT NOT NULL,
+      topic_cluster TEXT NOT NULL DEFAULT '',
+      canonical_question TEXT NOT NULL DEFAULT '',
+      group_order INTEGER NOT NULL DEFAULT 0,
+      group_type TEXT NOT NULL DEFAULT 'single',
+      frequency_score REAL NOT NULL DEFAULT 0,
+      confidence REAL NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_experience_question_group_post
+      ON experience_question_group(post_id, group_order ASC);
+
+    CREATE TABLE IF NOT EXISTS experience_question_item (
+      id TEXT PRIMARY KEY,
+      group_id TEXT NOT NULL,
+      post_id TEXT NOT NULL,
+      question_text_raw TEXT NOT NULL,
+      question_text_normalized TEXT NOT NULL DEFAULT '',
+      question_role TEXT NOT NULL DEFAULT 'main',
+      order_in_group INTEGER NOT NULL DEFAULT 0,
+      parent_item_id TEXT,
+      category TEXT NOT NULL DEFAULT '其他',
+      difficulty TEXT NOT NULL DEFAULT 'medium',
+      follow_up_intent TEXT NOT NULL DEFAULT 'clarify',
+      expected_points_json TEXT NOT NULL DEFAULT '[]',
+      knowledge_points_json TEXT NOT NULL DEFAULT '[]',
+      embedding_id TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_experience_question_item_post
+      ON experience_question_item(post_id, order_in_group ASC);
+    CREATE INDEX IF NOT EXISTS idx_experience_question_item_group
+      ON experience_question_item(group_id, order_in_group ASC);
+    CREATE INDEX IF NOT EXISTS idx_experience_question_item_category
+      ON experience_question_item(category, difficulty);
+    CREATE INDEX IF NOT EXISTS idx_experience_question_item_role
+      ON experience_question_item(question_role);
+  `);
 };
 
 const upsertUser = ({
@@ -807,6 +917,352 @@ const listChatMessages = (sessionId, limit = 100) =>
     )
     .all(sessionId, limit);
 
+const createExperienceSyncJob = ({ id, userId, keyword, requestedLimit = 10 }) => {
+  const now = new Date().toISOString();
+  db.prepare(
+    `
+    INSERT INTO experience_sync_job (
+      id, user_id, keyword, status, requested_limit,
+      created_count, skipped_count, failed_count,
+      started_at, finished_at, error_message, created_at, updated_at
+    )
+    VALUES (?, ?, ?, 'pending', ?, 0, 0, 0, NULL, NULL, '', ?, ?)
+  `,
+  ).run(id, userId, keyword, requestedLimit, now, now);
+  return getExperienceSyncJobById(id);
+};
+
+const updateExperienceSyncJob = ({
+  jobId,
+  status,
+  createdCount,
+  skippedCount,
+  failedCount,
+  startedAt,
+  finishedAt,
+  errorMessage,
+}) => {
+  const current = getExperienceSyncJobById(jobId);
+  if (!current) return null;
+
+  const next = {
+    status: status !== undefined ? status : current.status,
+    createdCount: createdCount !== undefined ? createdCount : current.created_count,
+    skippedCount: skippedCount !== undefined ? skippedCount : current.skipped_count,
+    failedCount: failedCount !== undefined ? failedCount : current.failed_count,
+    startedAt: startedAt !== undefined ? startedAt : current.started_at,
+    finishedAt: finishedAt !== undefined ? finishedAt : current.finished_at,
+    errorMessage: errorMessage !== undefined ? errorMessage : current.error_message,
+  };
+
+  db.prepare(
+    `
+    UPDATE experience_sync_job
+    SET status = ?, created_count = ?, skipped_count = ?, failed_count = ?,
+        started_at = ?, finished_at = ?, error_message = ?, updated_at = ?
+    WHERE id = ?
+  `,
+  ).run(
+    next.status,
+    next.createdCount,
+    next.skippedCount,
+    next.failedCount,
+    next.startedAt,
+    next.finishedAt,
+    next.errorMessage,
+    new Date().toISOString(),
+    jobId,
+  );
+
+  return getExperienceSyncJobById(jobId);
+};
+
+const getExperienceSyncJobById = (jobId) =>
+  db
+    .prepare(
+      `
+      SELECT id, user_id, keyword, status, requested_limit,
+             created_count, skipped_count, failed_count,
+             started_at, finished_at, error_message, created_at, updated_at
+      FROM experience_sync_job
+      WHERE id = ?
+    `,
+    )
+    .get(jobId);
+
+const getExperiencePostBySource = ({ sourcePlatform, sourcePostId }) =>
+  db
+    .prepare(
+      `
+      SELECT id, source_platform, source_post_id, source_url, keyword, title, author_name,
+             published_at, content_raw, content_cleaned, summary, company_name, role_name,
+             interview_stage, quality_score, is_valid, clean_status, crawl_job_id, content_hash,
+             created_at, updated_at
+      FROM experience_post
+      WHERE source_platform = ? AND source_post_id = ?
+    `,
+    )
+    .get(sourcePlatform, sourcePostId);
+
+const insertExperiencePostWithGroups = ({ post, groups = [] }) => {
+  const now = new Date().toISOString();
+
+  const transaction = db.transaction(() => {
+    db.prepare(
+      `
+      INSERT INTO experience_post (
+        id, source_platform, source_post_id, source_url, keyword, title, author_name,
+        published_at, content_raw, content_cleaned, summary, company_name, role_name,
+        interview_stage, quality_score, is_valid, clean_status, crawl_job_id, content_hash,
+        created_at, updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+    ).run(
+      post.id,
+      post.source_platform,
+      post.source_post_id,
+      post.source_url,
+      post.keyword || '',
+      post.title || '',
+      post.author_name || '',
+      post.published_at || '',
+      post.content_raw || '',
+      post.content_cleaned || '',
+      post.summary || '',
+      post.company_name || '',
+      post.role_name || '',
+      post.interview_stage || '未知',
+      Number(post.quality_score || 0),
+      post.is_valid ? 1 : 0,
+      post.clean_status || 'completed',
+      post.crawl_job_id || null,
+      post.content_hash || '',
+      post.created_at || now,
+      post.updated_at || now,
+    );
+
+    for (const group of groups) {
+      db.prepare(
+        `
+        INSERT INTO experience_question_group (
+          id, post_id, topic_cluster, canonical_question, group_order,
+          group_type, frequency_score, confidence, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      ).run(
+        group.id,
+        post.id,
+        group.topic_cluster || '',
+        group.canonical_question || '',
+        Number(group.group_order || 0),
+        group.group_type || 'single',
+        Number(group.frequency_score || 0),
+        Number(group.confidence || 0),
+        now,
+        now,
+      );
+
+      for (const item of group.items || []) {
+        db.prepare(
+          `
+          INSERT INTO experience_question_item (
+            id, group_id, post_id, question_text_raw, question_text_normalized, question_role,
+            order_in_group, parent_item_id, category, difficulty, follow_up_intent,
+            expected_points_json, knowledge_points_json, embedding_id, created_at, updated_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+        ).run(
+          item.id,
+          group.id,
+          post.id,
+          item.question_text_raw || '',
+          item.question_text_normalized || '',
+          item.question_role || 'main',
+          Number(item.order_in_group || 0),
+          item.parent_item_id || null,
+          item.category || '其他',
+          item.difficulty || 'medium',
+          item.follow_up_intent || 'clarify',
+          JSON.stringify(item.expected_points || []),
+          JSON.stringify(item.knowledge_points || []),
+          item.embedding_id || '',
+          now,
+          now,
+        );
+      }
+    }
+  });
+
+  transaction();
+
+  return getExperiencePostDetail(post.id);
+};
+
+const listExperiencePosts = ({
+  query,
+  days,
+  company,
+  role,
+  onlyValid = true,
+  limit = 20,
+  offset = 0,
+}) => {
+  const where = [];
+  const params = [];
+
+  if (onlyValid) {
+    where.push('p.is_valid = 1');
+  }
+
+  if (query) {
+    where.push(`(
+      p.title LIKE ? OR
+      p.summary LIKE ? OR
+      p.content_cleaned LIKE ? OR
+      EXISTS (
+        SELECT 1 FROM experience_question_item qi
+        WHERE qi.post_id = p.id
+          AND (qi.question_text_raw LIKE ? OR qi.question_text_normalized LIKE ?)
+      )
+    )`);
+    const like = `%${query}%`;
+    params.push(like, like, like, like, like);
+  }
+
+  if (company) {
+    where.push('p.company_name LIKE ?');
+    params.push(`%${company}%`);
+  }
+
+  if (role) {
+    where.push('p.role_name LIKE ?');
+    params.push(`%${role}%`);
+  }
+
+  if (Number(days) > 0) {
+    where.push(`datetime(substr(p.published_at, 1, 19)) >= datetime('now', ?)`);
+    params.push(`-${Number(days)} days`);
+  }
+
+  const whereClause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
+
+  const items = db
+    .prepare(
+      `
+      SELECT
+        p.id, p.title, p.source_platform, p.source_url, p.company_name, p.role_name,
+        p.interview_stage, p.published_at, p.summary, p.quality_score,
+        COUNT(DISTINCT g.id) AS question_group_count,
+        COUNT(DISTINCT qi.id) AS question_item_count
+      FROM experience_post p
+      LEFT JOIN experience_question_group g ON g.post_id = p.id
+      LEFT JOIN experience_question_item qi ON qi.post_id = p.id
+      ${whereClause}
+      GROUP BY p.id
+      ORDER BY datetime(substr(p.published_at, 1, 19)) DESC, p.created_at DESC
+      LIMIT ? OFFSET ?
+    `,
+    )
+    .all(...params, limit, offset);
+
+  const totalRow = db
+    .prepare(
+      `
+      SELECT COUNT(*) AS total
+      FROM experience_post p
+      ${whereClause}
+    `,
+    )
+    .get(...params);
+
+  return {
+    items,
+    total: totalRow?.total || 0,
+  };
+};
+
+const getExperiencePostDetail = (postId) => {
+  const post = db
+    .prepare(
+      `
+      SELECT id, source_platform, source_post_id, source_url, keyword, title, author_name,
+             published_at, content_raw, content_cleaned, summary, company_name, role_name,
+             interview_stage, quality_score, is_valid, clean_status, crawl_job_id, content_hash,
+             created_at, updated_at
+      FROM experience_post
+      WHERE id = ?
+    `,
+    )
+    .get(postId);
+
+  if (!post) return null;
+
+  const groups = db
+    .prepare(
+      `
+      SELECT id, post_id, topic_cluster, canonical_question, group_order,
+             group_type, frequency_score, confidence, created_at, updated_at
+      FROM experience_question_group
+      WHERE post_id = ?
+      ORDER BY group_order ASC, created_at ASC
+    `,
+    )
+    .all(postId)
+    .map((group) => ({
+      ...group,
+      items: db
+        .prepare(
+          `
+          SELECT id, group_id, post_id, question_text_raw, question_text_normalized, question_role,
+                 order_in_group, parent_item_id, category, difficulty, follow_up_intent,
+                 expected_points_json, knowledge_points_json, embedding_id, created_at, updated_at
+          FROM experience_question_item
+          WHERE group_id = ?
+          ORDER BY order_in_group ASC, created_at ASC
+        `,
+        )
+        .all(group.id)
+        .map((item) => ({
+          ...item,
+          expected_points: parseJsonArray(item.expected_points_json),
+          knowledge_points: parseJsonArray(item.knowledge_points_json),
+        })),
+    }));
+
+  return {
+    ...post,
+    groups,
+  };
+};
+
+const searchExperienceQuestionItems = ({ query, limit = 10 }) => {
+  const like = `%${String(query || '').trim()}%`;
+  return db
+    .prepare(
+      `
+      SELECT
+        qi.id, qi.post_id, qi.group_id, qi.question_text_normalized, qi.question_role,
+        qi.category, qi.difficulty, p.title AS source_post_title, p.source_url,
+        p.company_name, p.role_name, p.published_at
+      FROM experience_question_item qi
+      INNER JOIN experience_post p ON p.id = qi.post_id
+      WHERE p.is_valid = 1
+        AND (
+          qi.question_text_raw LIKE ?
+          OR qi.question_text_normalized LIKE ?
+          OR p.title LIKE ?
+          OR p.summary LIKE ?
+        )
+      ORDER BY datetime(substr(p.published_at, 1, 19)) DESC, qi.created_at DESC
+      LIMIT ?
+    `,
+    )
+    .all(like, like, like, like, limit);
+};
+
 module.exports = {
   DB_PATH,
   init,
@@ -837,4 +1293,12 @@ module.exports = {
   getChatSession,
   addChatMessage,
   listChatMessages,
+  createExperienceSyncJob,
+  updateExperienceSyncJob,
+  getExperienceSyncJobById,
+  getExperiencePostBySource,
+  insertExperiencePostWithGroups,
+  listExperiencePosts,
+  getExperiencePostDetail,
+  searchExperienceQuestionItems,
 };

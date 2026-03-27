@@ -31,12 +31,6 @@ const setRuntimeLlmConfig = ({ baseUrl, apiKey, model } = {}) => {
 
 const hasRealLLM = () => Boolean(getLlmConfig().apiKey);
 
-const formatValidationError = (error) => {
-  if (!error) return 'unknown validation error';
-  if (typeof error === 'string') return error;
-  return String(error.message || error);
-};
-
 const extractJsonObject = (input) => {
   const text = String(input || '').trim();
   if (!text) return null;
@@ -98,158 +92,38 @@ async function chatCompletion({ messages, model, temperature }) {
   return data?.choices?.[0]?.message?.content || '';
 }
 
-const runValidation = ({ value, validator }) => {
-  if (typeof validator !== 'function') {
-    return { ok: value !== null && value !== undefined, error: value ? null : 'empty result' };
-  }
-
-  try {
-    const result = validator(value);
-    if (typeof result === 'boolean') {
-      return { ok: result, error: result ? null : 'schema validation failed' };
-    }
-    if (result && typeof result === 'object') {
-      return {
-        ok: Boolean(result.ok),
-        error: result.ok ? null : formatValidationError(result.error),
-      };
-    }
-    return { ok: Boolean(result), error: result ? null : 'schema validation failed' };
-  } catch (error) {
-    return { ok: false, error: formatValidationError(error) };
-  }
-};
-
-const applyNormalizer = ({ value, normalizer }) => {
-  if (typeof normalizer !== 'function') return value;
-  try {
-    return normalizer(value);
-  } catch {
-    return value;
-  }
-};
-
-const buildRepairMessages = ({ baseMessages, rawContent, validationError, repairPrompt }) => [
-  ...baseMessages,
-  {
-    role: 'assistant',
-    content: String(rawContent || '').slice(0, 4000),
-  },
-  {
-    role: 'user',
-    content: [
-      '你上一次返回的 JSON 不符合要求，请严格修正。',
-      `问题：${validationError || '未返回可解析 JSON 或字段不合法'}`,
-      repairPrompt || '只返回合法 JSON，不要输出解释、Markdown 或代码块。',
-    ].join('\n'),
-  },
-];
-
-async function jsonCompletion({
-  messages,
-  model,
-  temperature = 0.2,
-  validator,
-  normalizer,
-  retries = 1,
-  repairPrompt,
-}) {
+async function jsonCompletion({ messages, model, temperature = 0.2 }) {
   if (!hasRealLLM()) {
     throw new Error('OPENAI_API_KEY is required');
   }
 
-  let activeMessages = messages;
-
-  for (let attempt = 0; attempt <= retries; attempt += 1) {
-    try {
-      const content = await chatCompletion({ messages: activeMessages, model, temperature });
-      console.log('[llm.jsonCompletion.raw]', {
-        attempt: attempt + 1,
-        content,
-      });
-      const parsed = extractJsonObject(content);
-      const normalized = applyNormalizer({ value: parsed, normalizer });
-      const validation = runValidation({ value: normalized, validator });
-
-      if (validation.ok) {
-        return normalized;
-      }
-
-      if (attempt === retries) {
-        break;
-      }
-
-      activeMessages = buildRepairMessages({
-        baseMessages: messages,
-        rawContent: content,
-        validationError: parsed ? validation.error : '未返回可解析 JSON',
-        repairPrompt,
-      });
-    } catch {
-      if (attempt === retries) {
-        break;
-      }
-    }
+  const content = await chatCompletion({ messages, model, temperature });
+  console.log('[llm.jsonCompletion.raw]', { content });
+  const parsed = extractJsonObject(content);
+  if (parsed === null) {
+    throw new Error('LLM JSON completion failed');
   }
-
-  throw new Error('LLM JSON completion failed');
+  return parsed;
 }
 
-async function streamJsonCompletion({
-  messages,
-  model,
-  temperature = 0.2,
-  validator,
-  normalizer,
-  retries = 1,
-  repairPrompt,
-  onToken,
-}) {
+async function streamJsonCompletion({ messages, model, temperature = 0.2, onToken }) {
   if (!hasRealLLM()) {
     throw new Error('OPENAI_API_KEY is required');
   }
 
-  let activeMessages = messages;
-
-  for (let attempt = 0; attempt <= retries; attempt += 1) {
-    try {
-      let content = '';
-      for await (const delta of streamCompletion({ messages: activeMessages, model, temperature })) {
-        content += delta;
-        if (attempt === 0 && typeof onToken === 'function') {
-          await onToken(delta);
-        }
-      }
-      console.log('[llm.streamJsonCompletion.raw]', {
-        attempt: attempt + 1,
-        content,
-      });
-      const parsed = extractJsonObject(content);
-      const normalized = applyNormalizer({ value: parsed, normalizer });
-      const validation = runValidation({ value: normalized, validator });
-
-      if (validation.ok) {
-        return normalized;
-      }
-
-      if (attempt === retries) {
-        break;
-      }
-
-      activeMessages = buildRepairMessages({
-        baseMessages: messages,
-        rawContent: content,
-        validationError: parsed ? validation.error : '未返回可解析 JSON',
-        repairPrompt,
-      });
-    } catch {
-      if (attempt === retries) {
-        break;
-      }
+  let content = '';
+  for await (const delta of streamCompletion({ messages, model, temperature })) {
+    content += delta;
+    if (typeof onToken === 'function') {
+      await onToken(delta);
     }
   }
-
-  throw new Error('LLM stream JSON completion failed');
+  console.log('[llm.streamJsonCompletion.raw]', { content });
+  const parsed = extractJsonObject(content);
+  if (parsed === null) {
+    throw new Error('LLM stream JSON completion failed');
+  }
+  return parsed;
 }
 
 async function* streamCompletion({ messages, model, temperature = 0.2 }) {

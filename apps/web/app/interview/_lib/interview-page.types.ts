@@ -1,8 +1,10 @@
 export type StartSessionResponse = {
   id: string;
-  user_id: string;
+  user_id?: string;
   status: string;
   started_at: string;
+  experience_question_count?: number;
+  queue_sources?: string[];
 };
 
 export type ResumeFile = {
@@ -13,7 +15,7 @@ export type ResumeFile = {
 };
 
 export type ResumeLibraryResponse = {
-  user_id: string;
+  user_id?: string;
   has_resume: boolean;
   profile: {
     id: string;
@@ -31,7 +33,7 @@ export type JdFile = {
 };
 
 export type JdLibraryResponse = {
-  user_id: string;
+  user_id?: string;
   has_jd: boolean;
   profile: {
     id: string;
@@ -44,7 +46,7 @@ export type JdLibraryResponse = {
 
 export type InterviewSession = {
   id: string;
-  user_id: string;
+  user_id?: string;
   status: "in_progress" | "completed";
   summary: string;
   started_at: string;
@@ -54,6 +56,6 @@ export type InterviewSession = {
 };
 
 export type SessionListResponse = {
-  user_id: string;
+  user_id?: string;
   items: InterviewSession[];
 };

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiRequest } from "../lib/api";
+import { useAuthState } from "./auth-provider";
 import { Composer } from "./interview-session/Composer";
 import { ConversationTranscript } from "./interview-session/ConversationTranscript";
 import { CurrentQuestionCard } from "./interview-session/CurrentQuestionCard";
@@ -44,6 +45,7 @@ function getInitialStageLabel(currentQuestion: InterviewQuestion | null) {
 
 export function InterviewSessionRoom({ initialSessionId }: Props) {
   const { apiBase } = useRuntimeConfig();
+  const { getToken, isLoaded, isSignedIn } = useAuthState();
   const [sessionId] = useState(initialSessionId);
   const [answer, setAnswer] = useState("");
   const [turns, setTurns] = useState<TurnRecord[]>([]);
@@ -115,6 +117,7 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
       const data = await apiRequest<QuestionQueueResponse>(
         apiBase,
         `/v1/interview/sessions/${sessionId}/questions`,
+        { auth: "required" },
       );
 
       const items = data.items || [];
@@ -234,9 +237,13 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
       ]);
       setAnswer("");
 
+      const token = await getToken();
       const response = await fetch(`${apiBase}/v1/interview/sessions/${sessionId}/turns/stream`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify(requestPayload),
         cache: "no-store",
       });
@@ -376,6 +383,7 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
         {
           method: "POST",
           body: JSON.stringify({ summary: "web done" }),
+          auth: "required",
         },
       );
       setOutput(JSON.stringify(data, null, 2));
@@ -395,6 +403,7 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
         {
           method: "POST",
           body: JSON.stringify({ chapter: "综合面试" }),
+          auth: "required",
         },
       );
       setRetrospect(data);
@@ -411,6 +420,22 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
       <section className="p-6">
         <div className="mx-auto max-w-3xl rounded-3xl border border-border bg-card p-8 text-center">
           <p className="text-sm text-muted-foreground">缺少会话参数，请从模拟面试入口重新开始。</p>
+          <Link
+            href="/interview"
+            className="mt-4 inline-flex rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+          >
+            返回面试准备页
+          </Link>
+        </div>
+      </section>
+    );
+  }
+
+  if (isLoaded && !isSignedIn) {
+    return (
+      <section className="p-6">
+        <div className="mx-auto max-w-3xl rounded-3xl border border-border bg-card p-8 text-center">
+          <p className="text-sm text-muted-foreground">当前会话需要登录后访问，请先返回面试准备页完成登录。</p>
           <Link
             href="/interview"
             className="mt-4 inline-flex rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"

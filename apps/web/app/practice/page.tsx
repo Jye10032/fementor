@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { SignInButton } from "@clerk/nextjs";
+import { useAuthState } from "../../components/auth-provider";
 import { PageHero, PagePanel, PageShell } from "../../components/page-shell";
 import { useRuntimeConfig } from "../../components/runtime-config";
 import { apiRequest } from "../../lib/api";
@@ -15,7 +17,7 @@ type PracticeItem = {
 };
 
 type PracticeResponse = {
-  user_id: string;
+  user_id?: string;
   chapter: string | null;
   include_future: boolean;
   items: PracticeItem[];
@@ -27,7 +29,7 @@ type QuestionBankItem = {
 };
 
 type QuestionBankResponse = {
-  user_id: string;
+  user_id?: string;
   chapter: string | null;
   items: QuestionBankItem[];
 };
@@ -49,7 +51,8 @@ type ScoreResponse = {
 };
 
 export default function PracticePage() {
-  const { apiBase, setApiBase, userId, setUserId } = useRuntimeConfig();
+  const { apiBase } = useRuntimeConfig();
+  const { isLoaded, isSignedIn, viewer } = useAuthState();
   const [chapter, setChapter] = useState("");
   const [chapters, setChapters] = useState<Array<{ name: string; count: number }>>([]);
   const [chaptersLoading, setChaptersLoading] = useState(false);
@@ -67,10 +70,9 @@ export default function PracticePage() {
   const loadChapters = async () => {
     try {
       setChaptersLoading(true);
-      const data = await apiRequest<QuestionBankResponse>(
-        apiBase,
-        `/v1/question-bank?user_id=${encodeURIComponent(userId)}&limit=200`,
-      );
+      const data = await apiRequest<QuestionBankResponse>(apiBase, "/v1/question-bank?limit=200", {
+        auth: "required",
+      });
       const chapterCountMap = new Map<string, number>();
       for (const item of data.items || []) {
         const name = String(item.chapter || "").trim();
@@ -96,7 +98,8 @@ export default function PracticePage() {
       setLoading(true);
       const data = await apiRequest<PracticeResponse>(
         apiBase,
-        `/v1/practice/next?user_id=${encodeURIComponent(userId)}&chapter=${encodeURIComponent(targetChapter)}&limit=20&include_future=${includeFuture ? "1" : "0"}`,
+        `/v1/practice/next?chapter=${encodeURIComponent(targetChapter)}&limit=20&include_future=${includeFuture ? "1" : "0"}`,
+        { auth: "required" },
       );
       setItems(data.items || []);
       setCurrentIndex(0);
@@ -111,13 +114,14 @@ export default function PracticePage() {
   };
 
   useEffect(() => {
+    if (!isSignedIn) return;
     void loadChapters();
-  }, [apiBase, userId]);
+  }, [apiBase, isSignedIn]);
 
   useEffect(() => {
-    if (!chapter) return;
+    if (!isSignedIn || !chapter) return;
     void load(chapter);
-  }, [chapter, includeFuture]);
+  }, [chapter, includeFuture, isSignedIn]);
 
   const submitAnswer = async () => {
     if (!currentItem || !answer.trim()) return;
@@ -126,11 +130,11 @@ export default function PracticePage() {
       const data = await apiRequest<ScoreResponse>(apiBase, "/v1/scoring/evaluate", {
         method: "POST",
         body: JSON.stringify({
-          user_id: userId,
           mode: "practice",
           question: currentItem.question,
           answer,
         }),
+        auth: "required",
       });
       setScoreResult(data);
       setOutput(JSON.stringify({ attempt_id: data.attempt_id, score: data.score, evidence_refs_count: data.evidence_refs_count }, null, 2));
@@ -153,6 +157,7 @@ export default function PracticePage() {
           review_status: reviewStatus,
           next_review_at: nextReviewAt,
         }),
+        auth: "required",
       });
 
       const remaining = items.filter((item) => item.id !== currentItem.id);
@@ -185,6 +190,20 @@ export default function PracticePage() {
           </>
         )}
       />
+
+      {!isLoaded ? (
+        <PagePanel>正在同步登录态...</PagePanel>
+      ) : !isSignedIn ? (
+        <PagePanel className="flex items-center justify-between gap-4">
+          <div>
+            <p className="text-base font-semibold text-foreground">章节练习需要先登录。</p>
+            <p className="mt-1 text-sm text-muted-foreground">题单、评分记录和复习状态会绑定到当前用户。</p>
+          </div>
+          <SignInButton mode="modal">
+            <button type="button" className="action-primary">立即登录</button>
+          </SignInButton>
+        </PagePanel>
+      ) : null}
 
       <div className="space-y-6">
         <section className="grid gap-6 xl:grid-cols-[260px_minmax(0,1fr)]">
@@ -232,11 +251,14 @@ export default function PracticePage() {
               <div className="rounded-xl bg-secondary px-4 py-2 text-sm text-foreground">
                 当前章节：<span className="font-medium">{chapter || "未选择"}</span>
               </div>
+              <div className="rounded-xl bg-secondary px-4 py-2 text-sm text-foreground">
+                当前用户：<span className="font-medium">{viewer?.name || viewer?.email || "已登录用户"}</span>
+              </div>
               <label className="inline-flex items-center gap-2 text-sm text-muted-foreground">
                 <input type="checkbox" checked={includeFuture} onChange={(e) => setIncludeFuture(e.target.checked)} />
                 include_future
               </label>
-              <button onClick={() => void load()} className="action-primary disabled:opacity-60" disabled={loading || !chapter}>
+              <button onClick={() => void load()} className="action-primary disabled:opacity-60" disabled={loading || !chapter || !isSignedIn}>
                 {loading ? "拉取中..." : "拉取练习题"}
               </button>
             </div>

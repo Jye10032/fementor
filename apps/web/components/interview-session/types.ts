@@ -4,7 +4,7 @@ export type InterviewQuestion = {
   id: string;
   session_id: string;
   order_no: number;
-  source: "resume" | "doc" | "llm";
+  source: "resume" | "doc" | "llm" | "experience";
   question_type: "basic" | "project" | "scenario" | "follow_up";
   difficulty: "easy" | "medium" | "hard";
   stem: string;

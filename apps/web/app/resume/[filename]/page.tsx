@@ -3,12 +3,14 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
+import { SignInButton } from "@clerk/nextjs";
+import { useAuthState } from "../../../components/auth-provider";
 import { PageShell } from "../../../components/page-shell";
 import { useRuntimeConfig } from "../../../components/runtime-config";
 import { apiRequest } from "../../../lib/api";
 
 type ResumeReadResponse = {
-  user_id: string;
+  user_id?: string;
   name: string;
   content: string;
   summary: string;
@@ -19,7 +21,8 @@ type ResumeReadResponse = {
 export default function ResumeDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const { apiBase, userId } = useRuntimeConfig();
+  const { apiBase } = useRuntimeConfig();
+  const { isLoaded, isSignedIn } = useAuthState();
   const fileName = decodeURIComponent(String(params.filename ?? ""));
 
   const [doc, setDoc] = useState<ResumeReadResponse | null>(null);
@@ -29,18 +32,20 @@ export default function ResumeDetailPage() {
   const [isDefault, setIsDefault] = useState(false);
 
   useEffect(() => {
-    if (!userId || !fileName) return;
+    if (!isSignedIn || !fileName) return;
     const load = async () => {
       setLoading(true);
       try {
         const [docData, libraryData] = await Promise.all([
           apiRequest<ResumeReadResponse>(
             apiBase,
-            `/v1/resume/read?user_id=${encodeURIComponent(userId)}&file_name=${encodeURIComponent(fileName)}`
+            `/v1/resume/read?file_name=${encodeURIComponent(fileName)}`,
+            { auth: "required" },
           ),
           apiRequest<{ profile: { active_resume_file: string } | null }>(
             apiBase,
-            `/v1/resume/library?user_id=${encodeURIComponent(userId)}`
+            "/v1/resume/library",
+            { auth: "required" },
           ),
         ]);
         setDoc(docData);
@@ -52,14 +57,15 @@ export default function ResumeDetailPage() {
       }
     };
     void load();
-  }, [apiBase, userId, fileName]);
+  }, [apiBase, fileName, isSignedIn]);
 
   const onSetDefault = async () => {
     setSettingDefault(true);
     try {
       await apiRequest(apiBase, "/v1/resume/select", {
         method: "POST",
-        body: JSON.stringify({ user_id: userId, file_name: fileName }),
+        body: JSON.stringify({ file_name: fileName }),
+        auth: "required",
       });
       setIsDefault(true);
     } catch {
@@ -104,7 +110,19 @@ export default function ResumeDetailPage() {
           </div>
         </header>
 
-        {loading ? (
+        {!isLoaded ? (
+          <div className="tool-empty">正在同步登录态...</div>
+        ) : !isSignedIn ? (
+          <div className="tool-section flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-foreground">查看个人简历详情前需要先登录。</p>
+              <p className="mt-1 text-xs text-muted-foreground">该页面会读取你当前账户下保存的简历内容和默认简历状态。</p>
+            </div>
+            <SignInButton mode="modal">
+              <button type="button" className="action-primary">立即登录</button>
+            </SignInButton>
+          </div>
+        ) : loading ? (
           <div className="tool-empty">加载中...</div>
         ) : error ? (
           <div className="tool-empty text-destructive">{error}</div>

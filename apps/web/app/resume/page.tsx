@@ -3,10 +3,11 @@
 import { ChangeEvent, Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { FileUp } from "lucide-react";
+import Link from "next/link";
 import { PageShell } from "../../components/page-shell";
+import { useAuthState } from "../../components/auth-provider";
 import { useRuntimeConfig } from "../../components/runtime-config";
 import { apiRequest } from "../../lib/api";
-import Link from "next/link";
 
 type ResumeFile = {
   name: string;
@@ -17,7 +18,6 @@ type ResumeFile = {
   original_filename: string;
 };
 type ResumeLibraryResponse = {
-  user_id: string;
   has_resume: boolean;
   profile: {
     id: string;
@@ -37,7 +37,6 @@ type JdFile = {
   content?: string;
 };
 type JdLibraryResponse = {
-  user_id: string;
   has_jd: boolean;
   profile: {
     id: string;
@@ -56,6 +55,20 @@ const JD_FILE_EXTENSIONS = TEXT_FILE_EXTENSIONS;
 function getFileExtension(filename: string) {
   const parts = filename.toLowerCase().split(".");
   return parts.length > 1 ? parts.pop() ?? "" : "";
+}
+
+function getResumeSourceType(file: File | null, filename: string, hasTextInput: boolean) {
+  if (file) {
+    const ext = getFileExtension(file.name);
+    if (ext === "pdf") return "pdf";
+    if (ext === "docx") return "docx";
+  }
+
+  if (hasTextInput || TEXT_FILE_EXTENSIONS.includes(getFileExtension(filename))) {
+    return "text";
+  }
+
+  return "unknown";
 }
 
 type Tab = "resume" | "jd";
@@ -88,7 +101,8 @@ function ResumePageContent() {
   const searchParams = useSearchParams();
   const initialTab = (searchParams.get("tab") === "jd" ? "jd" : "resume") as Tab;
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
-  const { apiBase, userId } = useRuntimeConfig();
+  const { apiBase } = useRuntimeConfig();
+  const { isLoaded, isSignedIn, viewer, viewerLoading, refreshViewer } = useAuthState();
 
   // --- Resume state ---
   const [resumeLibrary, setResumeLibrary] = useState<ResumeLibraryResponse | null>(null);
@@ -129,13 +143,15 @@ function ResumePageContent() {
   );
 
   const refreshResumeLibrary = async () => {
-    if (!userId) return;
+    if (!isSignedIn) {
+      setResumeLibrary(null);
+      return;
+    }
     setLoadingResume(true);
     try {
-      const data = await apiRequest<ResumeLibraryResponse>(
-        apiBase,
-        `/v1/resume/library?user_id=${encodeURIComponent(userId)}`
-      );
+      const data = await apiRequest<ResumeLibraryResponse>(apiBase, "/v1/resume/library", {
+        auth: "required",
+      });
       setResumeLibrary(data);
     } catch {
       // ignore
@@ -145,13 +161,15 @@ function ResumePageContent() {
   };
 
   const refreshJdLibrary = async () => {
-    if (!userId) return;
+    if (!isSignedIn) {
+      setJdLibrary(null);
+      return;
+    }
     setLoadingJd(true);
     try {
-      const data = await apiRequest<JdLibraryResponse>(
-        apiBase,
-        `/v1/jd/library?user_id=${encodeURIComponent(userId)}`
-      );
+      const data = await apiRequest<JdLibraryResponse>(apiBase, "/v1/jd/library", {
+        auth: "required",
+      });
       setJdLibrary(data);
     } catch {
       // ignore
@@ -163,7 +181,7 @@ function ResumePageContent() {
   useEffect(() => {
     void refreshResumeLibrary();
     void refreshJdLibrary();
-  }, [apiBase, userId]);
+  }, [apiBase, isSignedIn]);
 
   // Resume file handlers
   const onResumeFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -197,19 +215,31 @@ function ResumePageContent() {
   };
 
   const onParseResume = async () => {
+    const sourceType = getResumeSourceType(resumeUploadFile, resumeFilename, Boolean(resumeText.trim()));
+
+    if (sourceType === "pdf" && !isSignedIn) {
+      setResumeFileStatus("PDF 解析需要先登录，因为该链路会调用受配额限制的后端 OCR API。");
+      return;
+    }
+
     try {
       setParsingResume(true);
       const formData = new FormData();
-      formData.append("user_id", userId);
       formData.append("name", name);
       formData.append("filename", resumeFilename);
       if (resumeText.trim()) formData.append("resume_text", resumeText);
       if (resumeUploadFile) formData.append("resume_file", resumeUploadFile, resumeUploadFile.name);
-      await apiRequest(apiBase, "/v1/resume/parse", { method: "POST", body: formData });
+      await apiRequest(apiBase, "/v1/resume/parse", {
+        method: "POST",
+        body: formData,
+        auth: sourceType === "pdf" ? "required" : "optional",
+      });
       setResumeText("");
       setResumeUploadFile(null);
       setResumeFileStatus("支持 txt / md / json / html / pdf / docx，可上传文件或直接粘贴文本。");
-      await refreshResumeLibrary();
+      if (isSignedIn) {
+        await Promise.all([refreshViewer(), refreshResumeLibrary()]);
+      }
     } catch (error) {
       setResumeFileStatus(`解析失败：${String(error)}`);
     } finally {
@@ -222,7 +252,8 @@ function ResumePageContent() {
     try {
       await apiRequest(apiBase, "/v1/resume/select", {
         method: "POST",
-        body: JSON.stringify({ user_id: userId, file_name: fileName }),
+        body: JSON.stringify({ file_name: fileName }),
+        auth: "required",
       });
       await refreshResumeLibrary();
     } catch {
@@ -261,7 +292,8 @@ function ResumePageContent() {
       setSavingJd(true);
       await apiRequest(apiBase, "/v1/jd/upload", {
         method: "POST",
-        body: JSON.stringify({ user_id: userId, filename: jdFilename, jd_text: jdText }),
+        body: JSON.stringify({ filename: jdFilename, jd_text: jdText }),
+        auth: "required",
       });
       setJdText("");
       setJdFilename("jd.md");
@@ -279,7 +311,8 @@ function ResumePageContent() {
     try {
       await apiRequest(apiBase, "/v1/jd/select", {
         method: "POST",
-        body: JSON.stringify({ user_id: userId, file_name: fileName }),
+        body: JSON.stringify({ file_name: fileName }),
+        auth: "required",
       });
       await refreshJdLibrary();
     } catch {
@@ -298,6 +331,33 @@ function ResumePageContent() {
             <p className="tool-subheading">管理简历与 JD，为模拟面试做准备。</p>
           </div>
         </header>
+
+        <section className="tool-section">
+          {!isLoaded || viewerLoading ? (
+            <p className="text-sm text-muted-foreground">正在同步登录态...</p>
+          ) : isSignedIn ? (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-foreground">
+                  当前已登录：{viewer?.name || viewer?.email || "已登录用户"}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  PDF 解析会消耗后端 OCR 配额；当前剩余 {viewer?.capabilities?.remaining_resume_ocr_count ?? "-"} / {viewer?.capabilities?.daily_resume_ocr_limit ?? "-"}。
+                </p>
+              </div>
+              <span className="rounded-full border border-border/70 bg-secondary/70 px-3 py-1 text-xs text-muted-foreground">
+                Viewer 驱动
+              </span>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-foreground">当前未登录。</p>
+              <p className="text-xs leading-5 text-muted-foreground">
+                你可以先粘贴纯文本尝试解析；上传 PDF 前必须先登录，因为该链路会调用受配额限制的后端 API。JD 库、简历库和默认档案切换也需要登录。
+              </p>
+            </div>
+          )}
+        </section>
 
         {/* Tab switcher */}
         <div className="inline-flex self-start rounded-xl border border-border bg-background p-1">
@@ -382,7 +442,7 @@ function ResumePageContent() {
                   disabled={!canParseResume || parsingResume}
                   className="action-primary"
                 >
-                  {parsingResume ? "解析中..." : "解析并保存"}
+                  {parsingResume ? "解析中..." : isSignedIn ? "解析并保存" : "解析文本 / 登录后上传 PDF"}
                 </button>
               </div>
             </section>
@@ -392,6 +452,8 @@ function ResumePageContent() {
               <h2 className="tool-section-title">简历库</h2>
               {loadingResume ? (
                 <div className="tool-empty">加载中...</div>
+              ) : !isSignedIn ? (
+                <div className="tool-empty">登录后可查看个人简历库与默认简历。</div>
               ) : !resumeLibrary?.files.length ? (
                 <div className="tool-empty">还没有简历，上传后会显示在这里。</div>
               ) : (
@@ -502,6 +564,8 @@ function ResumePageContent() {
               <h2 className="tool-section-title">JD 库</h2>
               {loadingJd ? (
                 <div className="tool-empty">加载中...</div>
+              ) : !isSignedIn ? (
+                <div className="tool-empty">登录后可查看 JD 库与当前活跃 JD。</div>
               ) : !jdLibrary?.files.length ? (
                 <div className="tool-empty">还没有 JD，添加后会显示在这里。</div>
               ) : (

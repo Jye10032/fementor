@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { SignInButton } from "@clerk/nextjs";
+import { useAuthState } from "../../components/auth-provider";
 import { PageHero, PagePanel, PageShell } from "../../components/page-shell";
 import { useRuntimeConfig } from "../../components/runtime-config";
 import { apiRequest } from "../../lib/api";
@@ -19,13 +21,14 @@ type BankItem = {
 };
 
 type BankResponse = {
-  user_id: string;
+  user_id?: string;
   chapter: string | null;
   items: BankItem[];
 };
 
 export default function BankPage() {
-  const { apiBase, setApiBase, userId, setUserId } = useRuntimeConfig();
+  const { apiBase } = useRuntimeConfig();
+  const { isLoaded, isSignedIn, viewer } = useAuthState();
   const [chapter, setChapter] = useState("状态管理");
   const [items, setItems] = useState<BankItem[]>([]);
   const [sourceFilter, setSourceFilter] = useState("all");
@@ -48,7 +51,8 @@ export default function BankPage() {
       setLoading(true);
       const data = await apiRequest<BankResponse>(
         apiBase,
-        `/v1/question-bank?user_id=${encodeURIComponent(userId)}&chapter=${encodeURIComponent(chapter)}&limit=50`,
+        `/v1/question-bank?chapter=${encodeURIComponent(chapter)}&limit=50`,
+        { auth: "required" },
       );
       setItems(data.items || []);
       setOutput(JSON.stringify({ count: data.items.length }, null, 2));
@@ -65,6 +69,7 @@ export default function BankPage() {
       await apiRequest(apiBase, `/v1/question-bank/${id}/review`, {
         method: "POST",
         body: JSON.stringify({ review_status: "done", next_review_at: now }),
+        auth: "required",
       });
       await refresh();
     } catch (error) {
@@ -82,7 +87,7 @@ export default function BankPage() {
           <>
             <article className="panel-muted">
               <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">当前用户</p>
-              <p className="mt-3 text-lg font-semibold text-foreground">{userId}</p>
+              <p className="mt-3 text-lg font-semibold text-foreground">{viewer?.name || viewer?.email || "未登录"}</p>
             </article>
             <article className="panel-muted">
               <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">章节焦点</p>
@@ -91,6 +96,20 @@ export default function BankPage() {
           </>
         )}
       />
+
+      {!isLoaded ? (
+        <PagePanel>正在同步登录态...</PagePanel>
+      ) : !isSignedIn ? (
+        <PagePanel className="flex items-center justify-between gap-4">
+          <div>
+            <p className="text-base font-semibold text-foreground">题单页面需要先登录。</p>
+            <p className="mt-1 text-sm text-muted-foreground">题目来源、复习状态和薄弱项趋势都绑定在当前 viewer 下。</p>
+          </div>
+          <SignInButton mode="modal">
+            <button type="button" className="action-primary">立即登录</button>
+          </SignInButton>
+        </PagePanel>
+      ) : null}
 
       <div className="space-y-6">
         <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_300px]">

@@ -24,6 +24,7 @@ export const sourceLabel: Record<InterviewQuestion["source"], string> = {
   resume: "简历提取",
   doc: "资料提取",
   llm: "系统生成",
+  experience: "近期面经",
 };
 
 export const queueStatusLabel: Record<InterviewQuestion["status"], string> = {

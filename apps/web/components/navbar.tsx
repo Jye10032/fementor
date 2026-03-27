@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { GraduationCap, Home, MessageSquare, NotebookPen, Settings2 } from "lucide-react";
+import { GraduationCap, Home, LibraryBig, MessageSquare, NotebookPen, Settings2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { apiRequest } from "../lib/api";
+import { AuthStatus } from "./auth-status";
 import { useRuntimeConfig } from "./runtime-config";
 
 const HEALTH_POLL_INTERVAL_MS = 30000;
@@ -17,6 +18,7 @@ const NAV_ITEMS = [
   { href: "/", label: "首页", icon: Home },
   { href: "/resume", label: "档案管理", icon: NotebookPen },
   { href: "/interview", label: "模拟面试", icon: MessageSquare },
+  { href: "/experience", label: "面经库", icon: LibraryBig },
 ] as const;
 
 const isActive = (pathname: string, href: string) =>
@@ -41,8 +43,6 @@ export function Navbar() {
   const {
     apiBase,
     setApiBase,
-    userId,
-    setUserId,
     llmBaseUrl,
     setLlmBaseUrl,
     llmApiKey,
@@ -125,7 +125,7 @@ export function Navbar() {
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold text-foreground">运行配置</p>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">这里可以设置 API Base、User ID，以及运行时 LLM 的 Base URL / API Key。</p>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">这里可以设置 API Base，以及运行时 LLM 的 Base URL / API Key。</p>
                 </div>
                 <span className="rounded-full border border-border/70 bg-secondary/70 px-3 py-1 text-[11px] text-muted-foreground">
                   浏览器本地存储
@@ -136,10 +136,6 @@ export function Navbar() {
                 <label className="text-sm">
                   <span className="mb-1 block text-muted-foreground">API Base</span>
                   <input value={apiBase} onChange={(e) => setApiBase(e.target.value)} className="field-shell w-full" />
-                </label>
-                <label className="text-sm">
-                  <span className="mb-1 block text-muted-foreground">User ID</span>
-                  <input value={userId} onChange={(e) => setUserId(e.target.value)} className="field-shell w-full" />
                 </label>
                 <label className="text-sm">
                   <span className="mb-1 block text-muted-foreground">LLM Base URL</span>
@@ -175,6 +171,7 @@ export function Navbar() {
               </div>
             ) : null}
           </div>
+          <AuthStatus />
           <div className="rounded-[1.25rem] border border-border/80 bg-card/75 p-1 shadow-sm">
             <div className="flex items-center gap-1">
               {NAV_ITEMS.map((item) => (

@@ -11,6 +11,20 @@ const readArgValue = (args, index) => {
   return value;
 };
 
+const readArgPhrase = (args, index) => {
+  const values = [];
+
+  for (let cursor = index + 1; cursor < args.length; cursor += 1) {
+    const value = args[cursor];
+    if (!value || value.startsWith('--')) {
+      break;
+    }
+    values.push(value);
+  }
+
+  return values.join(' ').trim();
+};
+
 const parseArgs = (argv) => {
   const args = argv.slice(2);
   const options = {
@@ -23,8 +37,8 @@ const parseArgs = (argv) => {
 
     switch (arg) {
       case '--keyword':
-        options.keyword = readArgValue(args, index);
-        index += 1;
+        options.keyword = readArgPhrase(args, index);
+        index += Math.max(1, options.keyword ? options.keyword.split(/\s+/).length : 1);
         break;
       case '--pages':
         options.pages = Number(readArgValue(args, index));

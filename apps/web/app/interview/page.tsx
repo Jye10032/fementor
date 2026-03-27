@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { SignInButton } from "@clerk/nextjs";
+import { useAuthState } from "../../components/auth-provider";
 import { PageShell } from "../../components/page-shell";
 import { useRuntimeConfig } from "../../components/runtime-config";
 import { apiRequest } from "../../lib/api";
@@ -16,8 +18,11 @@ import { StartSessionResponse } from "./_lib/interview-page.types";
 
 export default function InterviewPage() {
   const router = useRouter();
-  const { apiBase, userId } = useRuntimeConfig();
+  const { apiBase } = useRuntimeConfig();
+  const { isLoaded, isSignedIn, viewer } = useAuthState();
   const [starting, setStarting] = useState(false);
+  const [useExperienceQuestions, setUseExperienceQuestions] = useState(true);
+  const [experienceQuery, setExperienceQuery] = useState("前端 面经");
   const {
     resumeLibrary,
     loadingResumeLibrary,
@@ -26,7 +31,7 @@ export default function InterviewPage() {
     activeResume,
     setResumePickerOpen,
     onSelectResume,
-  } = useResumePanel({ apiBase, userId });
+  } = useResumePanel({ apiBase, enabled: isSignedIn });
   const {
     jdLibrary,
     loadingJdLibrary,
@@ -35,10 +40,10 @@ export default function InterviewPage() {
     activeJd,
     setJdPickerOpen,
     onSelectJd,
-  } = useJdPanel({ apiBase, userId });
-  const { sessionHistory, loadingHistory } = useInterviewHistory({ apiBase, userId });
+  } = useJdPanel({ apiBase, enabled: isSignedIn });
+  const { sessionHistory, loadingHistory } = useInterviewHistory({ apiBase, enabled: isSignedIn });
 
-  const canStart = Boolean(activeResume && activeJd);
+  const canStart = Boolean(isSignedIn && activeResume && activeJd);
 
   const onStart = async () => {
     if (!canStart) return;
@@ -46,7 +51,12 @@ export default function InterviewPage() {
       setStarting(true);
       const interview = await apiRequest<StartSessionResponse>(apiBase, "/v1/interview/sessions/start", {
         method: "POST",
-        body: JSON.stringify({ user_id: userId, target_level: "mid" }),
+        body: JSON.stringify({
+          target_level: "mid",
+          use_experience_questions: useExperienceQuestions,
+          experience_query: experienceQuery,
+        }),
+        auth: "required",
       });
       const query = new URLSearchParams({ session_id: interview.id });
       router.push(`/interview/session?${query.toString()}`);
@@ -66,6 +76,40 @@ export default function InterviewPage() {
             <p className="tool-subheading">选择简历和 JD，开始 AI 面试。</p>
           </div>
         </header>
+
+        <section className="tool-section">
+          {!isLoaded ? (
+            <p className="text-sm text-muted-foreground">正在同步登录态...</p>
+          ) : isSignedIn ? (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-foreground">
+                  当前已登录：{viewer?.name || viewer?.email || "已登录用户"}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  面试记录、简历选择和历史会话会绑定到当前 viewer。
+                </p>
+              </div>
+              <span className="rounded-full border border-border/70 bg-secondary/70 px-3 py-1 text-xs text-muted-foreground">
+                登录态优先
+              </span>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-foreground">开始模拟面试前需要先登录。</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  简历选择、JD 选择、历史会话和本场回答都会关联到当前用户。
+                </p>
+              </div>
+              <SignInButton mode="modal">
+                <button type="button" className="action-primary">
+                  立即登录
+                </button>
+              </SignInButton>
+            </div>
+          )}
+        </section>
 
         <div className="tool-layout">
           <aside className="tool-sidebar">
@@ -107,6 +151,10 @@ export default function InterviewPage() {
           activeJd={activeJd}
           canStart={canStart}
           starting={starting}
+          useExperienceQuestions={useExperienceQuestions}
+          onUseExperienceQuestionsChange={setUseExperienceQuestions}
+          experienceQuery={experienceQuery}
+          onExperienceQueryChange={setExperienceQuery}
           onStart={() => void onStart()}
         />
       </div>
