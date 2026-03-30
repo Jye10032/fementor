@@ -4,7 +4,15 @@ import { SignInButton, UserButton } from "@clerk/nextjs";
 import { useAuthState } from "./auth-provider";
 
 export function AuthStatus() {
-  const { isLoaded, isSignedIn, authUser } = useAuthState();
+  const { authEnabled, isLoaded, isSignedIn } = useAuthState();
+
+  if (!authEnabled) {
+    return (
+      <div className="rounded-2xl border border-border/80 bg-card/75 px-3.5 py-2 text-sm text-muted-foreground shadow-sm">
+        登录未启用
+      </div>
+    );
+  }
 
   if (!isLoaded) {
     return (

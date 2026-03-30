@@ -11,6 +11,7 @@ const AuthContext = createContext<AuthState | null>(null);
 
 type AuthProviderProps = {
   children: ReactNode;
+  clerkEnabled?: boolean;
 };
 
 function buildAuthUser(user: ReturnType<typeof useUser>["user"]): AuthUser | null {
@@ -26,7 +27,31 @@ function buildAuthUser(user: ReturnType<typeof useUser>["user"]): AuthUser | nul
   };
 }
 
-export function AuthProvider({ children }: AuthProviderProps) {
+function DisabledAuthProvider({ children }: { children: ReactNode }) {
+  const value = useMemo<AuthState>(() => ({
+    authEnabled: false,
+    authReady: true,
+    isLoaded: true,
+    isSignedIn: false,
+    authUser: null,
+    viewer: null,
+    viewerLoading: false,
+    viewerError: null,
+    getToken: async () => null,
+    refreshViewer: async () => null,
+  }), []);
+
+  useEffect(() => {
+    setApiTokenResolver(async () => null);
+    return () => {
+      setApiTokenResolver(async () => null);
+    };
+  }, []);
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+function ClerkAuthProvider({ children }: { children: ReactNode }) {
   const { isLoaded, isSignedIn, getToken } = useAuth();
   const { user } = useUser();
   const { apiBase } = useRuntimeConfig();
@@ -60,6 +85,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const value = useMemo<AuthState>(
     () => ({
+      authEnabled: true,
       isLoaded,
       isSignedIn: Boolean(isSignedIn),
       authReady,
@@ -112,6 +138,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, [apiBase, isLoaded, isSignedIn]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+export function AuthProvider({ children, clerkEnabled = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) }: AuthProviderProps) {
+  if (!clerkEnabled) {
+    return <DisabledAuthProvider>{children}</DisabledAuthProvider>;
+  }
+
+  return <ClerkAuthProvider>{children}</ClerkAuthProvider>;
 }
 
 export function useAuthState() {

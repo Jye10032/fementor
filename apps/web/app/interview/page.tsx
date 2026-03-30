@@ -19,7 +19,7 @@ import { StartSessionResponse } from "./_lib/interview-page.types";
 export default function InterviewPage() {
   const router = useRouter();
   const { apiBase } = useRuntimeConfig();
-  const { isLoaded, isSignedIn, viewer } = useAuthState();
+  const { authEnabled, isLoaded, isSignedIn, viewer } = useAuthState();
   const [starting, setStarting] = useState(false);
   const [useExperienceQuestions, setUseExperienceQuestions] = useState(true);
   const [experienceQuery, setExperienceQuery] = useState("前端 面经");
@@ -82,6 +82,10 @@ export default function InterviewPage() {
               <span className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-secondary/70 px-3 py-1.5 text-xs text-muted-foreground">
                 <span className="inline-block h-2 w-2 rounded-full bg-[var(--accent)]" />
                 {viewer?.name || viewer?.email || "已登录"}
+              </span>
+            ) : !authEnabled ? (
+              <span className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-secondary/70 px-3 py-1.5 text-xs text-muted-foreground">
+                登录未启用
               </span>
             ) : (
               <SignInButton mode="modal">

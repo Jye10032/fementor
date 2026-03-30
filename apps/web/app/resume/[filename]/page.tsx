@@ -22,7 +22,7 @@ export default function ResumeDetailPage() {
   const params = useParams();
   const router = useRouter();
   const { apiBase } = useRuntimeConfig();
-  const { isLoaded, isSignedIn } = useAuthState();
+  const { authEnabled, isLoaded, isSignedIn } = useAuthState();
   const fileName = decodeURIComponent(String(params.filename ?? ""));
 
   const [doc, setDoc] = useState<ResumeReadResponse | null>(null);
@@ -118,9 +118,13 @@ export default function ResumeDetailPage() {
               <p className="text-sm font-medium text-foreground">查看个人简历详情前需要先登录。</p>
               <p className="mt-1 text-xs text-muted-foreground">该页面会读取你当前账户下保存的简历内容和默认简历状态。</p>
             </div>
-            <SignInButton mode="modal">
-              <button type="button" className="action-primary">立即登录</button>
-            </SignInButton>
+            {authEnabled ? (
+              <SignInButton mode="modal">
+                <button type="button" className="action-primary">立即登录</button>
+              </SignInButton>
+            ) : (
+              <span className="text-sm text-muted-foreground">登录未启用</span>
+            )}
           </div>
         ) : loading ? (
           <div className="tool-empty">加载中...</div>

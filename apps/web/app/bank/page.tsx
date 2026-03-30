@@ -28,7 +28,7 @@ type BankResponse = {
 
 export default function BankPage() {
   const { apiBase } = useRuntimeConfig();
-  const { isLoaded, isSignedIn, viewer } = useAuthState();
+  const { authEnabled, isLoaded, isSignedIn, viewer } = useAuthState();
   const [chapter, setChapter] = useState("状态管理");
   const [items, setItems] = useState<BankItem[]>([]);
   const [sourceFilter, setSourceFilter] = useState("all");
@@ -105,9 +105,13 @@ export default function BankPage() {
             <p className="text-base font-semibold text-foreground">题单页面需要先登录。</p>
             <p className="mt-1 text-sm text-muted-foreground">题目来源、复习状态和薄弱项趋势都绑定在当前 viewer 下。</p>
           </div>
-          <SignInButton mode="modal">
-            <button type="button" className="action-primary">立即登录</button>
-          </SignInButton>
+          {authEnabled ? (
+            <SignInButton mode="modal">
+              <button type="button" className="action-primary">立即登录</button>
+            </SignInButton>
+          ) : (
+            <span className="text-sm text-muted-foreground">登录未启用</span>
+          )}
         </PagePanel>
       ) : null}
 

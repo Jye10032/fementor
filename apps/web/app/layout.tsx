@@ -22,17 +22,28 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  const clerkEnabled = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
+
   return (
     <html lang="zh-CN">
       <body className={`${bodyFont.variable} ${displayFont.variable}`}>
-        <ClerkProvider>
+        {clerkEnabled ? (
+          <ClerkProvider>
+            <RuntimeConfigProvider>
+              <AuthProvider clerkEnabled={clerkEnabled}>
+                <Navbar />
+                <main className="min-h-[calc(100vh-57px)] bg-background">{children}</main>
+              </AuthProvider>
+            </RuntimeConfigProvider>
+          </ClerkProvider>
+        ) : (
           <RuntimeConfigProvider>
-            <AuthProvider>
+            <AuthProvider clerkEnabled={false}>
               <Navbar />
               <main className="min-h-[calc(100vh-57px)] bg-background">{children}</main>
             </AuthProvider>
           </RuntimeConfigProvider>
-        </ClerkProvider>
+        )}
       </body>
     </html>
   );

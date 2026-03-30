@@ -52,7 +52,7 @@ type ScoreResponse = {
 
 export default function PracticePage() {
   const { apiBase } = useRuntimeConfig();
-  const { isLoaded, isSignedIn, viewer } = useAuthState();
+  const { authEnabled, isLoaded, isSignedIn, viewer } = useAuthState();
   const [chapter, setChapter] = useState("");
   const [chapters, setChapters] = useState<Array<{ name: string; count: number }>>([]);
   const [chaptersLoading, setChaptersLoading] = useState(false);
@@ -199,9 +199,13 @@ export default function PracticePage() {
             <p className="text-base font-semibold text-foreground">章节练习需要先登录。</p>
             <p className="mt-1 text-sm text-muted-foreground">题单、评分记录和复习状态会绑定到当前用户。</p>
           </div>
-          <SignInButton mode="modal">
-            <button type="button" className="action-primary">立即登录</button>
-          </SignInButton>
+          {authEnabled ? (
+            <SignInButton mode="modal">
+              <button type="button" className="action-primary">立即登录</button>
+            </SignInButton>
+          ) : (
+            <span className="text-sm text-muted-foreground">登录未启用</span>
+          )}
         </PagePanel>
       ) : null}
 

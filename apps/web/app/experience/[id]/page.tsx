@@ -15,7 +15,7 @@ import { ExperienceDetailResponse, ExperienceRecleanResponse } from "../_lib/exp
 export default function ExperienceDetailPage() {
   const params = useParams<{ id: string }>();
   const { apiBase } = useRuntimeConfig();
-  const { authReady, isLoaded, isSignedIn, viewer } = useAuthState();
+  const { authEnabled, authReady, isLoaded, isSignedIn, viewer } = useAuthState();
   const [item, setItem] = useState<ExperienceDetailResponse["item"] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -97,9 +97,13 @@ export default function ExperienceDetailPage() {
             <p className="text-base font-semibold text-foreground">查看详情前可以先直接浏览，登录管理员账号后可执行重清洗。</p>
             <p className="mt-1 text-sm text-muted-foreground">当前页面支持公开查看；只有管理员可以重清洗并纠正题组。</p>
           </div>
-          <SignInButton mode="modal">
-            <button type="button" className="action-primary">立即登录</button>
-          </SignInButton>
+          {authEnabled ? (
+            <SignInButton mode="modal">
+              <button type="button" className="action-primary">立即登录</button>
+            </SignInButton>
+          ) : (
+            <span className="text-sm text-muted-foreground">登录未启用</span>
+          )}
         </PagePanel>
       ) : loading ? (
         <PagePanel>正在加载面经详情...</PagePanel>

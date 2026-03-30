@@ -19,7 +19,7 @@ export default function JdDetailPage() {
   const params = useParams();
   const router = useRouter();
   const { apiBase } = useRuntimeConfig();
-  const { isLoaded, isSignedIn } = useAuthState();
+  const { authEnabled, isLoaded, isSignedIn } = useAuthState();
   const fileName = decodeURIComponent(String(params.filename ?? ""));
 
   const [doc, setDoc] = useState<JdReadResponse | null>(null);
@@ -106,9 +106,13 @@ export default function JdDetailPage() {
               <p className="text-sm font-medium text-foreground">查看 JD 详情前需要先登录。</p>
               <p className="mt-1 text-xs text-muted-foreground">该页面会读取你当前账户下保存的 JD 内容和默认 JD 状态。</p>
             </div>
-            <SignInButton mode="modal">
-              <button type="button" className="action-primary">立即登录</button>
-            </SignInButton>
+            {authEnabled ? (
+              <SignInButton mode="modal">
+                <button type="button" className="action-primary">立即登录</button>
+              </SignInButton>
+            ) : (
+              <span className="text-sm text-muted-foreground">登录未启用</span>
+            )}
           </div>
         ) : loading ? (
           <div className="tool-empty">加载中...</div>

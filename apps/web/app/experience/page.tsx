@@ -14,7 +14,7 @@ import { useExperienceSync } from "./_hooks/use-experience-sync";
 
 export default function ExperiencePage() {
   const { apiBase } = useRuntimeConfig();
-  const { authReady, isLoaded, isSignedIn, viewer } = useAuthState();
+  const { authEnabled, authReady, isLoaded, isSignedIn, viewer } = useAuthState();
   const [searchQuery, setSearchQuery] = useState("");
   const deferredQuery = useDeferredValue(searchQuery);
   const experienceList = useExperienceList({
@@ -67,9 +67,13 @@ export default function ExperiencePage() {
             <LogIn className="h-4 w-4 shrink-0 text-amber-600" />
             <p className="text-sm text-amber-800">未登录时可查看面经，登录管理员账号后才能同步最新内容。</p>
           </div>
-          <SignInButton mode="modal">
-            <button type="button" className="cursor-pointer rounded-lg bg-amber-600 px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-amber-700">登录</button>
-          </SignInButton>
+          {authEnabled ? (
+            <SignInButton mode="modal">
+              <button type="button" className="cursor-pointer rounded-lg bg-amber-600 px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-amber-700">登录</button>
+            </SignInButton>
+          ) : (
+            <span className="text-sm text-amber-800">登录未启用</span>
+          )}
         </div>
       ) : null}
 
