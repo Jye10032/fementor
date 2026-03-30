@@ -5,6 +5,10 @@ const {
   upsertAppUserByClerk,
 } = require('./postgres');
 const {
+  getExperienceStorageDriver,
+  getExperienceStorageTarget,
+} = require('./experience/store');
+const {
   getInterviewSession,
   getUserById,
   upsertUser,
@@ -117,6 +121,8 @@ const getResolvedViewerAccessContext = async ({
     runtimeMode,
     publicSourceDriver: getPublicSourceDriver(),
     storageTarget: getRuntimeStorageTarget(),
+    experienceStorageDriver: getExperienceStorageDriver(),
+    experienceStorageTarget: getExperienceStorageTarget(),
     canManagePublicSources: canManagePublicSources({ runtimeMode, role }),
     userId,
   };
@@ -170,6 +176,7 @@ const buildViewerPayload = async ({ userId, authUser }) => {
   const runtimeMode = getAppRuntimeMode();
   const role = resolveViewerRole({ authUser, appUser });
   const storageTarget = getRuntimeStorageTarget();
+  const experienceStorageTarget = getExperienceStorageTarget();
 
   return {
     viewer: {
@@ -183,6 +190,8 @@ const buildViewerPayload = async ({ userId, authUser }) => {
       runtime_mode: runtimeMode,
       public_source_driver: getPublicSourceDriver(),
       public_source_storage_target: storageTarget,
+      experience_storage_driver: getExperienceStorageDriver(),
+      experience_storage_target: experienceStorageTarget,
       capabilities: {
         can_use_resume_ocr: true,
         daily_resume_ocr_limit: dailyLimit,
@@ -219,6 +228,8 @@ module.exports = {
   ensureLocalUserProfile,
   ensureSessionOwner,
   getAppRuntimeMode,
+  getExperienceStorageDriver,
+  getExperienceStorageTarget,
   getPublicSourceDriver,
   getResolvedViewerAccessContext,
   getResolvedUserContext,

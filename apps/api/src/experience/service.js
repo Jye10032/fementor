@@ -1,17 +1,5 @@
 const { randomUUID } = require('crypto');
-const {
-  createExperienceSyncJob,
-  getExperiencePostById,
-  updateExperienceSyncJob,
-  getExperienceSyncJobById,
-  getExperiencePostBySource,
-  insertExperiencePostWithGroups,
-  listExperiencePostIds,
-  listExperiencePosts,
-  getExperiencePostDetail,
-  searchExperienceQuestionItems,
-  updateExperiencePostWithGroups,
-} = require('../db');
+const { getExperienceStore } = require('./store');
 const { crawlNiukeExperiences } = require('../niuke-crawler');
 const {
   cleanExperienceContent,
@@ -71,11 +59,12 @@ const isWithinDays = (publishedAt, days = 7) => {
 const normalizeSourcePostId = (url) => String(url || '').split('/').pop()?.split('?')[0] || '';
 
 const runExperienceSyncJob = async ({ jobId, userId, keyword, days = 7, limit = 10 }) => {
+  const store = getExperienceStore();
   if (runningJobs.has(jobId)) {
     return;
   }
   runningJobs.add(jobId);
-  updateExperienceSyncJob({
+  await store.updateExperienceSyncJob({
     jobId,
     status: 'running',
     startedAt: new Date().toISOString(),
@@ -111,7 +100,7 @@ const runExperienceSyncJob = async ({ jobId, userId, keyword, days = 7, limit = 
         continue;
       }
 
-      const existed = getExperiencePostBySource({
+      const existed = await store.getExperiencePostBySource({
         sourcePlatform: 'nowcoder',
         sourcePostId,
       });
@@ -145,7 +134,7 @@ const runExperienceSyncJob = async ({ jobId, userId, keyword, days = 7, limit = 
           topicGroups: cleaned.topic_groups,
         });
 
-        insertExperiencePostWithGroups({ post, groups });
+        await store.insertExperiencePostWithGroups({ post, groups });
         createdCount += 1;
       } catch (error) {
         failedCount += 1;
@@ -157,7 +146,7 @@ const runExperienceSyncJob = async ({ jobId, userId, keyword, days = 7, limit = 
       }
     }
 
-    updateExperienceSyncJob({
+    await store.updateExperienceSyncJob({
       jobId,
       status: 'completed',
       createdCount,
@@ -167,7 +156,7 @@ const runExperienceSyncJob = async ({ jobId, userId, keyword, days = 7, limit = 
       errorMessage: '',
     });
   } catch (error) {
-    updateExperienceSyncJob({
+    await store.updateExperienceSyncJob({
       jobId,
       status: 'failed',
       finishedAt: new Date().toISOString(),
@@ -178,9 +167,10 @@ const runExperienceSyncJob = async ({ jobId, userId, keyword, days = 7, limit = 
   }
 };
 
-const startExperienceSync = ({ userId, keyword, days = 7, limit = 10 }) => {
+const startExperienceSync = async ({ userId, keyword, days = 7, limit = 10 }) => {
+  const store = getExperienceStore();
   const jobId = `exp_sync_${randomUUID()}`;
-  const job = createExperienceSyncJob({
+  const job = await store.createExperienceSyncJob({
     id: jobId,
     userId,
     keyword,
@@ -195,7 +185,8 @@ const startExperienceSync = ({ userId, keyword, days = 7, limit = 10 }) => {
 };
 
 const recleanExperiencePost = async ({ postId }) => {
-  const existingPost = getExperiencePostById(postId);
+  const store = getExperienceStore();
+  const existingPost = await store.getExperiencePostById(postId);
   if (!existingPost) {
     return null;
   }
@@ -233,7 +224,7 @@ const recleanExperiencePost = async ({ postId }) => {
     topicGroups: cleaned.topic_groups,
   });
 
-  return updateExperiencePostWithGroups({
+  return store.updateExperiencePostWithGroups({
     postId: existingPost.id,
     post: nextPost,
     groups,
@@ -241,7 +232,8 @@ const recleanExperiencePost = async ({ postId }) => {
 };
 
 const recleanAllExperiencePosts = async ({ onlyValid = false, onProgress } = {}) => {
-  const postIds = listExperiencePostIds({ onlyValid });
+  const store = getExperienceStore();
+  const postIds = await store.listExperiencePostIds({ onlyValid });
   let completedCount = 0;
   let failedCount = 0;
   const failedItems = [];
@@ -282,11 +274,11 @@ const recleanAllExperiencePosts = async ({ onlyValid = false, onProgress } = {})
 
 module.exports = {
   startExperienceSync,
-  getExperienceSyncJobById,
-  listExperiencePosts,
-  getExperiencePostDetail,
+  getExperienceSyncJobById: (...args) => getExperienceStore().getExperienceSyncJobById(...args),
+  listExperiencePosts: (...args) => getExperienceStore().listExperiencePosts(...args),
+  getExperiencePostDetail: (...args) => getExperienceStore().getExperiencePostDetail(...args),
   recleanExperiencePost,
   recleanAllExperiencePosts,
-  searchExperienceQuestionItems,
+  searchExperienceQuestionItems: (...args) => getExperienceStore().searchExperienceQuestionItems(...args),
   normalizePublishedAt,
 };

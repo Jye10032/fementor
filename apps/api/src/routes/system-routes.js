@@ -7,6 +7,8 @@ const {
   buildViewerPayload,
   ensureLocalUserProfile,
   getAppRuntimeMode,
+  getExperienceStorageDriver,
+  getExperienceStorageTarget,
   getPublicSourceDriver,
   getResolvedUserContext,
   getRuntimeStorageTarget,
@@ -42,6 +44,8 @@ const getHealthPayload = () => {
       mode: getAppRuntimeMode(),
       public_source_driver: getPublicSourceDriver(),
       public_source_storage_target: getRuntimeStorageTarget(),
+      experience_storage_driver: getExperienceStorageDriver(),
+      experience_storage_target: getExperienceStorageTarget(),
     },
     sirchmunk: getSirchmunkStatus(),
   };

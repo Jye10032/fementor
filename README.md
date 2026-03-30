@@ -1,127 +1,274 @@
-# fementor
+# FEMentor
 
-> 当前项目尚未开发完成，README 中展示的能力包含已实现部分与正在推进中的设计方向。
+FEMentor 是一个面向前端求职场景的 AI 面试训练系统。围绕「简历解析 → 岗位理解 → 模拟面试 → 题库沉淀」构建完整训练闭环，支持 SSE 流式输出与检索增强评分。
 
-FEMentor 是一个面向前端求职场景的 AI 面试训练系统，围绕“简历解析、岗位理解、模拟面试、检索增强评分、长期记忆沉淀”构建完整训练闭环。
+## 进度
 
-项目当前采用前后端分离架构：
+- [x] 简历上传与 LLM 结构化摘要
+- [x] JD 上传与岗位理解
+- [x] 模拟面试（逐轮出题、SSE 流式输出、追问）
+- [x] 面试会话历史记录
+- [x] 项目经历库管理与面试上下文检索
+- [x] 前端运行时 LLM 配置同步
+- [x] 本地模式 / 云端模式双运行态
+- [ ] 检索增强评分（Sirchmunk 证据链路接入评分流程）
+- [ ] 薄弱项追踪与针对性推题
+- [ ] 公共题源同步与题库沉淀
+- [ ] 练习模式完善
 
-- 前端基于 `Next.js`
-- 后端基于 `Node.js`
-- 数据层使用本地 `SQLite`
-- 检索链路接入 `Sirchmunk`
-- 对话与评分链路接入 OpenAI 兼容模型与 SSE 流式输出
+## 技术栈
 
-核心目标不是单次问答，而是把候选人的简历、JD、项目经历、练习记录和面试反馈串起来，形成一套可持续迭代的训练过程。
-
-## 项目截图
-
-![FEMentor 简历解析页](./QQ20260317-221719.png)
-
-![FEMentor 模拟面试页](./QQ20260317-221814.png)
-
-## 核心能力
-
-- 简历 / JD 上传与解析，生成候选人画像与岗位理解摘要
-- 模拟面试逐轮出题、逐轮评分，并支持 SSE 流式反馈
-- 本地文档优先的检索增强链路，用于回答 grounding、评分辅助与追问生成
-- 练习记录、优缺点、薄弱点与长期记忆沉淀
-- 对话式训练体验，支持从题目练习扩展到项目复盘与知识点追问
-
-## 当前目标
-
-- 支持用户上传文档（简历 / 学习笔记 / 项目文档）
-- 本地检索优先（Sirchmunk / rga），证据不足时再 WebSearch
-- 对练习与模拟面试进行评分，沉淀用户薄弱项和优缺点
-- 使用 Markdown + 结构化数据做可追溯 memory
-- 支持对话式 LLM 与 SSE 流式输出
+| 层 | 技术 |
+|---|---|
+| 前端 | Next.js 15 · React 18 · Tailwind CSS 4 · TypeScript |
+| 后端 | Node.js · Fastify |
+| 数据库 | SQLite（本地） / PostgreSQL（云端，可选） |
+| 认证 | Clerk |
+| 检索 | Sirchmunk（本地检索引擎） |
+| 文档解析 | pdf-parse · Mammoth · 火山引擎 OCR |
+| LLM | OpenAI 兼容接口 · SSE 流式输出 |
 
 ## 项目结构
 
-- `apps/api`：后端 API（MVP 骨架）
-- `apps/web`：Next.js 前端
-- `docs`：需求、架构、API、DB、迭代日志
-- `data/user_docs`：用户上传文档（本地）
-- `data/memory`：用户 Markdown memory
+```
+fementor/
+├── apps/
+│   ├── api/          # 后端 API 服务
+│   │   ├── src/
+│   │   │   ├── routes/           # 路由层
+│   │   │   ├── interview/        # 面试上下文、出题、评分
+│   │   │   ├── experience/       # 项目经历同步与检索
+│   │   │   ├── question-bank/    # 题库管理
+│   │   │   ├── retrieval/        # 检索适配层
+│   │   │   └── db/               # 数据库初始化与迁移
+│   │   └── scripts/              # 工具脚本
+│   └── web/          # Next.js 前端
+│       ├── app/
+│       │   ├── resume/           # 简历解析
+│       │   ├── interview/        # 模拟面试
+│       │   ├── experience/       # 项目经历库
+│       │   ├── bank/             # 题库
+│       │   └── practice/         # 刷题练习
+│       ├── components/           # 公共组件
+│       └── lib/                  # 工具函数
+├── data/             # 本地数据（SQLite、用户文档、记忆）
+├── docs/             # 需求、架构、API 文档
+└── scripts/          # 根级工具脚本
+```
 
-## 启动
+## 产品说明
+
+FEMentor 解决的核心问题是：前端候选人缺少一个能「理解自己背景」的练习环境。市面上的面试题库是通用的，但真实面试官会根据你的简历和目标岗位来提问。FEMentor 把你的简历、JD、项目经历串联起来，生成贴合个人背景的面试训练流程。
+
+### 训练闭环
+
+```
+简历 / JD 上传  →  岗位画像生成  →  模拟面试（逐轮出题）  →  评分与追问  →  薄弱项沉淀  →  针对性练习
+       ↑                                                                              |
+       └──────────────────────── 项目经历补充 · 题库积累 ────────────────────────────────┘
+```
+
+### 简历 / JD 管理
+
+上传 PDF 或 DOCX 格式的简历，系统自动提取正文并通过 LLM 生成结构化摘要，包括技术栈、项目经验、工作年限等关键维度。同时支持上传目标岗位的 JD，生成岗位理解摘要。简历与 JD 的解析结果会作为后续面试出题和评分的基础上下文。
+
+### 模拟面试
+
+基于已解析的简历和 JD，系统逐轮生成面试题目，模拟真实面试官的提问节奏。每轮回答后实时给出评分与反馈，并根据回答质量决定是否追问。整个过程通过 SSE 流式输出，面试体验接近实时对话。支持查看历史面试会话，对比不同场次的表现。
+
+### 项目经历库
+
+独立管理你的项目经历条目。面试过程中，系统会自动检索与当前问题相关的项目经历，作为出题和评分的补充上下文，让追问更贴近你的实际工作内容。
+
+### 题库与练习
+
+维护个人题库，支持从公共题源（如牛客等）远程同步题目。系统根据历史评分追踪薄弱知识点，在练习模式中优先推送你尚未掌握的题目，形成有针对性的刷题路径。
+
+#### 牛客面经爬取
+
+系统内置牛客网面经爬虫，可从牛客讨论区批量抓取前端面经帖，提取面试题目并入库。
+
+**CLI 调用：**
+
+```bash
+npm run crawl:niuke -- --keyword "前端 面经" --pages 3 --max-items 30
+```
+
+| 参数 | 说明 | 默认值 |
+|---|---|---|
+| `--keyword` | 搜索关键词 | `前端 面经` |
+| `--pages` | 爬取列表页数 | 3（上限 100） |
+| `--max-items` | 最大抓取文章数 | 30（上限 500） |
+| `--delay-ms` | 请求间隔（ms） | 1200 |
+| `--timeout-ms` | 单次请求超时 | 15000 |
+| `--article-url` | 直接指定文章 URL（可多次使用） | — |
+| `--output` | 输出 JSON 路径 | `data/crawled/niuke-experiences.json` |
+| `--verbose` | 详细日志 | false |
+
+**爬取流程：**
+
+1. **列表发现** — 尝试多种牛客搜索 URL 模式（`/search`、`/discuss`），提取文章链接并去重
+2. **正文提取** — 对每篇文章解析标题、作者、发布时间、正文内容和标签。正文优先取 `.feed-content-text` 等结构化节点，其次尝试页面内嵌 JSON，兜底取最大文本块
+3. **相关性评分** — 对关键词分词后在标题（3x）、摘要（2x）、正文（1x）、标签中加权匹配，过滤无关文章
+4. **输出** — 生成结构化 JSON，包含文章元信息、正文、相关性评分和爬取统计
+
+**面经入库流程：**
+
+爬取结果通过经历同步任务（`POST /v1/experience-sync/jobs`）进入数据库：
+
+```
+爬取 JSON → 按日期过滤 → 去重（source_platform + source_post_id）
+         → LLM 清洗（提取公司、岗位、面试阶段、题目分组）
+         → 写入 experience_post / experience_question_group / experience_question_item
+```
+
+清洗阶段会对面经原文做结构化拆解：识别公司名称和岗位、划分面试阶段（一面/二面/HR 面等）、按知识领域对题目分组，并对内容质量评分。
+
+#### 三层题库架构
+
+题目从爬取到用户练习经过三层流转：
+
+```
+question_source（公共题源层）
+    ↓  用户收录
+user_question_bank（个人题库层，含复习状态和掌握度）
+    ↓  练习作答
+question_attempt（练习记录层，含评分和间隔复习调度）
+```
+
+- **公共题源**（`question_source`）：存放从牛客爬取或远程同步的题目，按 `(source_type, source_ref_id)` 去重，支持相同题目合并
+- **个人题库**（`user_question_bank`）：用户从公共题源收录题目后生成，追踪复习状态（`review_status`）、掌握度（`mastery_level` 0-100）、下次复习时间（`next_review_at`），支持收藏标记
+- **练习记录**（`question_attempt`）：每次作答记录答案、评分、优缺点和证据引用，作答后自动更新间隔复习调度
+
+#### 远程题源同步
+
+除本地爬取外，支持从远程 API 增量同步公共题源：
+
+```bash
+# 环境变量配置
+PUBLIC_SOURCE_REMOTE_BASE_URL=https://your-source-server.com
+PUBLIC_SOURCE_REMOTE_API_KEY=your-api-key
+```
+
+| 接口 | 说明 |
+|---|---|
+| `GET /v1/public-question-sources/local-status` | 查看本地同步状态 |
+| `POST /v1/public-question-sources/check-update` | 检查远程是否有更新 |
+| `POST /v1/public-question-sources/sync` | 触发增量同步 |
+
+同步机制基于 `last_server_time` 做增量拉取，每次仅获取上次同步之后变更的题目，避免全量重复同步。
+
+### 检索增强评分
+
+回答评分不只依赖 LLM 的通用判断。系统通过本地检索引擎（Sirchmunk）在你的文档和项目经历中查找相关证据，辅助评分和生成追问，减少 LLM 幻觉对评分准确性的影响。
+
+## 快速启动
+
+### 环境要求
+
+- Node.js >= 18
+- npm
+
+### 安装与运行
 
 ```bash
 npm install
 npm run dev
 ```
 
-默认会同时启动：
+默认同时启动：
 
 - API：`http://localhost:3300`
 - Web：`http://localhost:3000`
 
-如需单独启动：
+单独启动：
 
 ```bash
 npm run dev:api
 npm run dev:web
 ```
 
-页面入口：
+### 环境变量
 
-- `/`：总览
-- `/resume`：简历解析
-- `/interview`：模拟面试会话
+复制 `apps/api/.env.example` 为 `apps/api/.env`，按需配置：
 
-## 主要页面
+```bash
+cp apps/api/.env.example apps/api/.env
+```
 
-### 简历解析
+**必须配置（LLM 相关功能）：**
 
-- 上传 PDF / DOCX 简历
-- 解析正文并生成简历摘要
-- 管理已上传简历与激活态
+| 变量 | 说明 | 默认值 |
+|---|---|---|
+| `OPENAI_API_KEY` | LLM API Key | — |
+| `OPENAI_BASE_URL` | LLM 接口地址 | `https://api.openai.com/v1` |
+| `OPENAI_MODEL` | 模型名称 | `gpt-4o-mini` |
 
-### 模拟面试
+**可选配置：**
 
-- 基于简历和 JD 生成题目
-- 支持逐轮回答、逐轮评分、追问与反馈
-- 支持 SSE 流式阶段信息与最终结果
+| 变量 | 说明 |
+|---|---|
+| `DATABASE_URL` | PostgreSQL 连接串（不配置则使用本地 SQLite） |
+| `CLERK_SECRET_KEY` / `CLERK_JWT_KEY` | Clerk 认证（不配置则使用本地模式） |
+| `VOLC_ACCESSKEY` / `VOLC_SECRETKEY` | 火山引擎 OCR（简历 PDF 解析） |
+| `SIRCHMUNK_BIN` / `SIRCHMUNK_MODE` | Sirchmunk 检索引擎 |
+| `PUBLIC_SOURCE_REMOTE_BASE_URL` | 公共题源远程同步地址 |
 
-## 当前数据库
+### 运行模式
 
-- 本地 SQLite：`data/fementor.db`
+- **本地模式**（默认）：`APP_RUNTIME_MODE=local`，SQLite 存储，无需认证
+- **云端模式**：`APP_RUNTIME_MODE=cloud`，PostgreSQL + Clerk 认证
 
-## LLM 配置（可选）
+## 主要 API 路由
 
-后端会自动读取 `apps/api/.env`。
+| 路径 | 说明 |
+|---|---|
+| `GET /health` | 健康检查（含 LLM / Sirchmunk 状态） |
+| `POST /v1/resume/parse` | 简历解析 |
+| `POST /v1/jd/upload` | JD 上传 |
+| `POST /v1/interview/sessions/start` | 开始面试会话 |
+| `POST /v1/retrieval/search` | 统一检索 |
+| `POST /v1/scoring/evaluate` | 答题评分 |
+| `GET /v1/question-bank` | 题库查询 |
+| `GET /v1/experiences` | 项目经历列表 |
+| `POST /v1/experience-sync/jobs` | 触发牛客面经爬取与入库 |
+| `POST /v1/question-sources/promote` | 将题目提升至公共题源 |
+| `POST /v1/user-question-bank` | 收录题目到个人题库 |
+| `GET /v1/user-question-bank` | 查询个人题库 |
+| `GET /v1/practice/next` | 获取下一道待复习题目 |
+| `POST /v1/question-attempts` | 提交练习作答记录 |
+| `POST /v1/public-question-sources/sync` | 远程题源增量同步 |
+| `POST /v1/runtime/llm-config` | 前端同步 LLM 配置 |
 
-- `OPENAI_BASE_URL`（默认 `https://api.openai.com/v1`）
-- `OPENAI_API_KEY`
-- `OPENAI_MODEL`（默认 `gpt-4o-mini`）
+## 数据库表
 
-未配置 `OPENAI_API_KEY` 时，依赖 LLM 的接口会直接报错。
+| 表 | 用途 |
+|---|---|
+| `user_profile` | 用户信息、简历/JD 摘要 |
+| `interview_session` / `interview_turn` / `interview_question` | 面试会话、轮次、题目队列 |
+| `attempt` | 练习记录 |
+| `score_report` | 评分报告 |
+| `weakness_tag` | 薄弱项标签 |
+| `question_bank` | 个人题库（旧版） |
+| `question_source` | 公共题源（牛客爬取 / 远程同步） |
+| `user_question_bank` | 个人题库（新版，含掌握度和复习调度） |
+| `question_attempt` | 练习作答记录 |
+| `public_source_sync_state` | 远程题源同步状态 |
+| `experience_sync_job` | 面经爬取同步任务 |
+| `experience_post` / `experience_question_group` / `experience_question_item` | 面经帖 / 题目分组 / 题目条目 |
+| `evidence_ref` | 证据引用 |
 
-当前已经接入 LLM 的链路：
+## 页面入口
 
-- `/v1/resume/parse`：使用 LLM 生成简历摘要
-- `/v1/scoring/evaluate`：分数仍走规则评分，优点/缺点/反馈优先使用 LLM 重写
-- `/v1/chat/sessions/*`：对话与 SSE 流式输出
+| 路径 | 说明 |
+|---|---|
+| `/` | 首页总览 |
+| `/resume` | 简历解析与管理 |
+| `/interview` | 模拟面试 |
+| `/experience` | 项目经历库 |
+| `/bank` | 题库 |
+| `/practice` | 刷题练习 |
 
-## 检索策略（当前）
+## License
 
-1. `POST /v1/retrieval/search` 为统一入口。
-2. 后端通过统一检索适配层输出 `query_plan / evidence_refs / strategy`。
-3. 默认 `strategy=auto`：不再自动触发 `sirchmunk`，当前仅走本地检索链路。
-4. `sirchmunk` 仅保留为显式 `strategy=sirchmunk` 的独立调试入口。
-5. 不再提供 `web_fallback` 占位兜底。
-
-当前上层业务只依赖统一返回结构，不依赖 `sirchmunk` 的 `FAST/DEEP` 等内部概念。
-
-可选的 `sirchmunk` 环境变量：
-
-- `SIRCHMUNK_BIN`：命令路径，默认 `sirchmunk`
-- `SIRCHMUNK_MODE`：搜索模式，默认 `FAST`
-
-可通过 `GET /health` 查看当前 `llm` 与 `sirchmunk` 状态。
-
-## 当前演进方向
-
-- 从“整场静态出题”演进到“逐题生成 + 逐题检索规划”
-- 从简单上下文堆叠演进到“短期记忆 + 长期画像 + 块级 compact”
-- 从规则摘要演进到更稳定的题目级 retrieval query 与证据型评分链路
+Private

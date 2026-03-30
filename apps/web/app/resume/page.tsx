@@ -453,7 +453,7 @@ function ResumePageContent() {
                 />
               </label>
             </div>
-            <p className="text-xs text-muted-foreground">{resumeFileStatus}</p>
+            <p className={`text-xs ${/需要先登录|失败|不支持/.test(resumeFileStatus) ? "text-red-500" : "text-muted-foreground"}`}>{resumeFileStatus}</p>
             <div className="space-y-1.5">
               <label htmlFor="resume-text" className="text-sm font-medium text-foreground">或粘贴简历文本</label>
               <textarea

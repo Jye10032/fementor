@@ -34,7 +34,7 @@ const createSyncJobResponse = async ({ req, body }) => {
     return { statusCode: 400, payload: { error: 'keyword is required' } };
   }
 
-  const job = startExperienceSync({
+  const job = await startExperienceSync({
     userId: context.userId,
     keyword,
     days,
@@ -46,7 +46,7 @@ const createSyncJobResponse = async ({ req, body }) => {
     payload: {
       job_id: job.id,
       runtime_mode: context.runtimeMode,
-      storage_target: context.storageTarget,
+      storage_target: context.experienceStorageTarget,
       status: job.status,
     },
   };
@@ -56,7 +56,7 @@ const getSyncJobResponse = async ({ req, pathname }) => {
   const context = await getResolvedViewerAccessContext({ req });
   assertCanManagePublicSources(context);
   const jobId = requirePathSegment(pathname, 4, 'job_id');
-  const job = getExperienceSyncJobById(jobId);
+  const job = await getExperienceSyncJobById(jobId);
   if (!job) {
     return { statusCode: 404, payload: { error: 'job not found' } };
   }
@@ -78,7 +78,7 @@ const listExperiencesResponse = async ({ req, searchParams }) => {
   const pageSize = Math.min(50, Math.max(1, parseNumberOrFallback(searchParams.get('page_size') || 20, 20)));
   const onlyValid = String(searchParams.get('only_valid') || '1') !== '0';
 
-  const result = listExperiencePosts({
+  const result = await listExperiencePosts({
     query,
     company,
     role,
@@ -101,7 +101,7 @@ const listExperiencesResponse = async ({ req, searchParams }) => {
 
 const getExperienceDetailResponse = async ({ req, pathname }) => {
   const experienceId = requirePathSegment(pathname, 3, 'id');
-  const item = getExperiencePostDetail(experienceId);
+  const item = await getExperiencePostDetail(experienceId);
   if (!item) {
     return { statusCode: 404, payload: { error: 'experience not found' } };
   }

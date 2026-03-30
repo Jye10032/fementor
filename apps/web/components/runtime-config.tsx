@@ -26,11 +26,13 @@ type RuntimeConfigContextValue = {
   syncLlmConfig: () => Promise<void>;
 };
 
-const DEFAULT_API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:3300";
+const DEFAULT_LOCAL_API_BASE = "http://localhost:3300";
+const DEFAULT_API_BASE = process.env.NEXT_PUBLIC_API_BASE || DEFAULT_LOCAL_API_BASE;
 const DEFAULT_LLM_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_LLM_MODEL = "gpt-4o-mini";
 
 type HealthResponse = {
+  ok?: boolean;
   llm?: {
     base_url?: string;
     model?: string;
@@ -39,6 +41,62 @@ type HealthResponse = {
 };
 
 const RuntimeConfigContext = createContext<RuntimeConfigContextValue | null>(null);
+
+function normalizeBaseUrl(value: string | null | undefined) {
+  return String(value || "").trim().replace(/\/+$/, "");
+}
+
+function inferRailwayApiBase(origin: string) {
+  const normalizedOrigin = normalizeBaseUrl(origin);
+
+  if (!normalizedOrigin.includes(".up.railway.app")) {
+    return null;
+  }
+
+  if (normalizedOrigin.includes("-web-")) {
+    return normalizedOrigin.replace("-web-", "-api-");
+  }
+
+  if (normalizedOrigin.includes("-web.")) {
+    return normalizedOrigin.replace("-web.", "-api.");
+  }
+
+  return null;
+}
+
+async function probeHealth(baseUrl: string) {
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
+  if (!normalizedBaseUrl) return false;
+
+  try {
+    const response = await fetch(`${normalizedBaseUrl}/health`, { cache: "no-store" });
+    if (!response.ok) return false;
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.toLowerCase().includes("application/json")) return false;
+    const data = (await response.json()) as HealthResponse;
+    return data.ok === true;
+  } catch {
+    return false;
+  }
+}
+
+function getBootstrapApiCandidates() {
+  if (typeof window === "undefined") {
+    return [normalizeBaseUrl(DEFAULT_API_BASE)].filter(Boolean);
+  }
+
+  const savedApi = normalizeBaseUrl(window.localStorage.getItem("fementor.apiBase"));
+  const envApi = normalizeBaseUrl(process.env.NEXT_PUBLIC_API_BASE);
+  const currentOrigin = normalizeBaseUrl(window.location.origin);
+  const inferredRailwayApi = inferRailwayApiBase(currentOrigin);
+  const localFallback = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+    ? DEFAULT_LOCAL_API_BASE
+    : "";
+
+  return [savedApi, envApi, inferredRailwayApi, localFallback]
+    .map((candidate) => normalizeBaseUrl(candidate))
+    .filter((candidate, index, items) => Boolean(candidate) && items.indexOf(candidate) === index);
+}
 
 type ProviderProps = {
   children: ReactNode;
@@ -56,7 +114,7 @@ export function RuntimeConfigProvider({ children }: ProviderProps) {
   const bootstrappedSyncRef = useRef(false);
 
   useEffect(() => {
-    const savedApi = window.localStorage.getItem("fementor.apiBase") || DEFAULT_API_BASE;
+    const savedApi = normalizeBaseUrl(window.localStorage.getItem("fementor.apiBase")) || normalizeBaseUrl(DEFAULT_API_BASE);
     const savedLlmBaseUrl = window.localStorage.getItem("fementor.llmBaseUrl");
     const savedLlmApiKey = window.localStorage.getItem("fementor.llmApiKey");
     const savedLlmModel = window.localStorage.getItem("fementor.llmModel");
@@ -67,9 +125,26 @@ export function RuntimeConfigProvider({ children }: ProviderProps) {
     if (savedLlmModel) setLlmModel(savedLlmModel);
 
     void (async () => {
+      let resolvedApiBase = savedApi;
+
       try {
-        const response = await fetch(`${savedApi}/health`, { cache: "no-store" });
+        const candidates = getBootstrapApiCandidates();
+
+        for (const candidate of candidates) {
+          if (await probeHealth(candidate)) {
+            resolvedApiBase = candidate;
+            break;
+          }
+        }
+
+        if (resolvedApiBase !== savedApi) {
+          setApiBase(resolvedApiBase);
+        }
+
+        const response = await fetch(`${resolvedApiBase}/health`, { cache: "no-store" });
         if (!response.ok) return;
+        const contentType = response.headers.get("content-type") || "";
+        if (!contentType.toLowerCase().includes("application/json")) return;
         const data = (await response.json()) as HealthResponse;
         const backendBaseUrl = String(data.llm?.base_url || "").trim();
         const backendModel = String(data.llm?.model || "").trim();
@@ -90,7 +165,7 @@ export function RuntimeConfigProvider({ children }: ProviderProps) {
 
   useEffect(() => {
     if (!initializedRef.current) return;
-    window.localStorage.setItem("fementor.apiBase", apiBase);
+    window.localStorage.setItem("fementor.apiBase", normalizeBaseUrl(apiBase));
   }, [apiBase]);
 
   useEffect(() => {

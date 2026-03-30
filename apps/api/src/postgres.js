@@ -98,6 +98,105 @@ async function initPostgres() {
           CREATE UNIQUE INDEX IF NOT EXISTS idx_resume_parse_cache_file_hash ON resume_parse_cache(file_hash);
         `);
         await client.query(`
+          CREATE TABLE IF NOT EXISTS experience_sync_job (
+            id text PRIMARY KEY,
+            user_id text NOT NULL,
+            keyword text NOT NULL,
+            status text NOT NULL,
+            requested_limit integer NOT NULL DEFAULT 10,
+            created_count integer NOT NULL DEFAULT 0,
+            skipped_count integer NOT NULL DEFAULT 0,
+            failed_count integer NOT NULL DEFAULT 0,
+            started_at timestamptz,
+            finished_at timestamptz,
+            error_message text NOT NULL DEFAULT '',
+            created_at timestamptz NOT NULL DEFAULT now(),
+            updated_at timestamptz NOT NULL DEFAULT now()
+          );
+
+          CREATE INDEX IF NOT EXISTS idx_experience_sync_job_user_created
+            ON experience_sync_job(user_id, created_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_experience_sync_job_status
+            ON experience_sync_job(status, updated_at DESC);
+
+          CREATE TABLE IF NOT EXISTS experience_post (
+            id text PRIMARY KEY,
+            source_platform text NOT NULL,
+            source_post_id text NOT NULL,
+            source_url text NOT NULL,
+            keyword text NOT NULL DEFAULT '',
+            title text NOT NULL,
+            author_name text NOT NULL DEFAULT '',
+            published_at timestamptz,
+            content_raw text NOT NULL,
+            content_cleaned text NOT NULL DEFAULT '',
+            summary text NOT NULL DEFAULT '',
+            company_name text NOT NULL DEFAULT '',
+            role_name text NOT NULL DEFAULT '',
+            interview_stage text NOT NULL DEFAULT '未知',
+            quality_score integer NOT NULL DEFAULT 0,
+            is_valid boolean NOT NULL DEFAULT true,
+            clean_status text NOT NULL DEFAULT 'pending',
+            crawl_job_id text,
+            content_hash text NOT NULL DEFAULT '',
+            created_at timestamptz NOT NULL DEFAULT now(),
+            updated_at timestamptz NOT NULL DEFAULT now()
+          );
+
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_experience_post_source_unique
+            ON experience_post(source_platform, source_post_id);
+          CREATE INDEX IF NOT EXISTS idx_experience_post_published
+            ON experience_post(published_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_experience_post_job
+            ON experience_post(crawl_job_id);
+          CREATE INDEX IF NOT EXISTS idx_experience_post_company_role
+            ON experience_post(company_name, role_name, published_at DESC);
+
+          CREATE TABLE IF NOT EXISTS experience_question_group (
+            id text PRIMARY KEY,
+            post_id text NOT NULL,
+            topic_cluster text NOT NULL DEFAULT '',
+            canonical_question text NOT NULL DEFAULT '',
+            group_order integer NOT NULL DEFAULT 0,
+            group_type text NOT NULL DEFAULT 'single',
+            frequency_score double precision NOT NULL DEFAULT 0,
+            confidence double precision NOT NULL DEFAULT 0,
+            created_at timestamptz NOT NULL DEFAULT now(),
+            updated_at timestamptz NOT NULL DEFAULT now()
+          );
+
+          CREATE INDEX IF NOT EXISTS idx_experience_question_group_post
+            ON experience_question_group(post_id, group_order ASC);
+
+          CREATE TABLE IF NOT EXISTS experience_question_item (
+            id text PRIMARY KEY,
+            group_id text NOT NULL,
+            post_id text NOT NULL,
+            question_text_raw text NOT NULL,
+            question_text_normalized text NOT NULL DEFAULT '',
+            question_role text NOT NULL DEFAULT 'main',
+            order_in_group integer NOT NULL DEFAULT 0,
+            parent_item_id text,
+            category text NOT NULL DEFAULT '其他',
+            difficulty text NOT NULL DEFAULT 'medium',
+            follow_up_intent text NOT NULL DEFAULT 'clarify',
+            expected_points_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+            knowledge_points_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+            embedding_id text NOT NULL DEFAULT '',
+            created_at timestamptz NOT NULL DEFAULT now(),
+            updated_at timestamptz NOT NULL DEFAULT now()
+          );
+
+          CREATE INDEX IF NOT EXISTS idx_experience_question_item_post
+            ON experience_question_item(post_id, order_in_group ASC);
+          CREATE INDEX IF NOT EXISTS idx_experience_question_item_group
+            ON experience_question_item(group_id, order_in_group ASC);
+          CREATE INDEX IF NOT EXISTS idx_experience_question_item_category
+            ON experience_question_item(category, difficulty);
+          CREATE INDEX IF NOT EXISTS idx_experience_question_item_role
+            ON experience_question_item(question_role);
+        `);
+        await client.query(`
           ALTER TABLE users
           ADD COLUMN IF NOT EXISTS role text NOT NULL DEFAULT 'user';
         `);
@@ -295,6 +394,7 @@ async function createResumeParseUsage({
 module.exports = {
   DATABASE_URL,
   createResumeParseUsage,
+  getPool,
   getResumeParseCacheByHash,
   getAdminEmails,
   initPostgres,

@@ -16,6 +16,23 @@ export type ApiRequestConfig = RequestInit & {
 
 let resolveApiToken: () => Promise<string | null> = async () => null;
 
+async function readResponsePayload<T>(res: Response): Promise<T & { error?: string }> {
+  const contentType = res.headers.get("content-type") || "";
+
+  if (contentType.toLowerCase().includes("application/json")) {
+    return (await res.json()) as T & { error?: string };
+  }
+
+  const text = await res.text();
+  const compactText = text.replace(/\s+/g, " ").trim();
+  const snippet = compactText.slice(0, 160) || `HTTP ${res.status}`;
+
+  throw new ApiError(
+    `接口返回了非 JSON 内容（${contentType || "unknown"}）。请检查 API Base 配置。响应片段：${snippet}`,
+    res.status,
+  );
+}
+
 export function setApiTokenResolver(resolver: () => Promise<string | null>) {
   resolveApiToken = resolver;
 }
@@ -42,7 +59,8 @@ export async function apiRequest<T>(
     },
     cache: "no-store",
   });
-  const data = (await res.json()) as T & { error?: string };
+
+  const data = await readResponsePayload<T>(res);
   if (!res.ok) {
     throw new ApiError((data as { error?: string }).error || `HTTP ${res.status}`, res.status);
   }
