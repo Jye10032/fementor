@@ -69,95 +69,76 @@ export default function InterviewPage() {
 
   return (
     <PageShell>
-      <div className="tool-page">
-        <header className="tool-header">
-          <div className="space-y-1">
-            <h1 className="tool-heading">模拟面试</h1>
-            <p className="tool-subheading">选择简历和 JD，开始 AI 面试。</p>
-          </div>
-        </header>
-
-        <section className="tool-section">
-          {!isLoaded ? (
-            <p className="text-sm text-muted-foreground">正在同步登录态...</p>
-          ) : isSignedIn ? (
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-medium text-foreground">
-                  当前已登录：{viewer?.name || viewer?.email || "已登录用户"}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  面试记录、简历选择和历史会话会绑定到当前 viewer。
-                </p>
-              </div>
-              <span className="rounded-full border border-border/70 bg-secondary/70 px-3 py-1 text-xs text-muted-foreground">
-                登录态优先
+      {/* Header */}
+      <header className="fade-in-up flex flex-col gap-4 rounded-[1.5rem] border border-border/80 bg-card/90 p-5 shadow-[var(--shadow-card)] backdrop-blur sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Mock Interview</p>
+          <h1 className="mt-1 text-xl font-semibold text-foreground">模拟面试</h1>
+          <p className="mt-1 text-sm text-muted-foreground">选择简历和 JD，开始 AI 面试。</p>
+        </div>
+        {isLoaded && (
+          <div className="shrink-0">
+            {isSignedIn ? (
+              <span className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-secondary/70 px-3 py-1.5 text-xs text-muted-foreground">
+                <span className="inline-block h-2 w-2 rounded-full bg-[var(--accent)]" />
+                {viewer?.name || viewer?.email || "已登录"}
               </span>
-            </div>
-          ) : (
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-medium text-foreground">开始模拟面试前需要先登录。</p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  简历选择、JD 选择、历史会话和本场回答都会关联到当前用户。
-                </p>
-              </div>
+            ) : (
               <SignInButton mode="modal">
-                <button type="button" className="action-primary">
+                <button type="button" className="action-primary cursor-pointer">
                   立即登录
                 </button>
               </SignInButton>
-            </div>
-          )}
-        </section>
+            )}
+          </div>
+        )}
+      </header>
 
-        <div className="tool-layout">
-          <aside className="tool-sidebar">
-            <SessionHistoryPanel
-              loadingHistory={loadingHistory}
-              sessionHistory={sessionHistory}
-            />
-          </aside>
+      {/* Main layout */}
+      <div className="fade-in-up-delay-1 grid gap-5 lg:grid-cols-[minmax(0,1fr)_240px]">
+        <main className="space-y-4">
+          <ResumePanel
+            resumeLibrary={resumeLibrary}
+            activeResume={activeResume}
+            loading={loadingResumeLibrary}
+            resumePickerOpen={resumePickerOpen}
+            switchingResume={switchingResume}
+            onTogglePicker={() => setResumePickerOpen((value) => !value)}
+            onCloseOtherPicker={() => setJdPickerOpen(false)}
+            onSelectResume={(fileName) => void onSelectResume(fileName)}
+          />
 
-          <main className="tool-main">
-            <div className="space-y-4">
-              <ResumePanel
-                resumeLibrary={resumeLibrary}
-                activeResume={activeResume}
-                loading={loadingResumeLibrary}
-                resumePickerOpen={resumePickerOpen}
-                switchingResume={switchingResume}
-                onTogglePicker={() => setResumePickerOpen((value) => !value)}
-                onCloseOtherPicker={() => setJdPickerOpen(false)}
-                onSelectResume={(fileName) => void onSelectResume(fileName)}
-              />
+          <JdPanel
+            jdLibrary={jdLibrary}
+            activeJd={activeJd}
+            loading={loadingJdLibrary}
+            jdPickerOpen={jdPickerOpen}
+            switchingJd={switchingJd}
+            onTogglePicker={() => setJdPickerOpen((value) => !value)}
+            onCloseOtherPicker={() => setResumePickerOpen(false)}
+            onSelectJd={(fileName) => void onSelectJd(fileName)}
+          />
+        </main>
 
-              <JdPanel
-                jdLibrary={jdLibrary}
-                activeJd={activeJd}
-                loading={loadingJdLibrary}
-                jdPickerOpen={jdPickerOpen}
-                switchingJd={switchingJd}
-                onTogglePicker={() => setJdPickerOpen((value) => !value)}
-                onCloseOtherPicker={() => setResumePickerOpen(false)}
-                onSelectJd={(fileName) => void onSelectJd(fileName)}
-              />
-            </div>
-          </main>
-        </div>
-
-        <InterviewSetupPanel
-          activeResume={activeResume}
-          activeJd={activeJd}
-          canStart={canStart}
-          starting={starting}
-          useExperienceQuestions={useExperienceQuestions}
-          onUseExperienceQuestionsChange={setUseExperienceQuestions}
-          experienceQuery={experienceQuery}
-          onExperienceQueryChange={setExperienceQuery}
-          onStart={() => void onStart()}
-        />
+        <aside>
+          <SessionHistoryPanel
+            loadingHistory={loadingHistory}
+            sessionHistory={sessionHistory}
+          />
+        </aside>
       </div>
+
+      <InterviewSetupPanel
+        activeResume={activeResume}
+        activeJd={activeJd}
+        canStart={canStart}
+        starting={starting}
+        useExperienceQuestions={useExperienceQuestions}
+        onUseExperienceQuestionsChange={setUseExperienceQuestions}
+        experienceQuery={experienceQuery}
+        onExperienceQueryChange={setExperienceQuery}
+        onStart={() => void onStart()}
+      />
     </PageShell>
   );
 }

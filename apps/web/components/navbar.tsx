@@ -50,6 +50,7 @@ export function Navbar() {
     llmModel,
     setLlmModel,
     llmSyncing,
+    llmSyncState,
     llmSyncStatus,
     syncLlmConfig,
   } = useRuntimeConfig();
@@ -83,11 +84,11 @@ export function Navbar() {
   }, [apiBase]);
 
   return (
-    <header className="sticky top-0 z-50 border-b border-border/70 bg-background/72 backdrop-blur-2xl">
+    <header className="sticky top-0 z-50 border-b border-border/50 bg-background/60 backdrop-blur-2xl backdrop-saturate-150">
       <nav className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-3 sm:px-6">
-        <Link href="/" className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary shadow-sm">
-            <GraduationCap className="h-5 w-5 text-primary-foreground" />
+        <Link href="/" className="group flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary shadow-sm transition-all duration-300 group-hover:shadow-[0_0_20px_color-mix(in_oklab,var(--primary)_35%,transparent)]">
+            <GraduationCap className="h-5 w-5 text-primary-foreground transition-transform duration-300 group-hover:scale-110" />
           </div>
           <div>
             <span className="block text-lg font-bold tracking-tight text-foreground">
@@ -115,7 +116,7 @@ export function Navbar() {
             <button
               type="button"
               onClick={() => setConfigOpen((previous) => !previous)}
-              className="flex items-center gap-2 rounded-2xl border border-border/80 bg-card/75 px-3.5 py-2 text-sm font-medium text-muted-foreground shadow-sm hover:bg-secondary hover:text-foreground"
+              className="flex items-center gap-2 rounded-2xl border border-border/60 bg-card/60 px-3.5 py-2 text-sm font-medium text-muted-foreground shadow-sm backdrop-blur transition-all duration-200 hover:bg-secondary hover:text-foreground hover:shadow-md"
             >
               <Settings2 className="h-4 w-4" />
               <span className="hidden md:inline">运行配置</span>
@@ -153,7 +154,7 @@ export function Navbar() {
 
               <div className="mt-4 flex flex-col gap-3">
                 <div className="flex items-center justify-between gap-3">
-                  <p className={`text-xs leading-5 ${llmSyncStatus.startsWith("✓") ? "text-emerald-600" : llmSyncStatus.startsWith("⚠") ? "text-amber-600" : "text-muted-foreground"}`}>{llmSyncStatus}</p>
+                  <p className={`text-xs leading-5 ${llmSyncState === "ready" ? "text-emerald-600" : llmSyncState === "warning" ? "text-amber-600" : llmSyncState === "error" ? "text-rose-600" : "text-muted-foreground"}`}>{llmSyncStatus}</p>
                   <button
                     type="button"
                     onClick={() => {
@@ -172,7 +173,7 @@ export function Navbar() {
             ) : null}
           </div>
           <AuthStatus />
-          <div className="rounded-[1.25rem] border border-border/80 bg-card/75 p-1 shadow-sm">
+          <div className="rounded-[1.25rem] border border-border/60 bg-card/60 p-1 shadow-sm backdrop-blur">
             <div className="flex items-center gap-1">
               {NAV_ITEMS.map((item) => (
                 <Link
@@ -180,8 +181,8 @@ export function Navbar() {
                   href={item.href}
                   className={
                     isActive(pathname, item.href)
-                      ? "flex items-center gap-2 rounded-xl bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground shadow-sm"
-                      : "flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
+                      ? "flex items-center gap-2 rounded-xl bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground shadow-sm transition-all duration-200"
+                      : "flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-medium text-muted-foreground transition-all duration-200 hover:bg-secondary hover:text-foreground"
                   }
                 >
                   <item.icon className="h-4 w-4" />

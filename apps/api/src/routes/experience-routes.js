@@ -5,21 +5,26 @@ const {
   readBody,
   requirePathSegment,
 } = require('../http');
-const { getResolvedUserContext } = require('../request-context');
+const {
+  assertCanManagePublicSources,
+  getResolvedUserContext,
+  getResolvedViewerAccessContext,
+} = require('../request-context');
 const {
   startExperienceSync,
   getExperienceSyncJobById,
   listExperiencePosts,
   getExperiencePostDetail,
+  recleanExperiencePost,
   searchExperienceQuestionItems,
 } = require('../experience/service');
 
 const createSyncJobResponse = async ({ req, body }) => {
-  const context = await getResolvedUserContext({
+  const context = await getResolvedViewerAccessContext({
     req,
     bodyUserId: String(body.user_id || '').trim(),
-    requireAuth: true,
   });
+  assertCanManagePublicSources(context);
 
   const keyword = String(body.keyword || '').trim();
   const days = parseNumberOrFallback(body.days || 7, 7);
@@ -40,13 +45,16 @@ const createSyncJobResponse = async ({ req, body }) => {
     statusCode: 200,
     payload: {
       job_id: job.id,
+      runtime_mode: context.runtimeMode,
+      storage_target: context.storageTarget,
       status: job.status,
     },
   };
 };
 
 const getSyncJobResponse = async ({ req, pathname }) => {
-  const context = await getResolvedUserContext({ req, requireAuth: true });
+  const context = await getResolvedViewerAccessContext({ req });
+  assertCanManagePublicSources(context);
   const jobId = requirePathSegment(pathname, 4, 'job_id');
   const job = getExperienceSyncJobById(jobId);
   if (!job) {
@@ -62,7 +70,6 @@ const getSyncJobResponse = async ({ req, pathname }) => {
 };
 
 const listExperiencesResponse = async ({ req, searchParams }) => {
-  await getResolvedUserContext({ req, requireAuth: true });
   const query = String(searchParams.get('query') || '').trim();
   const company = String(searchParams.get('company') || '').trim();
   const role = String(searchParams.get('role') || '').trim();
@@ -93,7 +100,6 @@ const listExperiencesResponse = async ({ req, searchParams }) => {
 };
 
 const getExperienceDetailResponse = async ({ req, pathname }) => {
-  await getResolvedUserContext({ req, requireAuth: true });
   const experienceId = requirePathSegment(pathname, 3, 'id');
   const item = getExperiencePostDetail(experienceId);
   if (!item) {
@@ -102,6 +108,23 @@ const getExperienceDetailResponse = async ({ req, pathname }) => {
   return {
     statusCode: 200,
     payload: { item },
+  };
+};
+
+const recleanExperienceResponse = async ({ req, pathname }) => {
+  const context = await getResolvedViewerAccessContext({ req });
+  assertCanManagePublicSources(context);
+  const experienceId = requirePathSegment(pathname, 3, 'id');
+  const item = await recleanExperiencePost({ postId: experienceId });
+  if (!item) {
+    return { statusCode: 404, payload: { error: 'experience not found' } };
+  }
+  return {
+    statusCode: 200,
+    payload: {
+      item,
+      message: 'experience_recleaned',
+    },
   };
 };
 
@@ -170,6 +193,17 @@ const handleExperienceRoutes = async ({ req, res, url }) => {
     return true;
   }
 
+  if (req.method === 'POST' && /^\/v1\/experiences\/[^/]+\/reclean$/.test(url.pathname)) {
+    try {
+      const normalizedPathname = url.pathname.replace(/\/reclean$/, '');
+      const result = await recleanExperienceResponse({ req, pathname: normalizedPathname });
+      json(res, result.statusCode, result.payload);
+    } catch (error) {
+      jsonError(res, error);
+    }
+    return true;
+  }
+
   if (req.method === 'POST' && url.pathname === '/v1/interview/experience-retrieval/preview') {
     try {
       const body = await readBody(req);
@@ -215,6 +249,15 @@ async function registerExperienceRoutes(app) {
 
   app.get('/v1/experiences/:id', async (request, reply) => {
     const result = await getExperienceDetailResponse({
+      req: request.raw,
+      pathname: `/v1/experiences/${request.params.id}`,
+    });
+    reply.code(result.statusCode);
+    return result.payload;
+  });
+
+  app.post('/v1/experiences/:id/reclean', async (request, reply) => {
+    const result = await recleanExperienceResponse({
       req: request.raw,
       pathname: `/v1/experiences/${request.params.id}`,
     });

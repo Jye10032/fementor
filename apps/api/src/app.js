@@ -13,6 +13,7 @@ const { registerDocumentRoutes } = require('./routes/document-routes');
 const { handleInterviewRoutes } = require('./routes/interview-routes');
 const { handlePracticeRoutes, registerPracticeRoutes } = require('./routes/practice-routes');
 const { handleExperienceRoutes, registerExperienceRoutes } = require('./routes/experience-routes');
+const { handlePublicQuestionSourceRoutes, registerPublicQuestionSourceRoutes } = require('./routes/public-question-source-routes');
 const { errorHandlerPlugin } = require('./plugins/error-handler');
 const { requestContextPlugin } = require('./plugins/request-context');
 
@@ -22,6 +23,7 @@ const routeHandlers = [
   handleChatRoutes,
   handleInterviewRoutes,
   handleExperienceRoutes,
+  handlePublicQuestionSourceRoutes,
 ];
 
 async function buildApp() {
@@ -56,6 +58,7 @@ async function buildApp() {
   await app.register(registerChatRoutes);
   await app.register(registerPracticeRoutes);
   await app.register(registerExperienceRoutes);
+  await app.register(registerPublicQuestionSourceRoutes);
   await app.register(registerDocumentRoutes);
 
   app.route({

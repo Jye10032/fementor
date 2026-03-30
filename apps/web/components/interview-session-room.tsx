@@ -175,7 +175,7 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
     clearAutoAdvanceTimer();
     autoAdvanceTimerRef.current = window.setTimeout(() => {
       advanceToNextQuestion(nextQuestion);
-    }, 1000);
+    }, 5000);
   }, [advanceToNextQuestion, clearAutoAdvanceTimer]);
 
   useEffect(() => {

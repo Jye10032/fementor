@@ -1,13 +1,16 @@
 const { randomUUID } = require('crypto');
 const {
   createExperienceSyncJob,
+  getExperiencePostById,
   updateExperienceSyncJob,
   getExperienceSyncJobById,
   getExperiencePostBySource,
   insertExperiencePostWithGroups,
+  listExperiencePostIds,
   listExperiencePosts,
   getExperiencePostDetail,
   searchExperienceQuestionItems,
+  updateExperiencePostWithGroups,
 } = require('../db');
 const { crawlNiukeExperiences } = require('../niuke-crawler');
 const {
@@ -191,11 +194,99 @@ const startExperienceSync = ({ userId, keyword, days = 7, limit = 10 }) => {
   return job;
 };
 
+const recleanExperiencePost = async ({ postId }) => {
+  const existingPost = getExperiencePostById(postId);
+  if (!existingPost) {
+    return null;
+  }
+
+  const cleaned = await cleanExperienceContent({
+    title: existingPost.title,
+    sourceUrl: existingPost.source_url,
+    publishedAt: existingPost.published_at,
+    keyword: existingPost.keyword,
+    contentRaw: existingPost.content_raw,
+  });
+
+  const nextPost = buildPostInsertPayload({
+    jobId: existingPost.crawl_job_id,
+    keyword: existingPost.keyword,
+    article: {
+      title: existingPost.title,
+      url: existingPost.source_url,
+      author: existingPost.author_name,
+      publishedAt: existingPost.published_at,
+      content: existingPost.content_raw,
+      summary: existingPost.summary,
+    },
+    cleaned,
+  });
+
+  nextPost.id = existingPost.id;
+  nextPost.source_post_id = existingPost.source_post_id;
+  nextPost.source_platform = existingPost.source_platform;
+  nextPost.created_at = existingPost.created_at;
+  nextPost.updated_at = new Date().toISOString();
+
+  const groups = buildGroupsInsertPayload({
+    postId: existingPost.id,
+    topicGroups: cleaned.topic_groups,
+  });
+
+  return updateExperiencePostWithGroups({
+    postId: existingPost.id,
+    post: nextPost,
+    groups,
+  });
+};
+
+const recleanAllExperiencePosts = async ({ onlyValid = false, onProgress } = {}) => {
+  const postIds = listExperiencePostIds({ onlyValid });
+  let completedCount = 0;
+  let failedCount = 0;
+  const failedItems = [];
+
+  for (const postId of postIds) {
+    try {
+      const item = await recleanExperiencePost({ postId });
+      completedCount += item ? 1 : 0;
+      if (!item) {
+        failedCount += 1;
+        failedItems.push({ post_id: postId, error: 'experience not found' });
+      }
+    } catch (error) {
+      failedCount += 1;
+      failedItems.push({
+        post_id: postId,
+        error: error instanceof Error ? error.message : 'reclean failed',
+      });
+    }
+
+    if (typeof onProgress === 'function') {
+      onProgress({
+        total: postIds.length,
+        completed_count: completedCount,
+        failed_count: failedCount,
+        current_post_id: postId,
+      });
+    }
+  }
+
+  return {
+    total_count: postIds.length,
+    completed_count: completedCount,
+    failed_count: failedCount,
+    failed_items: failedItems,
+  };
+};
+
 module.exports = {
   startExperienceSync,
   getExperienceSyncJobById,
   listExperiencePosts,
   getExperiencePostDetail,
+  recleanExperiencePost,
+  recleanAllExperiencePosts,
   searchExperienceQuestionItems,
   normalizePublishedAt,
 };

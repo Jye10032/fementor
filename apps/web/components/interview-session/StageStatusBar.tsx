@@ -52,7 +52,7 @@ type StageStatusBarProps = {
 export function StageStatusBar({ stageLabel, stageStep }: StageStatusBarProps) {
   const tone = getStageTone(stageStep);
   const Icon = tone.icon;
-  const activeStageIndex = getActiveStageIndex(stageStep);
+  const activeIndex = getActiveStageIndex(stageStep);
 
   return (
     <div className="border-t border-border/60 pt-3">
@@ -64,29 +64,21 @@ export function StageStatusBar({ stageLabel, stageStep }: StageStatusBarProps) {
         </span>
       </div>
 
-      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <div className="mt-2.5 flex items-center gap-0">
         {stageItems.map((item, index) => {
-          const isDone = activeStageIndex > index;
-          const isCurrent = activeStageIndex === index;
+          const isDone = activeIndex > index;
+          const isCurrent = activeIndex === index;
 
           return (
-            <div
-              key={item.id}
-              className={`rounded-[1rem] border px-3 py-2.5 text-xs transition-colors ${
-                isCurrent
-                  ? "border-amber-200 bg-amber-50 text-amber-800"
-                  : isDone
-                    ? "border-sky-200 bg-sky-50 text-sky-800"
-                    : "border-border/80 bg-background/70 text-muted-foreground"
-              }`}
-            >
-              <div className="flex items-center gap-2">
+            <div key={item.id} className="flex flex-1 items-center">
+              {/* dot */}
+              <div className="flex flex-col items-center">
                 <span
-                  className={`inline-flex h-5 w-5 items-center justify-center rounded-full ${
+                  className={`relative inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold transition-colors ${
                     isCurrent
-                      ? "bg-amber-100 text-amber-700"
+                      ? "bg-amber-500 text-white shadow-[0_0_0_3px_oklch(0.9_0.08_85)]"
                       : isDone
-                        ? "bg-sky-100 text-sky-700"
+                        ? "bg-sky-500 text-white"
                         : "bg-secondary text-muted-foreground"
                   }`}
                 >
@@ -95,11 +87,21 @@ export function StageStatusBar({ stageLabel, stageStep }: StageStatusBarProps) {
                   ) : isCurrent ? (
                     <LoaderCircle className="h-3 w-3 animate-spin" />
                   ) : (
-                    <span className="text-[10px] font-semibold">{index + 1}</span>
+                    <span>{index + 1}</span>
                   )}
                 </span>
-                <span className="font-medium">{item.label}</span>
+                <span className={`mt-1 text-[10px] leading-tight ${
+                  isCurrent ? "font-medium text-amber-700" : isDone ? "text-sky-700" : "text-muted-foreground"
+                }`}>
+                  {item.label}
+                </span>
               </div>
+              {/* connector line */}
+              {index < stageItems.length - 1 ? (
+                <div className={`mx-1 h-0.5 flex-1 rounded-full transition-colors ${
+                  isDone ? "bg-sky-400" : "bg-border"
+                }`} />
+              ) : null}
             </div>
           );
         })}

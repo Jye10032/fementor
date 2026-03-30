@@ -28,7 +28,7 @@ export function useExperienceList({ apiBase, enabled, query }: UseExperienceList
       setError(null);
       const path = `/v1/experiences?only_valid=1&page=1&page_size=20${query ? `&query=${encodeURIComponent(query)}` : ""}`;
       const response = await apiRequest<ExperienceListResponse>(apiBase, path, {
-        auth: "required",
+        auth: "optional",
       });
       setItems(response.items || []);
       setTotal(response.total || 0);

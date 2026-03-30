@@ -1,8 +1,8 @@
 "use client";
 
-import { ChangeEvent, Suspense, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { FileUp } from "lucide-react";
+import { CheckCircle2, FileText, FileUp, Upload } from "lucide-react";
 import Link from "next/link";
 import { PageShell } from "../../components/page-shell";
 import { useAuthState } from "../../components/auth-provider";
@@ -84,15 +84,12 @@ export default function ResumePage() {
 function ResumePageFallback() {
   return (
     <PageShell>
-      <div className="tool-page">
-        <header className="tool-header">
-          <div className="space-y-1">
-            <h1 className="tool-heading">档案管理</h1>
-            <p className="tool-subheading">管理简历与 JD，为模拟面试做准备。</p>
-          </div>
-        </header>
-        <div className="tool-empty">页面加载中...</div>
-      </div>
+      <header className="fade-in-up flex flex-col gap-1 rounded-[1.5rem] border border-border/80 bg-card/90 p-5 shadow-[var(--shadow-card)] backdrop-blur">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Resume &amp; JD</p>
+        <h1 className="text-xl font-semibold text-foreground">档案管理</h1>
+        <p className="text-sm text-muted-foreground">管理简历与 JD，为模拟面试做准备。</p>
+      </header>
+      <div className="tool-empty">页面加载中...</div>
     </PageShell>
   );
 }
@@ -141,6 +138,28 @@ function ResumePageContent() {
     () => jdText.trim().length > 0,
     [jdText]
   );
+
+  // Drag state for dropzones
+  const [resumeDragOver, setResumeDragOver] = useState(false);
+  const [jdDragOver, setJdDragOver] = useState(false);
+
+  const handleResumeDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setResumeDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+    const fakeEvent = { target: { files: [file], value: "" } } as unknown as ChangeEvent<HTMLInputElement>;
+    onResumeFileChange(fakeEvent);
+  }, []);
+
+  const handleJdDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setJdDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+    const fakeEvent = { target: { files: [file], value: "" } } as unknown as ChangeEvent<HTMLInputElement>;
+    onJdFileChange(fakeEvent);
+  }, []);
 
   const refreshResumeLibrary = async () => {
     if (!isSignedIn) {
@@ -324,293 +343,322 @@ function ResumePageContent() {
 
   return (
     <PageShell>
-      <div className="tool-page">
-        <header className="tool-header">
-          <div className="space-y-1">
-            <h1 className="tool-heading">档案管理</h1>
-            <p className="tool-subheading">管理简历与 JD，为模拟面试做准备。</p>
-          </div>
-        </header>
-
-        <section className="tool-section">
-          {!isLoaded || viewerLoading ? (
-            <p className="text-sm text-muted-foreground">正在同步登录态...</p>
-          ) : isSignedIn ? (
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-medium text-foreground">
-                  当前已登录：{viewer?.name || viewer?.email || "已登录用户"}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  PDF 解析会消耗后端 OCR 配额；当前剩余 {viewer?.capabilities?.remaining_resume_ocr_count ?? "-"} / {viewer?.capabilities?.daily_resume_ocr_limit ?? "-"}。
-                </p>
-              </div>
-              <span className="rounded-full border border-border/70 bg-secondary/70 px-3 py-1 text-xs text-muted-foreground">
-                Viewer 驱动
-              </span>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <p className="text-sm font-medium text-foreground">当前未登录。</p>
-              <p className="text-xs leading-5 text-muted-foreground">
-                你可以先粘贴纯文本尝试解析；上传 PDF 前必须先登录，因为该链路会调用受配额限制的后端 API。JD 库、简历库和默认档案切换也需要登录。
-              </p>
-            </div>
-          )}
-        </section>
-
-        {/* Tab switcher */}
-        <div className="inline-flex self-start rounded-xl border border-border bg-background p-1">
-          <button
-            type="button"
-            onClick={() => setActiveTab("resume")}
-            className={
-              activeTab === "resume"
-                ? "rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm"
-                : "rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-secondary"
-            }
-          >
-            简历
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("jd")}
-            className={
-              activeTab === "jd"
-                ? "rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm"
-                : "rounded-lg px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-secondary"
-            }
-          >
-            JD
-          </button>
+      {/* Header */}
+      <header className="fade-in-up flex flex-col gap-4 rounded-[1.5rem] border border-border/80 bg-card/90 p-5 shadow-[var(--shadow-card)] backdrop-blur sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Resume &amp; JD</p>
+          <h1 className="mt-1 text-xl font-semibold text-foreground">档案管理</h1>
+          <p className="mt-1 text-sm text-muted-foreground">管理简历与 JD，为模拟面试做准备。</p>
         </div>
-
-        {/* Resume tab */}
-        {activeTab === "resume" && (
-          <div className="w-full space-y-5">
-            {/* Upload form */}
-            <section className="tool-section">
-              <h2 className="tool-section-title">上传新简历</h2>
-              <div className="tool-grid">
-                <div className="space-y-1.5">
-                  <label className="text-sm font-medium text-foreground">姓名</label>
-                  <input
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    className="field-shell w-full text-sm"
-                    placeholder="用于简历摘要关联，例如 Alice"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-sm font-medium text-foreground">保存文件名</label>
-                  <input
-                    value={resumeFilename}
-                    onChange={(e) => setResumeFilename(e.target.value)}
-                    className="field-shell w-full text-sm"
-                    placeholder="resume.md"
-                  />
-                </div>
-              </div>
-              <div className="tool-dropzone">
-                <label className="flex cursor-pointer flex-col items-center gap-2 text-center">
-                  <FileUp className="h-6 w-6 text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground">
-                    {uploadingResumeFile ? "读取中..." : "点击上传文件"}
+        {/* Auth chip */}
+        {isLoaded && !viewerLoading && (
+          <div className="shrink-0">
+            {isSignedIn ? (
+              <span className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-secondary/70 px-3 py-1.5 text-xs text-muted-foreground">
+                <span className="inline-block h-2 w-2 rounded-full bg-[var(--accent)]" />
+                {viewer?.name || viewer?.email || "已登录"}
+                {viewer?.capabilities?.remaining_resume_ocr_count != null && (
+                  <span className="text-muted-foreground/60">
+                    OCR {viewer.capabilities.remaining_resume_ocr_count}/{viewer.capabilities.daily_resume_ocr_limit}
                   </span>
-                  <input
-                    type="file"
-                    accept=".txt,.md,.json,.html,.htm,.csv,.pdf,.docx"
-                    className="sr-only"
-                    onChange={onResumeFileChange}
-                  />
-                </label>
-              </div>
-              <p className="text-xs text-muted-foreground">{resumeFileStatus}</p>
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium text-foreground">或粘贴简历文本</label>
-                <textarea
-                  value={resumeText}
-                  onChange={(e) => setResumeText(e.target.value)}
-                  rows={8}
-                  className="field-shell w-full text-sm"
-                  placeholder="直接粘贴简历内容..."
-                />
-              </div>
-              <div className="flex justify-end">
-                <button
-                  onClick={onParseResume}
-                  disabled={!canParseResume || parsingResume}
-                  className="action-primary"
-                >
-                  {parsingResume ? "解析中..." : isSignedIn ? "解析并保存" : "解析文本 / 登录后上传 PDF"}
-                </button>
-              </div>
-            </section>
-
-            {/* Resume library */}
-            <section className="tool-section">
-              <h2 className="tool-section-title">简历库</h2>
-              {loadingResume ? (
-                <div className="tool-empty">加载中...</div>
-              ) : !isSignedIn ? (
-                <div className="tool-empty">登录后可查看个人简历库与默认简历。</div>
-              ) : !resumeLibrary?.files.length ? (
-                <div className="tool-empty">还没有简历，上传后会显示在这里。</div>
-              ) : (
-                <div className="space-y-3">
-                  {resumeLibrary.files.map((file) => {
-                    const isActive = file.name === resumeLibrary.profile?.active_resume_file;
-                    return (
-                      <div
-                        key={file.name}
-                        className={`tool-radio-item flex-col items-start gap-2 ${
-                          isActive ? "border-primary/40 bg-primary/5" : ""
-                        }`}
-                      >
-                        <div className="flex w-full items-center justify-between gap-3">
-                          <div className="flex min-w-0 items-center gap-2">
-                            {isActive && (
-                              <span className="shrink-0 rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold text-primary">
-                                默认
-                              </span>
-                            )}
-                            <span className="truncate text-sm font-medium text-foreground">
-                              {file.original_filename || file.name}
-                            </span>
-                          </div>
-                          <div className="flex shrink-0 items-center gap-2">
-                            {!isActive && (
-                              <button
-                                onClick={() => void onSelectResume(file.name)}
-                                disabled={selectingResume === file.name}
-                                className="action-secondary py-1.5 text-xs"
-                              >
-                                {selectingResume === file.name ? "设置中..." : "设为默认"}
-                              </button>
-                            )}
-                            <Link
-                              href={`/resume/${encodeURIComponent(file.name)}`}
-                              className="action-secondary py-1.5 text-xs"
-                            >
-                              查看
-                            </Link>
-                          </div>
-                        </div>
-                        {file.summary && (
-                          <p className="text-sm leading-6 text-muted-foreground">{file.summary}</p>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
+                )}
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-secondary/70 px-3 py-1.5 text-xs text-muted-foreground">
+                <span className="inline-block h-2 w-2 rounded-full bg-muted-foreground/40" />
+                未登录 — 可粘贴文本解析，PDF 需登录
+              </span>
+            )}
           </div>
         )}
+      </header>
 
-        {/* JD tab */}
-        {activeTab === "jd" && (
-          <div className="w-full space-y-5">
-            {/* Upload form */}
-            <section className="tool-section">
-              <h2 className="tool-section-title">添加新 JD</h2>
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium text-foreground">保存文件名</label>
-                <input
-                  value={jdFilename}
-                  onChange={(e) => setJdFilename(e.target.value)}
-                  className="field-shell w-full text-sm"
-                  placeholder="jd.md"
-                />
-              </div>
-              <div className="tool-dropzone">
-                <label className="flex cursor-pointer flex-col items-center gap-2 text-center">
-                  <FileUp className="h-6 w-6 text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground">
-                    {uploadingJdFile ? "读取中..." : "点击上传文件"}
-                  </span>
-                  <input
-                    type="file"
-                    accept=".txt,.md,.json,.html,.htm,.csv"
-                    className="sr-only"
-                    onChange={onJdFileChange}
-                  />
-                </label>
-              </div>
-              <p className="text-xs text-muted-foreground">{jdFileStatus}</p>
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium text-foreground">或粘贴 JD 文本</label>
-                <textarea
-                  value={jdText}
-                  onChange={(e) => setJdText(e.target.value)}
-                  rows={10}
-                  className="field-shell w-full text-sm"
-                  placeholder="粘贴岗位职责、技术要求、业务方向和级别要求..."
-                />
-              </div>
-              <div className="flex justify-end">
-                <button
-                  onClick={onSaveJd}
-                  disabled={!canSaveJd || savingJd}
-                  className="action-primary"
-                >
-                  {savingJd ? "保存中..." : "保存 JD"}
-                </button>
-              </div>
-            </section>
-
-            {/* JD library */}
-            <section className="tool-section">
-              <h2 className="tool-section-title">JD 库</h2>
-              {loadingJd ? (
-                <div className="tool-empty">加载中...</div>
-              ) : !isSignedIn ? (
-                <div className="tool-empty">登录后可查看 JD 库与当前活跃 JD。</div>
-              ) : !jdLibrary?.files.length ? (
-                <div className="tool-empty">还没有 JD，添加后会显示在这里。</div>
-              ) : (
-                <div className="space-y-3">
-                  {jdLibrary.files.map((file) => {
-                    const isActive = file.name === jdLibrary.profile?.active_jd_file;
-                    return (
-                      <div
-                        key={file.name}
-                        className={`tool-radio-item flex-col items-start gap-2 ${
-                          isActive ? "border-primary/40 bg-primary/5" : ""
-                        }`}
-                      >
-                        <div className="flex w-full items-center justify-between gap-3">
-                          <div className="flex min-w-0 items-center gap-2">
-                            {isActive && (
-                              <span className="shrink-0 rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold text-primary">
-                                默认
-                              </span>
-                            )}
-                            <span className="truncate text-sm font-medium text-foreground">
-                              {file.name}
-                            </span>
-                          </div>
-                          <div className="flex shrink-0 items-center gap-2">
-                            {!isActive && (
-                              <button
-                                onClick={() => void onSelectJd(file.name)}
-                                disabled={selectingJd === file.name}
-                                className="action-secondary py-1.5 text-xs"
-                              >
-                                {selectingJd === file.name ? "设置中..." : "设为默认"}
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
-          </div>
-        )}
+      {/* Tab switcher */}
+      <div className="fade-in-up-delay-1 inline-flex self-start rounded-xl border border-border bg-background p-1">
+        <button
+          type="button"
+          onClick={() => setActiveTab("resume")}
+          className={`cursor-pointer rounded-lg px-4 py-2 text-sm font-semibold transition-colors duration-200 ${
+            activeTab === "resume"
+              ? "bg-primary text-primary-foreground shadow-sm"
+              : "text-muted-foreground hover:bg-secondary"
+          }`}
+        >
+          简历
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("jd")}
+          className={`cursor-pointer rounded-lg px-4 py-2 text-sm font-semibold transition-colors duration-200 ${
+            activeTab === "jd"
+              ? "bg-primary text-primary-foreground shadow-sm"
+              : "text-muted-foreground hover:bg-secondary"
+          }`}
+        >
+          JD
+        </button>
       </div>
+
+      {/* Resume tab */}
+      {activeTab === "resume" && (
+        <div className="fade-in-up grid gap-5 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
+          {/* Upload form */}
+          <section className="panel-surface space-y-4">
+            <h2 className="text-base font-semibold text-foreground">上传新简历</h2>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <label htmlFor="resume-name" className="text-sm font-medium text-foreground">姓名</label>
+                <input
+                  id="resume-name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="field-shell w-full text-sm"
+                  placeholder="用于简历摘要关联"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="resume-filename" className="text-sm font-medium text-foreground">保存文件名</label>
+                <input
+                  id="resume-filename"
+                  value={resumeFilename}
+                  onChange={(e) => setResumeFilename(e.target.value)}
+                  className="field-shell w-full text-sm"
+                  placeholder="resume.md"
+                />
+              </div>
+            </div>
+            {/* Dropzone */}
+            <div
+              onDragOver={(e) => { e.preventDefault(); setResumeDragOver(true); }}
+              onDragLeave={() => setResumeDragOver(false)}
+              onDrop={handleResumeDrop}
+              className={`rounded-[1.2rem] border-2 border-dashed p-6 text-center transition-colors duration-200 ${
+                resumeDragOver
+                  ? "border-primary/60 bg-primary/5"
+                  : "border-border bg-background hover:border-primary/30"
+              }`}
+            >
+              <label className="flex cursor-pointer flex-col items-center gap-2">
+                <Upload className={`h-8 w-8 transition-colors duration-200 ${resumeDragOver ? "text-primary" : "text-muted-foreground/50"}`} />
+                <span className="text-sm font-medium text-muted-foreground">
+                  {uploadingResumeFile ? "读取中..." : "拖拽文件到此处，或点击选择"}
+                </span>
+                <span className="text-xs text-muted-foreground/60">txt / md / json / html / pdf / docx</span>
+                <input
+                  type="file"
+                  accept=".txt,.md,.json,.html,.htm,.csv,.pdf,.docx"
+                  className="sr-only"
+                  onChange={onResumeFileChange}
+                  aria-label="上传简历文件"
+                />
+              </label>
+            </div>
+            <p className="text-xs text-muted-foreground">{resumeFileStatus}</p>
+            <div className="space-y-1.5">
+              <label htmlFor="resume-text" className="text-sm font-medium text-foreground">或粘贴简历文本</label>
+              <textarea
+                id="resume-text"
+                value={resumeText}
+                onChange={(e) => setResumeText(e.target.value)}
+                rows={6}
+                className="field-shell w-full resize-y text-sm"
+                placeholder="直接粘贴简历内容..."
+              />
+            </div>
+            <div className="flex justify-end">
+              <button
+                onClick={onParseResume}
+                disabled={!canParseResume || parsingResume}
+                className="action-primary cursor-pointer"
+              >
+                {parsingResume ? "解析中..." : isSignedIn ? "解析并保存" : "解析文本"}
+              </button>
+            </div>
+          </section>
+
+          {/* Resume library */}
+          <section className="panel-surface space-y-4">
+            <h2 className="text-base font-semibold text-foreground">简历库</h2>
+            {loadingResume ? (
+              <div className="tool-empty">加载中...</div>
+            ) : !isSignedIn ? (
+              <div className="tool-empty">登录后可查看个人简历库。</div>
+            ) : !resumeLibrary?.files.length ? (
+              <div className="tool-empty">还没有简历，上传后会显示在这里。</div>
+            ) : (
+              <div className="space-y-2">
+                {resumeLibrary.files.map((file) => {
+                  const isActive = file.name === resumeLibrary.profile?.active_resume_file;
+                  return (
+                    <div
+                      key={file.name}
+                      className={`rounded-xl border p-3 transition-colors duration-200 ${
+                        isActive
+                          ? "border-primary/40 bg-primary/5"
+                          : "border-border/70 bg-background hover:border-primary/20"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <FileText className={`h-4 w-4 shrink-0 ${isActive ? "text-primary" : "text-muted-foreground/50"}`} />
+                          <span className="truncate text-sm font-medium text-foreground">
+                            {file.original_filename || file.name}
+                          </span>
+                          {isActive && (
+                            <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-primary" />
+                          )}
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          {!isActive && (
+                            <button
+                              onClick={() => void onSelectResume(file.name)}
+                              disabled={selectingResume === file.name}
+                              className="cursor-pointer rounded-lg px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors duration-200 hover:bg-secondary hover:text-foreground"
+                            >
+                              {selectingResume === file.name ? "..." : "设为默认"}
+                            </button>
+                          )}
+                          <Link
+                            href={`/resume/${encodeURIComponent(file.name)}`}
+                            className="cursor-pointer rounded-lg px-2.5 py-1 text-xs font-medium text-primary transition-colors duration-200 hover:bg-primary/10"
+                          >
+                            查看
+                          </Link>
+                        </div>
+                      </div>
+                      {file.summary && (
+                        <p className="mt-2 text-xs leading-5 text-muted-foreground">{file.summary}</p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        </div>
+      )}
+
+      {/* JD tab */}
+      {activeTab === "jd" && (
+        <div className="fade-in-up grid gap-5 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
+          {/* Upload form */}
+          <section className="panel-surface space-y-4">
+            <h2 className="text-base font-semibold text-foreground">添加新 JD</h2>
+            <div className="space-y-1.5">
+              <label htmlFor="jd-filename" className="text-sm font-medium text-foreground">保存文件名</label>
+              <input
+                id="jd-filename"
+                value={jdFilename}
+                onChange={(e) => setJdFilename(e.target.value)}
+                className="field-shell w-full text-sm"
+                placeholder="jd.md"
+              />
+            </div>
+            {/* Dropzone */}
+            <div
+              onDragOver={(e) => { e.preventDefault(); setJdDragOver(true); }}
+              onDragLeave={() => setJdDragOver(false)}
+              onDrop={handleJdDrop}
+              className={`rounded-[1.2rem] border-2 border-dashed p-6 text-center transition-colors duration-200 ${
+                jdDragOver
+                  ? "border-primary/60 bg-primary/5"
+                  : "border-border bg-background hover:border-primary/30"
+              }`}
+            >
+              <label className="flex cursor-pointer flex-col items-center gap-2">
+                <Upload className={`h-8 w-8 transition-colors duration-200 ${jdDragOver ? "text-primary" : "text-muted-foreground/50"}`} />
+                <span className="text-sm font-medium text-muted-foreground">
+                  {uploadingJdFile ? "读取中..." : "拖拽文件到此处，或点击选择"}
+                </span>
+                <span className="text-xs text-muted-foreground/60">txt / md / json / html</span>
+                <input
+                  type="file"
+                  accept=".txt,.md,.json,.html,.htm,.csv"
+                  className="sr-only"
+                  onChange={onJdFileChange}
+                  aria-label="上传 JD 文件"
+                />
+              </label>
+            </div>
+            <p className="text-xs text-muted-foreground">{jdFileStatus}</p>
+            <div className="space-y-1.5">
+              <label htmlFor="jd-text" className="text-sm font-medium text-foreground">或粘贴 JD 文本</label>
+              <textarea
+                id="jd-text"
+                value={jdText}
+                onChange={(e) => setJdText(e.target.value)}
+                rows={8}
+                className="field-shell w-full resize-y text-sm"
+                placeholder="粘贴岗位职责、技术要求、业务方向和级别要求..."
+              />
+            </div>
+            <div className="flex justify-end">
+              <button
+                onClick={onSaveJd}
+                disabled={!canSaveJd || savingJd}
+                className="action-primary cursor-pointer"
+              >
+                {savingJd ? "保存中..." : "保存 JD"}
+              </button>
+            </div>
+          </section>
+
+          {/* JD library */}
+          <section className="panel-surface space-y-4">
+            <h2 className="text-base font-semibold text-foreground">JD 库</h2>
+            {loadingJd ? (
+              <div className="tool-empty">加载中...</div>
+            ) : !isSignedIn ? (
+              <div className="tool-empty">登录后可查看 JD 库。</div>
+            ) : !jdLibrary?.files.length ? (
+              <div className="tool-empty">还没有 JD，添加后会显示在这里。</div>
+            ) : (
+              <div className="space-y-2">
+                {jdLibrary.files.map((file) => {
+                  const isActive = file.name === jdLibrary.profile?.active_jd_file;
+                  return (
+                    <div
+                      key={file.name}
+                      className={`rounded-xl border p-3 transition-colors duration-200 ${
+                        isActive
+                          ? "border-primary/40 bg-primary/5"
+                          : "border-border/70 bg-background hover:border-primary/20"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <FileText className={`h-4 w-4 shrink-0 ${isActive ? "text-primary" : "text-muted-foreground/50"}`} />
+                          <span className="truncate text-sm font-medium text-foreground">{file.name}</span>
+                          {isActive && (
+                            <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-primary" />
+                          )}
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          {!isActive && (
+                            <button
+                              onClick={() => void onSelectJd(file.name)}
+                              disabled={selectingJd === file.name}
+                              className="cursor-pointer rounded-lg px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors duration-200 hover:bg-secondary hover:text-foreground"
+                            >
+                              {selectingJd === file.name ? "..." : "设为默认"}
+                            </button>
+                          )}
+                          <Link
+                            href={`/resume/jd/${encodeURIComponent(file.name)}`}
+                            className="cursor-pointer rounded-lg px-2.5 py-1 text-xs font-medium text-primary transition-colors duration-200 hover:bg-primary/10"
+                          >
+                            查看
+                          </Link>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        </div>
+      )}
     </PageShell>
   );
 }

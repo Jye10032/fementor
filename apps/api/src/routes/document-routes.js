@@ -1,11 +1,12 @@
 const path = require('path');
 const { getUserById, setActiveResumeFile, setActiveJdFile } = require('../db');
 const { saveJdDoc, listJdDocs, readJdDoc } = require('../doc');
-const { listResumeDocs, readResumeDoc, updateResumeDocMeta, parseResumeMetaBlock } = require('../resume');
+const { listResumeDocs, readResumeDoc, updateResumeDocMeta } = require('../resume');
 const { json, jsonError, readBody } = require('../http');
 const { ensureLocalUserProfile, getResolvedUserContext } = require('../request-context');
 const { summarizeResumeWithLLM } = require('../interview/llm-service');
 const { parseResumeRequest } = require('../resume-parse-service');
+const { ensureExampleProfileDocs } = require('../profile-example-docs');
 
 const readMultipartParts = async (request) => {
   const fields = {};
@@ -40,6 +41,7 @@ const getResumeLibraryResponse = async ({ req, queryUserId }) => {
     requireAuth: true,
   });
   const userId = context.userId;
+  ensureExampleProfileDocs({ userId, authUser: context.authUser });
   const user = getUserById(userId);
   const files = listResumeDocs(userId);
   const activeFile = files.find((item) => item.name === user?.active_resume_file) || null;
@@ -118,6 +120,7 @@ const readResumeResponse = async ({ req, queryUserId, fileName }) => {
     requireAuth: true,
   });
   const userId = context.userId;
+  ensureExampleProfileDocs({ userId, authUser: context.authUser });
   if (!fileName) {
     return { statusCode: 400, payload: { error: 'file_name is required' } };
   }
@@ -125,25 +128,28 @@ const readResumeResponse = async ({ req, queryUserId, fileName }) => {
   if (!doc) {
     return { statusCode: 404, payload: { error: 'resume not found' } };
   }
-  const { meta, content } = parseResumeMetaBlock(doc.content);
 
   return {
     statusCode: 200,
     payload: {
       user_id: userId,
       name: doc.name,
-      content,
-      summary: meta?.summary || '',
-      original_filename: meta?.original_filename || doc.name,
-      updated_at: meta?.updated_at || '',
+      content: doc.content,
+      summary: doc.meta?.summary || '',
+      original_filename: doc.meta?.original_filename || doc.name,
+      updated_at: doc.meta?.updated_at || '',
     },
   };
 };
 
-const readJdResponse = ({ userId, fileName }) => {
-  if (!userId) {
-    return { statusCode: 400, payload: { error: 'user_id is required' } };
-  }
+const readJdResponse = async ({ req, queryUserId, fileName }) => {
+  const context = await getResolvedUserContext({
+    req,
+    queryUserId,
+    requireAuth: true,
+  });
+  const userId = context.userId;
+  ensureExampleProfileDocs({ userId, authUser: context.authUser });
   if (!fileName) {
     return { statusCode: 400, payload: { error: 'file_name is required' } };
   }
@@ -199,6 +205,7 @@ const jdLibraryResponse = async ({ req, queryUserId }) => {
     requireAuth: true,
   });
   const userId = context.userId;
+  ensureExampleProfileDocs({ userId, authUser: context.authUser });
   const user = getUserById(userId);
   const files = listJdDocs(userId);
 
@@ -302,8 +309,9 @@ const handleDocumentRoutes = async ({ req, res, url }) => {
 
   if (req.method === 'GET' && url.pathname === '/v1/jd/read') {
     try {
-      const result = readJdResponse({
-        userId: String(url.searchParams.get('user_id') || '').trim(),
+      const result = await readJdResponse({
+        req,
+        queryUserId: String(url.searchParams.get('user_id') || '').trim(),
         fileName: String(url.searchParams.get('file_name') || '').trim(),
       });
       json(res, result.statusCode, result.payload);
@@ -394,8 +402,9 @@ async function registerDocumentRoutes(app) {
   });
 
   app.get('/v1/jd/read', async (request, reply) => {
-    const result = readJdResponse({
-      userId: String(request.query?.user_id || '').trim(),
+    const result = await readJdResponse({
+      req: request.raw,
+      queryUserId: String(request.query?.user_id || '').trim(),
       fileName: String(request.query?.file_name || '').trim(),
     });
     reply.code(result.statusCode);

@@ -86,6 +86,11 @@ export type ExperienceDetailResponse = {
   item: ExperienceDetail;
 };
 
+export type ExperienceRecleanResponse = {
+  item: ExperienceDetail;
+  message: string;
+};
+
 export type ExperienceSyncCreateResponse = {
   job_id: string;
   status: ExperienceSyncJob["status"];

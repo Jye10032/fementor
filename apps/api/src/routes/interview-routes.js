@@ -1,5 +1,5 @@
 const { randomUUID } = require('crypto');
-const { getUserById, listInterviewSessions, createInterviewSession, saveInterviewQuestions, getNextInterviewQuestion, listInterviewQuestions, listInterviewTurns, finishInterviewSession, saveQuestionBankItems } = require('../db');
+const { getUserById, listInterviewSessions, createInterviewSession, saveInterviewQuestions, getNextInterviewQuestion, listInterviewQuestions, listInterviewTurns, finishInterviewSession } = require('../db');
 const { readJdDoc } = require('../doc');
 const { appendMemoryEntry } = require('../memory');
 const { json, jsonError, parseNumberOrFallback, readBody, writeSse, flushSseFrame, getErrorMessage } = require('../http');
@@ -8,6 +8,7 @@ const { summarizeLongTermMemory } = require('../interview/context-service');
 const { generateInterviewQuestionQueue } = require('../interview/llm-service');
 const { submitInterviewTurn } = require('../interview/turn-service');
 const { searchExperienceQuestionItems } = require('../experience/service');
+const { promoteInterviewRetrospectQuestions } = require('../question-bank/service');
 
 const buildExperienceQueueQuestions = ({ query, limit = 2 }) =>
   searchExperienceQuestionItems({ query, limit })
@@ -319,31 +320,14 @@ const handleInterviewRoutes = async ({ req, res, url, corsHeaders }) => {
       const weaknesses = Array.from(weaknessMap.entries()).sort((a, b) => b[1] - a[1]).map(([key]) => key).slice(0, 5);
 
       const nextReviewAt = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
-      const qbItems = turns.map((turn) => {
-        const sourceQuestion = turn.question_id ? questionMap.get(turn.question_id) : null;
-        return {
-          id: randomUUID(),
-          user_id: session.user_id,
-          source_session_id: sessionId,
-          source_turn_id: turn.id,
-          source_question_id: sourceQuestion?.id || null,
-          source_question_type: sourceQuestion?.question_type || '',
-          source_question_source: sourceQuestion?.source || '',
-          chapter,
-          question: turn.question,
-          difficulty: sourceQuestion?.difficulty || (turn.score >= 75 ? 'medium' : 'easy'),
-          tags: [
-            '面试复盘',
-            ...(sourceQuestion?.question_type ? [sourceQuestion.question_type] : []),
-            ...(sourceQuestion?.source ? [sourceQuestion.source] : []),
-            ...(turn.weaknesses || []).slice(0, 2),
-          ],
-          weakness_tag: (turn.weaknesses || [])[0] || '',
-          next_review_at: nextReviewAt,
-          review_status: 'pending',
-        };
+      const promoteResult = promoteInterviewRetrospectQuestions({
+        session,
+        sessionId,
+        chapter,
+        turns,
+        questionMap,
+        nextReviewAt,
       });
-      const promoteStat = saveQuestionBankItems({ items: qbItems });
       const user = getUserById(session.user_id);
       const memorySummary = await summarizeLongTermMemory({
         resumeSummary: user?.resume_summary || '',
@@ -376,9 +360,13 @@ const handleInterviewRoutes = async ({ req, res, url, corsHeaders }) => {
         strengths,
         weaknesses,
         long_term_memory: memorySummary,
-        promoted_questions: qbItems.length,
-        promoted_new_questions: promoteStat.inserted,
-        promoted_updated_questions: promoteStat.updated,
+        promoted_questions: promoteResult.items.length,
+        promoted_new_questions: promoteResult.legacyStat.inserted,
+        promoted_updated_questions: promoteResult.legacyStat.updated,
+        promoted_source_created: promoteResult.sourceCreated,
+        promoted_source_updated: promoteResult.sourceUpdated,
+        promoted_user_bank_created: promoteResult.bankCreated,
+        promoted_user_bank_updated: promoteResult.bankUpdated,
         memory_path: memoryPath,
       });
     } catch (error) {

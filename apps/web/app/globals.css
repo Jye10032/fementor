@@ -19,6 +19,9 @@
   --radius: 1rem;
   --shadow-soft: 0 22px 60px color-mix(in oklab, var(--foreground) 8%, transparent);
   --shadow-card: 0 12px 30px color-mix(in oklab, var(--foreground) 7%, transparent);
+  --shadow-glow: 0 0 40px color-mix(in oklab, var(--primary) 15%, transparent);
+  --shadow-card-hover: 0 20px 50px color-mix(in oklab, var(--foreground) 12%, transparent),
+    0 0 30px color-mix(in oklab, var(--primary) 8%, transparent);
 }
 
 @theme inline {
@@ -53,7 +56,9 @@
     background-image:
       radial-gradient(circle at top left, color-mix(in oklab, var(--accent) 16%, transparent) 0, transparent 28%),
       radial-gradient(circle at top right, color-mix(in oklab, var(--primary) 14%, transparent) 0, transparent 34%),
-      linear-gradient(180deg, color-mix(in oklab, var(--secondary) 55%, transparent), transparent 16rem);
+      linear-gradient(180deg, color-mix(in oklab, var(--secondary) 55%, transparent), transparent 16rem),
+      radial-gradient(circle, color-mix(in oklab, var(--border) 30%, transparent) 1px, transparent 1px);
+    background-size: 100%, 100%, 100%, 32px 32px;
     min-height: 100vh;
   }
 
@@ -109,6 +114,50 @@
   100% {
     transform: scale(1.25);
     opacity: 0;
+  }
+}
+
+@keyframes fade-in-up {
+  0% {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes glow-pulse {
+  0%,
+  100% {
+    opacity: 0;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-4px);
   }
 }
 
@@ -186,6 +235,11 @@
 
   .panel-surface {
     @apply rounded-[1.75rem] border border-border/80 bg-card/90 p-5 shadow-[var(--shadow-card)] backdrop-blur md:p-6;
+    transition: box-shadow 320ms ease, border-color 320ms ease, transform 320ms ease;
+  }
+
+  .panel-surface:hover {
+    box-shadow: var(--shadow-card-hover);
   }
 
   .panel-muted {
@@ -198,6 +252,23 @@
 
   .action-primary {
     @apply inline-flex items-center justify-center rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm hover:-translate-y-0.5 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .action-primary::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, color-mix(in oklab, white 20%, transparent), transparent);
+    background-size: 200% 100%;
+    opacity: 0;
+    transition: opacity 300ms ease;
+  }
+
+  .action-primary:hover::before {
+    opacity: 1;
+    animation: shimmer 1.5s ease-in-out;
   }
 
   .action-secondary {
@@ -206,10 +277,6 @@
 
   .eyebrow-chip {
     @apply inline-flex items-center rounded-full border border-border/80 bg-background/80 px-3 py-1 text-[0.68rem] font-semibold uppercase tracking-[0.22em] text-muted-foreground;
-  }
-
-  .metric-tile {
-    @apply rounded-[1.4rem] border border-border/80 bg-background/80 p-4;
   }
 
   .status-indicator {
@@ -262,7 +329,7 @@
 
   .auto-advance-progress {
     transform-origin: left center;
-    animation: auto-advance-progress 1000ms linear forwards;
+    animation: auto-advance-progress 5000ms linear forwards;
   }
 
   .tool-page {
@@ -307,10 +374,6 @@
 
   .tool-panel {
     @apply rounded-[1.2rem] border border-border/80 bg-card p-5 shadow-sm;
-  }
-
-  .tool-section {
-    @apply min-w-0 w-full space-y-4 rounded-[1.2rem] border border-border/80 bg-card p-5;
   }
 
   .tool-section-title {
@@ -375,5 +438,170 @@
 
   .tool-debug {
     @apply rounded-[1rem] border border-border/70 bg-secondary/50 p-4 text-xs leading-6 text-foreground;
+  }
+
+  /* ── Zigzag Timeline ── */
+  .zigzag-timeline {
+    @apply mx-auto w-full max-w-xl;
+    --timeline-stroke: 3px;
+    padding-block: 1rem;
+    counter-reset: timeline-step;
+  }
+
+  .zigzag-timeline__step {
+    position: relative;
+    margin: 0;
+    padding: 2rem 2.5rem;
+    border: 0 solid;
+    border-top-width: var(--timeline-stroke);
+    border-image: linear-gradient(to right, var(--primary), var(--accent));
+    border-image-slice: 1;
+    counter-increment: timeline-step;
+  }
+
+  .zigzag-timeline__content {
+    position: relative;
+    width: 100%;
+  }
+
+  .zigzag-timeline__marker {
+    position: absolute;
+    top: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 9999px;
+    background: var(--foreground);
+    color: var(--primary-foreground);
+    font-size: 0.875rem;
+    font-weight: 700;
+    transform: translateY(-50%);
+    box-shadow:
+      0 0 0 5px color-mix(in oklab, var(--card) 92%, transparent),
+      0 8px 20px color-mix(in oklab, var(--foreground) 16%, transparent);
+  }
+
+  /* odd steps (1, 3): border on right, marker on right */
+  .zigzag-timeline__step--left {
+    border-right-width: var(--timeline-stroke);
+    padding-left: 0;
+  }
+
+  .zigzag-timeline__step--left .zigzag-timeline__marker {
+    left: 100%;
+    margin-left: -1.25rem;
+  }
+
+  /* even steps (2, 4): border on left, marker on left */
+  .zigzag-timeline__step--right {
+    border-left-width: var(--timeline-stroke);
+    padding-right: 0;
+  }
+
+  .zigzag-timeline__step--right .zigzag-timeline__marker {
+    right: 100%;
+    margin-right: -1.25rem;
+  }
+
+  /* first step: no top border */
+  .zigzag-timeline__step:first-child {
+    border-top-width: 0;
+    padding-top: 0;
+  }
+
+  @media (max-width: 767px) {
+    .zigzag-timeline {
+      max-width: 100%;
+      padding-left: 2rem;
+    }
+
+    .zigzag-timeline__step {
+      padding: 1.5rem 0 1.5rem 2rem;
+      border-width: var(--timeline-stroke) 0 0 var(--timeline-stroke);
+    }
+
+    .zigzag-timeline__step--left,
+    .zigzag-timeline__step--right {
+      padding-left: 2rem;
+      padding-right: 0;
+      border-right-width: 0;
+      border-left-width: var(--timeline-stroke);
+    }
+
+    .zigzag-timeline__step--left .zigzag-timeline__marker,
+    .zigzag-timeline__step--right .zigzag-timeline__marker {
+      left: 0;
+      right: auto;
+      margin-left: -1.25rem;
+      margin-right: 0;
+      transform: translateY(-50%);
+    }
+  }
+
+  .fade-in-up {
+    animation: fade-in-up 500ms ease-out both;
+  }
+
+  .fade-in-up-delay-1 {
+    animation: fade-in-up 500ms ease-out 80ms both;
+  }
+
+  .fade-in-up-delay-2 {
+    animation: fade-in-up 500ms ease-out 160ms both;
+  }
+
+  .fade-in-up-delay-3 {
+    animation: fade-in-up 500ms ease-out 240ms both;
+  }
+
+  .fade-in-up-delay-4 {
+    animation: fade-in-up 500ms ease-out 320ms both;
+  }
+
+  .card-glow {
+    position: relative;
+    isolation: isolate;
+  }
+
+  .card-glow::after {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    background: linear-gradient(
+      135deg,
+      color-mix(in oklab, var(--primary) 30%, transparent),
+      color-mix(in oklab, var(--accent) 25%, transparent),
+      transparent 60%
+    );
+    opacity: 0;
+    transition: opacity 400ms ease;
+    z-index: -1;
+  }
+
+  .card-glow:hover::after {
+    opacity: 1;
+  }
+
+  .tool-section {
+    @apply min-w-0 w-full space-y-4 rounded-[1.2rem] border border-border/80 bg-card p-5;
+    transition: box-shadow 300ms ease, border-color 300ms ease;
+  }
+
+  .tool-section:hover {
+    box-shadow: var(--shadow-card);
+  }
+
+  .metric-tile {
+    @apply rounded-[1.4rem] border border-border/80 bg-background/80 p-4;
+    transition: transform 260ms ease, box-shadow 260ms ease, border-color 260ms ease;
+  }
+
+  .metric-tile:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-card);
+    border-color: color-mix(in oklab, var(--primary) 25%, var(--border));
   }
 }

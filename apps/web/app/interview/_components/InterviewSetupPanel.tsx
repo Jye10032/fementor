@@ -40,20 +40,32 @@ export function InterviewSetupPanel({
             : "需要同时配置好简历和 JD 才能开始。"}
         </p>
         <div className="flex flex-wrap items-center gap-3">
-          <label className="inline-flex items-center gap-2 text-sm text-muted-foreground">
-            <input type="checkbox" checked={useExperienceQuestions} onChange={handleCheckboxChange} />
+          <label htmlFor="use-experience" className="inline-flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
+            <input
+              id="use-experience"
+              type="checkbox"
+              checked={useExperienceQuestions}
+              onChange={handleCheckboxChange}
+              className="cursor-pointer"
+            />
             参考近期真实面经
           </label>
           <input
+            id="experience-query"
             value={experienceQuery}
             onChange={(event) => onExperienceQueryChange(event.target.value)}
             placeholder="例如：前端实习 / React 面经"
             disabled={!useExperienceQuestions}
             className="field-shell min-w-[260px] flex-1"
+            aria-label="面经搜索关键词"
           />
         </div>
       </div>
-      <button onClick={onStart} disabled={starting || !canStart} className="action-primary">
+      <button
+        onClick={onStart}
+        disabled={starting || !canStart}
+        className="action-primary cursor-pointer gap-2"
+      >
         <Play className="h-4 w-4" />
         {starting ? "启动中..." : "开始模拟面试"}
       </button>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuth, useUser } from "@clerk/nextjs";
-import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, ReactNode, useContext, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { AuthState, AuthUser } from "../lib/auth";
 import { setApiTokenResolver } from "../lib/api";
 import { fetchViewer, Viewer } from "../lib/viewer";
@@ -30,6 +30,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const { isLoaded, isSignedIn, getToken } = useAuth();
   const { user } = useUser();
   const { apiBase } = useRuntimeConfig();
+  const [authReady, setAuthReady] = useState(false);
   const [viewer, setViewer] = useState<Viewer | null>(null);
   const [viewerLoading, setViewerLoading] = useState(false);
   const [viewerError, setViewerError] = useState<string | null>(null);
@@ -61,6 +62,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     () => ({
       isLoaded,
       isSignedIn: Boolean(isSignedIn),
+      authReady,
       authUser: buildAuthUser(user),
       viewer,
       viewerLoading,
@@ -74,10 +76,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
       },
       refreshViewer,
     }),
-    [getToken, isLoaded, isSignedIn, refreshViewer, user, viewer, viewerError, viewerLoading],
+    [authReady, getToken, isLoaded, isSignedIn, refreshViewer, user, viewer, viewerError, viewerLoading],
   );
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    setAuthReady(false);
     setApiTokenResolver(async () => {
       if (!isSignedIn) {
         return null;
@@ -85,8 +88,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       return getToken();
     });
+    setAuthReady(true);
 
     return () => {
+      setAuthReady(false);
       setApiTokenResolver(async () => null);
     };
   }, [getToken, isSignedIn]);

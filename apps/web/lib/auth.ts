@@ -8,6 +8,7 @@ export type AuthUser = {
 };
 
 export type AuthState = {
+  authReady: boolean;
   isLoaded: boolean;
   isSignedIn: boolean;
   authUser: AuthUser | null;

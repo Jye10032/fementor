@@ -21,6 +21,7 @@ type RuntimeConfigContextValue = {
   llmModel: string;
   setLlmModel: (value: string) => void;
   llmSyncing: boolean;
+  llmSyncState: "idle" | "syncing" | "ready" | "warning" | "error";
   llmSyncStatus: string;
   syncLlmConfig: () => Promise<void>;
 };
@@ -49,6 +50,7 @@ export function RuntimeConfigProvider({ children }: ProviderProps) {
   const [llmApiKey, setLlmApiKey] = useState("");
   const [llmModel, setLlmModel] = useState(DEFAULT_LLM_MODEL);
   const [llmSyncing, setLlmSyncing] = useState(false);
+  const [llmSyncState, setLlmSyncState] = useState<RuntimeConfigContextValue["llmSyncState"]>("idle");
   const [llmSyncStatus, setLlmSyncStatus] = useState("尚未同步 LLM 配置。");
   const initializedRef = useRef(false);
   const bootstrappedSyncRef = useRef(false);
@@ -109,6 +111,7 @@ export function RuntimeConfigProvider({ children }: ProviderProps) {
   const syncLlmConfig = useCallback(async () => {
     try {
       setLlmSyncing(true);
+      setLlmSyncState("syncing");
       setLlmSyncStatus("正在同步 LLM 配置...");
       const response = await fetch(`${apiBase}/v1/runtime/llm-config`, {
         method: "POST",
@@ -126,6 +129,7 @@ export function RuntimeConfigProvider({ children }: ProviderProps) {
         throw new Error(data.error || `HTTP ${response.status}`);
       }
 
+      setLlmSyncState("syncing");
       setLlmSyncStatus("配置已同步，正在测试 LLM 连通性...");
 
       // Ping: send a minimal chat completion to verify the key and endpoint work
@@ -145,13 +149,15 @@ export function RuntimeConfigProvider({ children }: ProviderProps) {
         });
 
         if (pingResponse.ok) {
+          setLlmSyncState("ready");
           setLlmSyncStatus("✓ 配置已保存，LLM 连通正常。");
         } else {
           const pingError = await pingResponse.json().catch(() => ({})) as { error?: { message?: string } };
           const errorMsg = pingError?.error?.message || `HTTP ${pingResponse.status}`;
+          setLlmSyncState("warning");
           setLlmSyncStatus(`⚠ 配置已保存，但 LLM 连通失败：${errorMsg}`);
         }
-      } catch (pingErr) {
+      } catch {
         // CORS or network error — fall back to backend-side ping
         try {
           const backendPing = await fetch(`${apiBase}/v1/runtime/llm-ping`, {
@@ -161,15 +167,19 @@ export function RuntimeConfigProvider({ children }: ProviderProps) {
           });
           const backendData = (await backendPing.json()) as { ok?: boolean; error?: string; message?: string; latency_ms?: number };
           if (backendPing.ok && backendData.ok) {
+            setLlmSyncState("ready");
             setLlmSyncStatus(`✓ 配置已保存，LLM 连通正常${backendData.latency_ms ? `（${backendData.latency_ms}ms）` : ""}。`);
           } else {
+            setLlmSyncState("warning");
             setLlmSyncStatus(`⚠ 配置已保存，但 LLM 连通失败：${backendData.error || backendData.message || "未知错误"}`);
           }
         } catch {
-          setLlmSyncStatus("✓ 配置已保存，但无法验证 LLM 连通性（可能是跨域限制）。");
+          setLlmSyncState("warning");
+          setLlmSyncStatus("⚠ 配置已保存，但无法验证 LLM 连通性（可能是跨域限制）。");
         }
       }
     } catch (error) {
+      setLlmSyncState("error");
       setLlmSyncStatus(`同步失败：${String(error)}`);
       throw error;
     } finally {
@@ -194,6 +204,7 @@ export function RuntimeConfigProvider({ children }: ProviderProps) {
     llmModel,
     setLlmModel,
     llmSyncing,
+    llmSyncState,
     llmSyncStatus,
     syncLlmConfig,
   }), [
@@ -202,6 +213,7 @@ export function RuntimeConfigProvider({ children }: ProviderProps) {
     llmApiKey,
     llmModel,
     llmSyncing,
+    llmSyncState,
     llmSyncStatus,
     syncLlmConfig,
   ]);

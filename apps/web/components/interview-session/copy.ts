@@ -146,7 +146,10 @@ export function getStageDisplay(event: Partial<InterviewTurnStageEvent> | null):
     return { step: "evaluating", label: "正在写入评分结果" };
   }
   if (step === "reply") {
-    return { step: "generating_followup", label: "正在生成面试官回复" };
+    if (message?.includes("追问")) {
+      return { step: "generating_followup", label: message };
+    }
+    return { step: "deciding", label: message || "正在生成面试官回复" };
   }
   if (step === "planning") {
     if (message?.includes("切换到下一题")) {

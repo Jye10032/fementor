@@ -236,12 +236,16 @@ const submitInterviewTurn = async ({ sessionId, body, onPhase, onToken }) => {
   if (queuedQuestion) {
     updateInterviewQuestionStatus({ questionId: queuedQuestion.id, status: 'answered' });
     const queueItems = listInterviewQuestions(sessionId);
-    if (shouldInsertFollowUp({
+    await emitPhase('planning', '正在判断是否需要追问...');
+    const needsFollowUp = shouldInsertFollowUp({
       queuedQuestion,
       score,
       weaknesses,
       queueItems,
-    })) {
+    });
+
+    if (needsFollowUp) {
+      await emitPhase('reply', '正在生成追问题目...');
       const followUp = await generateFollowUpQuestion({
         queuedQuestion,
         answer,

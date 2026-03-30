@@ -3,6 +3,25 @@ const { Pool } = require('pg');
 
 const DATABASE_URL = String(process.env.DATABASE_URL || '').trim();
 
+function getNormalizedRole(value) {
+  return String(value || '').trim().toLowerCase() === 'admin' ? 'admin' : 'user';
+}
+
+function getAdminEmails() {
+  return String(process.env.ADMIN_EMAILS || '')
+    .split(',')
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function resolveUserRoleByEmail(email) {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  if (!normalizedEmail) {
+    return 'user';
+  }
+  return getAdminEmails().includes(normalizedEmail) ? 'admin' : 'user';
+}
+
 let pool = null;
 let initPromise = null;
 
@@ -41,6 +60,7 @@ async function initPostgres() {
             email text,
             name text,
             avatar_url text,
+            role text NOT NULL DEFAULT 'user',
             plan text NOT NULL DEFAULT 'free',
             status text NOT NULL DEFAULT 'active',
             created_at timestamptz NOT NULL DEFAULT now(),
@@ -77,6 +97,10 @@ async function initPostgres() {
           CREATE INDEX IF NOT EXISTS idx_resume_parse_usage_user_source_created ON resume_parse_usage(user_id, source_type, created_at DESC);
           CREATE UNIQUE INDEX IF NOT EXISTS idx_resume_parse_cache_file_hash ON resume_parse_cache(file_hash);
         `);
+        await client.query(`
+          ALTER TABLE users
+          ADD COLUMN IF NOT EXISTS role text NOT NULL DEFAULT 'user';
+        `);
       } finally {
         client.release();
       }
@@ -93,12 +117,14 @@ async function upsertAppUserByClerk({ clerkUserId, email, name, avatarUrl }) {
     return null;
   }
 
+  const role = resolveUserRoleByEmail(email);
+
   await initPostgres();
   const client = await getPool().connect();
   try {
     const existing = await client.query(
       `
-      SELECT id, clerk_user_id, email, name, avatar_url, plan, status, created_at, updated_at
+      SELECT id, clerk_user_id, email, name, avatar_url, role, plan, status, created_at, updated_at
       FROM users
       WHERE clerk_user_id = $1
       LIMIT 1
@@ -114,22 +140,23 @@ async function upsertAppUserByClerk({ clerkUserId, email, name, avatarUrl }) {
         SET email = $2,
             name = $3,
             avatar_url = $4,
+            role = $5,
             updated_at = now()
         WHERE clerk_user_id = $1
-        RETURNING id, clerk_user_id, email, name, avatar_url, plan, status, created_at, updated_at
+        RETURNING id, clerk_user_id, email, name, avatar_url, role, plan, status, created_at, updated_at
         `,
-        [clerkUserId, email || null, name || null, avatarUrl || null],
+        [clerkUserId, email || null, name || null, avatarUrl || null, role],
       );
-      return updated.rows[0] || row;
+      return updated.rows[0] || { ...row, role: getNormalizedRole(row.role) };
     }
 
     const inserted = await client.query(
       `
-      INSERT INTO users (id, clerk_user_id, email, name, avatar_url, plan, status)
-      VALUES ($1, $2, $3, $4, $5, 'free', 'active')
-      RETURNING id, clerk_user_id, email, name, avatar_url, plan, status, created_at, updated_at
+      INSERT INTO users (id, clerk_user_id, email, name, avatar_url, role, plan, status)
+      VALUES ($1, $2, $3, $4, $5, $6, 'free', 'active')
+      RETURNING id, clerk_user_id, email, name, avatar_url, role, plan, status, created_at, updated_at
       `,
-      [randomUUID(), clerkUserId, email || null, name || null, avatarUrl || null],
+      [randomUUID(), clerkUserId, email || null, name || null, avatarUrl || null, role],
     );
     return inserted.rows[0] || null;
   } finally {
@@ -269,8 +296,10 @@ module.exports = {
   DATABASE_URL,
   createResumeParseUsage,
   getResumeParseCacheByHash,
+  getAdminEmails,
   initPostgres,
   isPostgresEnabled,
+  resolveUserRoleByEmail,
   saveResumeParseCache,
   upsertAppUserByClerk,
   getTodayResumeOcrUsageCount,

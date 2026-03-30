@@ -3,7 +3,14 @@ const { DATABASE_URL, isPostgresEnabled } = require('../postgres');
 const { getSirchmunkStatus, buildQueryPlan, retrieveEvidence } = require('../retrieval');
 const { hasRealLLM, getLlmConfig, setRuntimeLlmConfig } = require('../llm');
 const { json, jsonError, parseNumberOrFallback, readBody } = require('../http');
-const { buildViewerPayload, ensureLocalUserProfile, getResolvedUserContext } = require('../request-context');
+const {
+  buildViewerPayload,
+  ensureLocalUserProfile,
+  getAppRuntimeMode,
+  getPublicSourceDriver,
+  getResolvedUserContext,
+  getRuntimeStorageTarget,
+} = require('../request-context');
 const { buildEvidenceBundle, classifyQuestionType, planRetrievalWithLLM } = require('../evidence-service');
 const { enhanceEvaluationWithLLM, generateEvaluationNarration } = require('../interview/llm-service');
 const { appendMemoryEntry } = require('../memory');
@@ -30,6 +37,11 @@ const getHealthPayload = () => {
     postgres: {
       enabled: isPostgresEnabled(),
       database_url_present: Boolean(DATABASE_URL),
+    },
+    runtime: {
+      mode: getAppRuntimeMode(),
+      public_source_driver: getPublicSourceDriver(),
+      public_source_storage_target: getRuntimeStorageTarget(),
     },
     sirchmunk: getSirchmunkStatus(),
   };

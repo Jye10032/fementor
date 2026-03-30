@@ -10,6 +10,8 @@ const { handleChatRoutes } = require('./routes/chat-routes');
 const { handleDocumentRoutes } = require('./routes/document-routes');
 const { handleInterviewRoutes } = require('./routes/interview-routes');
 const { handlePracticeRoutes } = require('./routes/practice-routes');
+const { handleExperienceRoutes } = require('./routes/experience-routes');
+const { handlePublicQuestionSourceRoutes } = require('./routes/public-question-source-routes');
 
 const PORT = process.env.PORT || 3300;
 
@@ -24,6 +26,8 @@ const routeHandlers = [
   handleDocumentRoutes,
   handleInterviewRoutes,
   handlePracticeRoutes,
+  handleExperienceRoutes,
+  handlePublicQuestionSourceRoutes,
 ];
 
 const server = http.createServer(async (req, res) => {

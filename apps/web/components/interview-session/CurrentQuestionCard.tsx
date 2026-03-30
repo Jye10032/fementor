@@ -81,38 +81,33 @@ export function CurrentQuestionCard({
         </div>
 
         {nextQuestion ? (
-          <div className="question-card-settle w-full rounded-[1.2rem] border border-sky-200 bg-sky-50 p-3.5 lg:max-w-[280px]">
-            <div className="flex items-start gap-3">
-              <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-white text-sky-700">
-                <Sparkles className="h-4 w-4" />
+          <div className="question-card-settle w-full rounded-[1.2rem] border border-sky-200 bg-sky-50 p-3 lg:max-w-[260px]">
+            <div className="flex items-center gap-2">
+              <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-white text-sky-700">
+                <Sparkles className="h-3.5 w-3.5" />
               </span>
-              <div>
-                <p className="text-sm font-semibold text-sky-900">上一轮反馈已完成</p>
-                <p className="mt-1 text-sm leading-6 text-sky-800">
-                  你可以先读完当前评价，再进入下一题。若无操作，系统会自动继续。
-                </p>
-                <div className="mt-3 overflow-hidden rounded-full bg-white/80">
-                  <div className="auto-advance-progress h-1.5 rounded-full bg-sky-500" />
-                </div>
-                <p className="mt-2 text-xs font-medium tracking-[0.08em] text-sky-700">
-                  约 1 秒后自动进入，也可立即切换
-                </p>
-                <p className="mt-2 text-sm font-medium leading-6 text-sky-900">
-                  下一题：第 {nextQuestion.order_no} 题
-                  {nextQuestion.question_type === "follow_up" ? " · 追问" : ""}
-                </p>
-                <p className="mt-1 line-clamp-3 text-sm leading-6 text-sky-800">
-                  {nextQuestion.stem}
-                </p>
-              </div>
+              <p className="text-sm font-semibold text-sky-900">上一轮反馈已完成</p>
             </div>
+            <div className="mt-2 overflow-hidden rounded-full bg-white/80">
+              <div className="auto-advance-progress h-1.5 rounded-full bg-sky-500" />
+            </div>
+            <p className="mt-1.5 text-xs font-medium tracking-[0.08em] text-sky-700">
+              约 5 秒后自动进入，也可立即切换
+            </p>
+            <p className="mt-2 text-sm font-medium leading-6 text-sky-900">
+              下一题：第 {nextQuestion.order_no} 题
+              {nextQuestion.question_type === "follow_up" ? " · 追问" : ""}
+            </p>
+            <p className="mt-0.5 line-clamp-2 text-sm leading-6 text-sky-800">
+              {nextQuestion.stem}
+            </p>
             <button
               onClick={() => {
                 setIsAdvancing(true);
                 onAdvance();
               }}
               disabled={isAdvancing}
-              className="action-primary group mt-4 w-full justify-center gap-2 disabled:translate-y-0"
+              className="action-primary group mt-3 w-full justify-center gap-2 py-2 text-sm disabled:translate-y-0"
             >
               {isAdvancing ? "正在进入下一题..." : "进入下一题"}
               <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
