@@ -179,7 +179,7 @@ function renderGraph(
     .attr("stroke-dasharray", (d) => d.type === "related" ? "4,3" : null)
     .attr("opacity", 0.6);
 
-  const node = g.append("g").selectAll("circle").data(nodes).join("circle")
+  const node = g.append("g").selectAll<SVGCircleElement, SimNode>("circle").data(nodes).join("circle")
     .attr("r", (d) => getRadius(d.level))
     .attr("fill", (d) => d.color)
     .attr("stroke", "#0f172a").attr("stroke-width", 1.5)
