@@ -2,6 +2,15 @@ const { randomUUID } = require('crypto');
 const { Pool } = require('pg');
 
 const DATABASE_URL = String(process.env.DATABASE_URL || '').trim();
+const APP_PUBLIC_TABLES = [
+  'users',
+  'resume_parse_usage',
+  'resume_parse_cache',
+  'experience_sync_job',
+  'experience_post',
+  'experience_question_group',
+  'experience_question_item',
+];
 
 function getNormalizedRole(value) {
   return String(value || '').trim().toLowerCase() === 'admin' ? 'admin' : 'user';
@@ -42,6 +51,12 @@ function getPool() {
   }
 
   return pool;
+}
+
+async function enableRowLevelSecurity(client) {
+  for (const tableName of APP_PUBLIC_TABLES) {
+    await client.query(`ALTER TABLE public."${tableName}" ENABLE ROW LEVEL SECURITY`);
+  }
 }
 
 async function initPostgres() {
@@ -200,6 +215,7 @@ async function initPostgres() {
           ALTER TABLE users
           ADD COLUMN IF NOT EXISTS role text NOT NULL DEFAULT 'user';
         `);
+        await enableRowLevelSecurity(client);
       } finally {
         client.release();
       }
