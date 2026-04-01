@@ -10,6 +10,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { apiRequest } from "../lib/api";
 
 type RuntimeConfigContextValue = {
   apiBase: string;
@@ -24,10 +25,15 @@ type RuntimeConfigContextValue = {
   llmSyncState: "idle" | "syncing" | "ready" | "warning" | "error";
   llmSyncStatus: string;
   syncLlmConfig: () => Promise<void>;
+  clearSessionLlmConfig: () => Promise<void>;
+  refreshSessionLlmConfig: () => Promise<void>;
+  sessionLlmConfigured: boolean;
+  sessionLlmMaskedKey: string | null;
+  sessionLlmExpiresAt: string | null;
 };
 
 const DEFAULT_LOCAL_API_BASE = "http://localhost:3300";
-const DEFAULT_API_BASE = process.env.NEXT_PUBLIC_API_BASE || DEFAULT_LOCAL_API_BASE;
+const DEFAULT_API_BASE = process.env.NEXT_PUBLIC_API_BASE || (typeof window !== "undefined" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1" ? "/api/proxy" : DEFAULT_LOCAL_API_BASE);
 const DEFAULT_LLM_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_LLM_MODEL = "gpt-4o-mini";
 
@@ -40,28 +46,23 @@ type HealthResponse = {
   };
 };
 
+type SessionLlmConfigPayload = {
+  base_url?: string;
+  model?: string;
+  has_api_key?: boolean;
+  masked_api_key?: string | null;
+  expires_at?: string | null;
+};
+
+type SessionLlmConfigResponse = {
+  configured?: boolean;
+  config?: SessionLlmConfigPayload;
+};
+
 const RuntimeConfigContext = createContext<RuntimeConfigContextValue | null>(null);
 
 function normalizeBaseUrl(value: string | null | undefined) {
   return String(value || "").trim().replace(/\/+$/, "");
-}
-
-function inferRailwayApiBase(origin: string) {
-  const normalizedOrigin = normalizeBaseUrl(origin);
-
-  if (!normalizedOrigin.includes(".up.railway.app")) {
-    return null;
-  }
-
-  if (normalizedOrigin.includes("-web-")) {
-    return normalizedOrigin.replace("-web-", "-api-");
-  }
-
-  if (normalizedOrigin.includes("-web.")) {
-    return normalizedOrigin.replace("-web.", "-api.");
-  }
-
-  return null;
 }
 
 async function probeHealth(baseUrl: string) {
@@ -86,14 +87,9 @@ function getBootstrapApiCandidates() {
   }
 
   const savedApi = normalizeBaseUrl(window.localStorage.getItem("fementor.apiBase"));
-  const envApi = normalizeBaseUrl(process.env.NEXT_PUBLIC_API_BASE);
-  const currentOrigin = normalizeBaseUrl(window.location.origin);
-  const inferredRailwayApi = inferRailwayApiBase(currentOrigin);
-  const localFallback = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
-    ? DEFAULT_LOCAL_API_BASE
-    : "";
+  const envApi = normalizeBaseUrl(DEFAULT_API_BASE);
 
-  return [savedApi, envApi, inferredRailwayApi, localFallback]
+  return [savedApi, envApi]
     .map((candidate) => normalizeBaseUrl(candidate))
     .filter((candidate, index, items) => Boolean(candidate) && items.indexOf(candidate) === index);
 }
@@ -110,18 +106,50 @@ export function RuntimeConfigProvider({ children }: ProviderProps) {
   const [llmSyncing, setLlmSyncing] = useState(false);
   const [llmSyncState, setLlmSyncState] = useState<RuntimeConfigContextValue["llmSyncState"]>("idle");
   const [llmSyncStatus, setLlmSyncStatus] = useState("尚未同步 LLM 配置。");
+  const [sessionLlmConfigured, setSessionLlmConfigured] = useState(false);
+  const [sessionLlmMaskedKey, setSessionLlmMaskedKey] = useState<string | null>(null);
+  const [sessionLlmExpiresAt, setSessionLlmExpiresAt] = useState<string | null>(null);
+  const [backendLlmReady, setBackendLlmReady] = useState(false);
   const initializedRef = useRef(false);
-  const bootstrappedSyncRef = useRef(false);
+
+  const applySessionConfigState = useCallback((payload?: SessionLlmConfigResponse | null) => {
+    const config = payload?.config;
+    const configured = payload?.configured === true && config?.has_api_key === true;
+
+    setSessionLlmConfigured(configured);
+    setSessionLlmMaskedKey(config?.masked_api_key || null);
+    setSessionLlmExpiresAt(config?.expires_at || null);
+
+    if (config?.base_url) {
+      setLlmBaseUrl(config.base_url);
+    }
+    if (config?.model) {
+      setLlmModel(config.model);
+    }
+
+    if (configured) {
+      setLlmSyncState("ready");
+      setLlmSyncStatus("当前会话已配置用户 LLM Key。");
+      return;
+    }
+
+    if (backendLlmReady) {
+      setLlmSyncState("ready");
+      setLlmSyncStatus("服务端默认 LLM 已就绪。");
+      return;
+    }
+
+    setLlmSyncState("idle");
+    setLlmSyncStatus("当前会话未配置用户 LLM Key。");
+  }, [backendLlmReady]);
 
   useEffect(() => {
     const savedApi = normalizeBaseUrl(window.localStorage.getItem("fementor.apiBase")) || normalizeBaseUrl(DEFAULT_API_BASE);
     const savedLlmBaseUrl = window.localStorage.getItem("fementor.llmBaseUrl");
-    const savedLlmApiKey = window.localStorage.getItem("fementor.llmApiKey");
     const savedLlmModel = window.localStorage.getItem("fementor.llmModel");
 
     setApiBase(savedApi);
     if (savedLlmBaseUrl) setLlmBaseUrl(savedLlmBaseUrl);
-    if (savedLlmApiKey) setLlmApiKey(savedLlmApiKey);
     if (savedLlmModel) setLlmModel(savedLlmModel);
 
     void (async () => {
@@ -148,12 +176,18 @@ export function RuntimeConfigProvider({ children }: ProviderProps) {
         const data = (await response.json()) as HealthResponse;
         const backendBaseUrl = String(data.llm?.base_url || "").trim();
         const backendModel = String(data.llm?.model || "").trim();
+        const hasBackendKey = data.llm?.has_api_key === true;
 
         if (!savedLlmBaseUrl && backendBaseUrl) {
           setLlmBaseUrl(backendBaseUrl);
         }
         if (!savedLlmModel && backendModel) {
           setLlmModel(backendModel);
+        }
+        setBackendLlmReady(hasBackendKey);
+        if (hasBackendKey) {
+          setLlmSyncState("ready");
+          setLlmSyncStatus("服务端默认 LLM 已就绪。");
         }
       } catch {
         // Ignore bootstrap failures and keep local defaults.
@@ -175,84 +209,50 @@ export function RuntimeConfigProvider({ children }: ProviderProps) {
 
   useEffect(() => {
     if (!initializedRef.current) return;
-    window.localStorage.setItem("fementor.llmApiKey", llmApiKey);
-  }, [llmApiKey]);
-
-  useEffect(() => {
-    if (!initializedRef.current) return;
     window.localStorage.setItem("fementor.llmModel", llmModel);
   }, [llmModel]);
+
+  const refreshSessionLlmConfig = useCallback(async () => {
+    try {
+      const data = await apiRequest<SessionLlmConfigResponse>(apiBase, "/v1/runtime/session-llm-config", {
+        auth: "required",
+      });
+      applySessionConfigState(data);
+    } catch {
+      applySessionConfigState(null);
+    }
+  }, [apiBase, applySessionConfigState]);
 
   const syncLlmConfig = useCallback(async () => {
     try {
       setLlmSyncing(true);
       setLlmSyncState("syncing");
-      setLlmSyncStatus("正在同步 LLM 配置...");
-      const response = await fetch(`${apiBase}/v1/runtime/llm-config`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+      setLlmSyncStatus("正在保存当前会话 LLM Key...");
+
+      await apiRequest<SessionLlmConfigResponse>(apiBase, "/v1/runtime/session-llm-config", {
+        method: "PUT",
         body: JSON.stringify({
           base_url: llmBaseUrl,
           api_key: llmApiKey,
           model: llmModel,
         }),
-        cache: "no-store",
+        auth: "required",
       });
 
-      const data = (await response.json()) as { error?: string; message?: string; config?: { has_api_key?: boolean; model?: string } };
-      if (!response.ok) {
-        throw new Error(data.error || `HTTP ${response.status}`);
-      }
-
-      setLlmSyncState("syncing");
-      setLlmSyncStatus("配置已同步，正在测试 LLM 连通性...");
-
-      // Ping: send a minimal chat completion to verify the key and endpoint work
-      try {
-        const pingUrl = llmBaseUrl.replace(/\/+$/, "") + "/chat/completions";
-        const pingResponse = await fetch(pingUrl, {
+      setLlmSyncStatus("正在校验当前会话 LLM Key...");
+      const validated = await apiRequest<SessionLlmConfigResponse & { valid?: boolean }>(
+        apiBase,
+        "/v1/runtime/session-llm-config/validate",
+        {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${llmApiKey}`,
-          },
-          body: JSON.stringify({
-            model: llmModel,
-            messages: [{ role: "user", content: "ping" }],
-            max_tokens: 1,
-          }),
-        });
+          body: JSON.stringify({}),
+          auth: "required",
+        },
+      );
 
-        if (pingResponse.ok) {
-          setLlmSyncState("ready");
-          setLlmSyncStatus("✓ 配置已保存，LLM 连通正常。");
-        } else {
-          const pingError = await pingResponse.json().catch(() => ({})) as { error?: { message?: string } };
-          const errorMsg = pingError?.error?.message || `HTTP ${pingResponse.status}`;
-          setLlmSyncState("warning");
-          setLlmSyncStatus(`⚠ 配置已保存，但 LLM 连通失败：${errorMsg}`);
-        }
-      } catch {
-        // CORS or network error — fall back to backend-side ping
-        try {
-          const backendPing = await fetch(`${apiBase}/v1/runtime/llm-ping`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            cache: "no-store",
-          });
-          const backendData = (await backendPing.json()) as { ok?: boolean; error?: string; message?: string; latency_ms?: number };
-          if (backendPing.ok && backendData.ok) {
-            setLlmSyncState("ready");
-            setLlmSyncStatus(`✓ 配置已保存，LLM 连通正常${backendData.latency_ms ? `（${backendData.latency_ms}ms）` : ""}。`);
-          } else {
-            setLlmSyncState("warning");
-            setLlmSyncStatus(`⚠ 配置已保存，但 LLM 连通失败：${backendData.error || backendData.message || "未知错误"}`);
-          }
-        } catch {
-          setLlmSyncState("warning");
-          setLlmSyncStatus("⚠ 配置已保存，但无法验证 LLM 连通性（可能是跨域限制）。");
-        }
-      }
+      setLlmApiKey("");
+      applySessionConfigState(validated);
+      setLlmSyncStatus("当前会话 LLM Key 已保存并验证通过。");
     } catch (error) {
       setLlmSyncState("error");
       setLlmSyncStatus(`同步失败：${String(error)}`);
@@ -260,14 +260,21 @@ export function RuntimeConfigProvider({ children }: ProviderProps) {
     } finally {
       setLlmSyncing(false);
     }
-  }, [apiBase, llmApiKey, llmBaseUrl, llmModel]);
+  }, [apiBase, applySessionConfigState, llmApiKey, llmBaseUrl, llmModel]);
 
-  useEffect(() => {
-    if (!initializedRef.current || bootstrappedSyncRef.current) return;
-    bootstrappedSyncRef.current = true;
-    if (!llmApiKey.trim()) return;
-    void syncLlmConfig().catch(() => {});
-  }, [llmApiKey, llmBaseUrl, syncLlmConfig]);
+  const clearSessionLlmConfig = useCallback(async () => {
+    try {
+      setLlmSyncing(true);
+      await apiRequest(apiBase, "/v1/runtime/session-llm-config", {
+        method: "DELETE",
+        auth: "required",
+      });
+      setLlmApiKey("");
+      applySessionConfigState(null);
+    } finally {
+      setLlmSyncing(false);
+    }
+  }, [apiBase, applySessionConfigState]);
 
   const value = useMemo<RuntimeConfigContextValue>(() => ({
     apiBase,
@@ -282,6 +289,11 @@ export function RuntimeConfigProvider({ children }: ProviderProps) {
     llmSyncState,
     llmSyncStatus,
     syncLlmConfig,
+    clearSessionLlmConfig,
+    refreshSessionLlmConfig,
+    sessionLlmConfigured,
+    sessionLlmMaskedKey,
+    sessionLlmExpiresAt,
   }), [
     apiBase,
     llmBaseUrl,
@@ -291,6 +303,11 @@ export function RuntimeConfigProvider({ children }: ProviderProps) {
     llmSyncState,
     llmSyncStatus,
     syncLlmConfig,
+    clearSessionLlmConfig,
+    refreshSessionLlmConfig,
+    sessionLlmConfigured,
+    sessionLlmMaskedKey,
+    sessionLlmExpiresAt,
   ]);
 
   return (

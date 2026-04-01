@@ -298,6 +298,10 @@ const collectJsonCandidates = (input, bucket = []) => {
       tags: Array.isArray(input.tags)
         ? input.tags.map((tag) => normalizeWhitespace(tag?.name || tag)).filter(Boolean)
         : [],
+      viewCount: Number(input.viewNum || input.viewCount || input.clickNum || 0) || 0,
+      likeCount: Number(input.praiseNum || input.likeCount || input.likeNum || 0) || 0,
+      commentCount: Number(input.commentNum || input.commentCount || 0) || 0,
+      collectCount: Number(input.collectNum || input.collectCount || input.favoriteNum || 0) || 0,
     });
   }
 
@@ -418,6 +422,11 @@ const extractArticle = (url, html) => {
     ),
   ].slice(0, 20);
 
+  const viewCount = jsonArticle?.viewCount || 0;
+  const likeCount = jsonArticle?.likeCount || 0;
+  const commentCount = jsonArticle?.commentCount || 0;
+  const collectCount = jsonArticle?.collectCount || 0;
+
   return {
     url,
     title: normalizeWhitespace(title),
@@ -428,6 +437,21 @@ const extractArticle = (url, html) => {
     tags,
     wordCount: content.length,
     crawledAt: new Date().toISOString(),
+    viewCount,
+    likeCount,
+    commentCount,
+    collectCount,
+    // 热度公式：log1p 归一化各指标量级后加权求和
+    // 浏览：信号最弱（刷到就算），权重 1
+    // 点赞：轻量互动，权重 4
+    // 评论：需要花时间写内容，参与度更高，权重 3
+    // 收藏：代表"以后还要看"，意图最强，权重 5
+    popularity: Math.round(
+      Math.log1p(viewCount) * 1 +
+      Math.log1p(likeCount) * 4 +
+      Math.log1p(commentCount) * 3 +
+      Math.log1p(collectCount) * 5
+    ),
   };
 };
 

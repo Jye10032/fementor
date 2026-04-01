@@ -20,6 +20,28 @@ const createInterviewSession = ({ id, userId }) => {
   return { id, user_id: userId, status: 'in_progress', started_at: now };
 };
 
+const countSessionsStartedOnUtcDate = ({ userId, date = new Date() }) => {
+  const targetUserId = String(userId || '').trim();
+  if (!targetUserId) return 0;
+  const now = new Date(date);
+  const utcStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const utcEnd = new Date(utcStart);
+  utcEnd.setUTCDate(utcEnd.getUTCDate() + 1);
+  const row = db
+    .prepare(
+      `
+      SELECT COUNT(1) as count
+      FROM interview_session
+      WHERE user_id = ?
+        AND created_at >= ?
+        AND created_at < ?
+    `,
+    )
+    .get(targetUserId, utcStart.toISOString(), utcEnd.toISOString());
+
+  return Number(row?.count || 0);
+};
+
 const getInterviewSession = (sessionId) =>
   db
     .prepare(
@@ -113,8 +135,8 @@ const saveInterviewQuestions = ({ sessionId, items }) => {
   const insert = db.prepare(
     `
     INSERT INTO interview_question
-    (id, session_id, order_no, source, question_type, difficulty, stem, expected_points_json, resume_anchor, source_ref, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (id, session_id, order_no, source, question_type, difficulty, stem, expected_points_json, resume_anchor, source_ref, status, keyword, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `,
   );
 
@@ -133,6 +155,7 @@ const saveInterviewQuestions = ({ sessionId, items }) => {
         item.resume_anchor || '',
         item.source_ref || '',
         item.status || 'pending',
+        item.keyword || '',
         now,
         now,
       );
@@ -164,8 +187,8 @@ const insertInterviewQuestionAfter = ({ sessionId, afterOrderNo, item }) => {
     db.prepare(
       `
       INSERT INTO interview_question
-      (id, session_id, order_no, source, question_type, difficulty, stem, expected_points_json, resume_anchor, source_ref, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (id, session_id, order_no, source, question_type, difficulty, stem, expected_points_json, resume_anchor, source_ref, status, keyword, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     ).run(
       item.id,
@@ -179,6 +202,7 @@ const insertInterviewQuestionAfter = ({ sessionId, afterOrderNo, item }) => {
       item.resume_anchor || '',
       item.source_ref || '',
       item.status || 'pending',
+      item.keyword || '',
       now,
       now,
     );
@@ -191,7 +215,7 @@ const listInterviewQuestions = (sessionId) =>
   db
     .prepare(
       `
-      SELECT id, session_id, order_no, source, question_type, difficulty, stem, expected_points_json, resume_anchor, source_ref, status, created_at, updated_at
+      SELECT id, session_id, order_no, source, question_type, difficulty, stem, expected_points_json, resume_anchor, source_ref, status, keyword, created_at, updated_at
       FROM interview_question
       WHERE session_id = ?
       ORDER BY order_no ASC
@@ -205,7 +229,7 @@ const getInterviewQuestionById = (questionId) =>
     db
       .prepare(
         `
-        SELECT id, session_id, order_no, source, question_type, difficulty, stem, expected_points_json, resume_anchor, source_ref, status, created_at, updated_at
+        SELECT id, session_id, order_no, source, question_type, difficulty, stem, expected_points_json, resume_anchor, source_ref, status, keyword, created_at, updated_at
         FROM interview_question
         WHERE id = ?
       `,
@@ -224,13 +248,23 @@ const updateInterviewQuestionStatus = ({ questionId, status }) => {
   ).run(status, now, questionId);
 };
 
+const deleteInterviewSession = (sessionId) => {
+  const tx = db.transaction(() => {
+    db.prepare('DELETE FROM interview_turn WHERE session_id = ?').run(sessionId);
+    db.prepare('DELETE FROM interview_question WHERE session_id = ?').run(sessionId);
+    db.prepare('DELETE FROM interview_session WHERE id = ?').run(sessionId);
+  });
+  tx();
+};
+
 const getNextInterviewQuestion = (sessionId) =>
   normalizeInterviewQuestionRow(
     db
       .prepare(
         `
-        SELECT id, session_id, order_no, source, question_type, difficulty, stem, expected_points_json, resume_anchor, source_ref, status, created_at, updated_at
+        SELECT id, session_id, order_no, source, question_type, difficulty, stem, expected_points_json, resume_anchor, source_ref, status, keyword, created_at, updated_at
         FROM interview_question
+        WHERE session_id = ? AND status != 'answered'
         WHERE session_id = ? AND status != 'answered'
         ORDER BY order_no ASC
         LIMIT 1
@@ -239,17 +273,37 @@ const getNextInterviewQuestion = (sessionId) =>
       .get(sessionId),
   );
 
+const updateSessionKeywordQueue = ({ sessionId, keywordQueueJson }) => {
+  const now = new Date().toISOString();
+  db.prepare(
+    `UPDATE interview_session SET keyword_queue_json = ?, updated_at = ? WHERE id = ?`,
+  ).run(keywordQueueJson || '', now, sessionId);
+};
+
+const getSessionKeywordQueue = (sessionId) => {
+  const row = db.prepare(`SELECT keyword_queue_json FROM interview_session WHERE id = ?`).get(sessionId);
+  if (!row?.keyword_queue_json) return null;
+  try {
+    const parsed = JSON.parse(row.keyword_queue_json);
+    return Array.isArray(parsed?.entries) ? parsed : null;
+  } catch { return null; }
+};
+
 module.exports = {
   addInterviewTurn,
   createInterviewSession,
+  deleteInterviewSession,
   finishInterviewSession,
+  countSessionsStartedOnUtcDate,
   getInterviewQuestionById,
   getInterviewSession,
   getNextInterviewQuestion,
+  getSessionKeywordQueue,
   insertInterviewQuestionAfter,
   listInterviewQuestions,
   listInterviewSessions,
   listInterviewTurns,
   saveInterviewQuestions,
   updateInterviewQuestionStatus,
+  updateSessionKeywordQueue,
 };

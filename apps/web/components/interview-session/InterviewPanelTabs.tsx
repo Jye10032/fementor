@@ -13,7 +13,7 @@ const tabs: { id: PanelTab; label: string }[] = [
 
 export function InterviewPanelTabs({ activeTab, onTabChange }: InterviewPanelTabsProps) {
   return (
-    <div className="rounded-[1.2rem] bg-secondary/70 p-1">
+    <div className="rounded-xl bg-secondary/70 p-1">
       <div className="grid grid-cols-3 gap-1">
         {tabs.map((tab) => (
           <button

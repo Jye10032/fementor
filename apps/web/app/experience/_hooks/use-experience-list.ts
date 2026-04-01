@@ -26,7 +26,7 @@ export function useExperienceList({ apiBase, enabled, query }: UseExperienceList
     try {
       setLoading(true);
       setError(null);
-      const path = `/v1/experiences?only_valid=1&page=1&page_size=20${query ? `&query=${encodeURIComponent(query)}` : ""}`;
+      const path = `/v1/experiences?only_valid=1&page=1&page_size=200${query ? `&query=${encodeURIComponent(query)}` : ""}`;
       const response = await apiRequest<ExperienceListResponse>(apiBase, path, {
         auth: "optional",
       });
@@ -45,11 +45,36 @@ export function useExperienceList({ apiBase, enabled, query }: UseExperienceList
     void refresh();
   }, [apiBase, enabled, query]);
 
+  const deleteItem = async (id: string) => {
+    await apiRequest(apiBase, `/v1/experiences/${id}`, {
+      method: "DELETE",
+      auth: "required",
+    });
+    setItems((prev) => prev.filter((item) => item.id !== id));
+    setTotal((prev) => Math.max(0, prev - 1));
+  };
+
+  const deleteItems = async (ids: string[]) => {
+    await Promise.all(
+      ids.map((id) =>
+        apiRequest(apiBase, `/v1/experiences/${id}`, {
+          method: "DELETE",
+          auth: "required",
+        }),
+      ),
+    );
+    const idSet = new Set(ids);
+    setItems((prev) => prev.filter((item) => !idSet.has(item.id)));
+    setTotal((prev) => Math.max(0, prev - ids.length));
+  };
+
   return {
     items,
     total,
     loading,
     error,
     refresh,
+    deleteItem,
+    deleteItems,
   };
 }

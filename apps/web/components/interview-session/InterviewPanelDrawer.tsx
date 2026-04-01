@@ -67,11 +67,11 @@ export function InterviewPanelDrawer({
       />
       <div className="absolute inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] top-auto flex justify-end lg:inset-x-auto lg:bottom-4 lg:right-4 lg:top-20">
         <aside
-          className={`flex h-[min(76dvh,720px)] w-full max-w-[440px] flex-col overflow-hidden overscroll-contain rounded-[1.6rem] border border-border/80 bg-card/98 shadow-[var(--shadow-soft)] transition-transform duration-200 lg:h-[calc(100dvh-6rem)] lg:rounded-[2rem] ${
+          className={`flex h-[min(76dvh,720px)] w-full max-w-[440px] flex-col overflow-hidden overscroll-contain rounded-2xl border border-border/70 bg-card/98 shadow-[var(--shadow-soft)] transition-transform duration-200 lg:h-[calc(100dvh-6rem)] lg:rounded-2xl ${
             isOpen ? "translate-y-0 opacity-100" : "translate-y-6 opacity-0 lg:translate-x-8"
           }`}
         >
-          <div className="flex items-center justify-between border-b border-border/80 px-4 py-4 sm:px-5">
+          <div className="flex items-center justify-between border-b border-border/70 px-4 py-4 sm:px-5">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">面试面板</p>
               <p className="mt-1 text-sm text-foreground">查看当前进展、题目地图与复盘信息</p>
@@ -84,7 +84,7 @@ export function InterviewPanelDrawer({
             </button>
           </div>
 
-          <div className="border-b border-border/80 px-4 py-4 sm:px-5">
+          <div className="border-b border-border/70 px-4 py-4 sm:px-5">
             <InterviewPanelTabs activeTab={panelTab} onTabChange={onTabChange} />
           </div>
 
@@ -115,7 +115,7 @@ export function InterviewPanelDrawer({
             {panelTab === "retrospect" ? <InterviewRetrospectTab retrospect={retrospect} /> : null}
 
             {debugOutput ? (
-              <details className="mt-5 rounded-[1.4rem] border border-border/80 bg-background/75 p-4">
+              <details className="mt-5 rounded-xl border border-border/70 bg-background/75 p-4">
                 <summary className="cursor-pointer text-sm font-semibold text-foreground">开发调试信息</summary>
                 <pre className="mt-4 max-h-64 overflow-auto whitespace-pre-wrap text-xs leading-6 text-muted-foreground">
                   {debugOutput}

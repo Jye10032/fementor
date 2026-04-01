@@ -2,7 +2,7 @@
 
 import { ChangeEvent, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { CheckCircle2, FileText, FileUp, Upload } from "lucide-react";
+import { CheckCircle2, FileText, FileUp, Trash2, Upload } from "lucide-react";
 import Link from "next/link";
 import { PageShell } from "../../components/page-shell";
 import { useAuthState } from "../../components/auth-provider";
@@ -84,11 +84,6 @@ export default function ResumePage() {
 function ResumePageFallback() {
   return (
     <PageShell>
-      <header className="fade-in-up flex flex-col gap-1 rounded-[1.5rem] border border-border/80 bg-card/90 p-5 shadow-[var(--shadow-card)] backdrop-blur">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Resume &amp; JD</p>
-        <h1 className="text-xl font-semibold text-foreground">档案管理</h1>
-        <p className="text-sm text-muted-foreground">管理简历与 JD，为模拟面试做准备。</p>
-      </header>
       <div className="tool-empty">页面加载中...</div>
     </PageShell>
   );
@@ -99,7 +94,7 @@ function ResumePageContent() {
   const initialTab = (searchParams.get("tab") === "jd" ? "jd" : "resume") as Tab;
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
   const { apiBase } = useRuntimeConfig();
-  const { isLoaded, isSignedIn, viewer, viewerLoading, refreshViewer } = useAuthState();
+  const { isSignedIn, refreshViewer } = useAuthState();
 
   // --- Resume state ---
   const [resumeLibrary, setResumeLibrary] = useState<ResumeLibraryResponse | null>(null);
@@ -128,6 +123,8 @@ function ResumePageContent() {
   );
   const [uploadingJdFile, setUploadingJdFile] = useState(false);
   const [savingJd, setSavingJd] = useState(false);
+  const [deletingResume, setDeletingResume] = useState("");
+  const [deletingJd, setDeletingJd] = useState("");
 
   const canParseResume = useMemo(
     () => resumeText.trim().length > 0 || Boolean(resumeUploadFile),
@@ -341,38 +338,42 @@ function ResumePageContent() {
     }
   };
 
+  const onDeleteResume = async (fileName: string) => {
+    if (!window.confirm("确认删除该简历？")) return;
+    setDeletingResume(fileName);
+    try {
+      await apiRequest(apiBase, "/v1/resume/delete", {
+        method: "DELETE",
+        body: JSON.stringify({ file_name: fileName }),
+        auth: "required",
+      });
+      await refreshResumeLibrary();
+    } catch {
+      // ignore
+    } finally {
+      setDeletingResume("");
+    }
+  };
+
+  const onDeleteJd = async (fileName: string) => {
+    if (!window.confirm("确认删除该 JD？")) return;
+    setDeletingJd(fileName);
+    try {
+      await apiRequest(apiBase, "/v1/jd/delete", {
+        method: "DELETE",
+        body: JSON.stringify({ file_name: fileName }),
+        auth: "required",
+      });
+      await refreshJdLibrary();
+    } catch {
+      // ignore
+    } finally {
+      setDeletingJd("");
+    }
+  };
+
   return (
     <PageShell>
-      {/* Header */}
-      <header className="fade-in-up flex flex-col gap-4 rounded-[1.5rem] border border-border/80 bg-card/90 p-5 shadow-[var(--shadow-card)] backdrop-blur sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Resume &amp; JD</p>
-          <h1 className="mt-1 text-xl font-semibold text-foreground">档案管理</h1>
-          <p className="mt-1 text-sm text-muted-foreground">管理简历与 JD，为模拟面试做准备。</p>
-        </div>
-        {/* Auth chip */}
-        {isLoaded && !viewerLoading && (
-          <div className="shrink-0">
-            {isSignedIn ? (
-              <span className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-secondary/70 px-3 py-1.5 text-xs text-muted-foreground">
-                <span className="inline-block h-2 w-2 rounded-full bg-[var(--accent)]" />
-                {viewer?.name || viewer?.email || "已登录"}
-                {viewer?.capabilities?.remaining_resume_ocr_count != null && (
-                  <span className="text-muted-foreground/60">
-                    OCR {viewer.capabilities.remaining_resume_ocr_count}/{viewer.capabilities.daily_resume_ocr_limit}
-                  </span>
-                )}
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-secondary/70 px-3 py-1.5 text-xs text-muted-foreground">
-                <span className="inline-block h-2 w-2 rounded-full bg-muted-foreground/40" />
-                未登录 — 可粘贴文本解析，PDF 需登录
-              </span>
-            )}
-          </div>
-        )}
-      </header>
-
       {/* Tab switcher */}
       <div className="fade-in-up-delay-1 inline-flex self-start rounded-xl border border-border bg-background p-1">
         <button
@@ -432,7 +433,7 @@ function ResumePageContent() {
               onDragOver={(e) => { e.preventDefault(); setResumeDragOver(true); }}
               onDragLeave={() => setResumeDragOver(false)}
               onDrop={handleResumeDrop}
-              className={`rounded-[1.2rem] border-2 border-dashed p-6 text-center transition-colors duration-200 ${
+              className={`rounded-xl border-2 border-dashed p-6 text-center transition-colors duration-200 ${
                 resumeDragOver
                   ? "border-primary/60 bg-primary/5"
                   : "border-border bg-background hover:border-primary/30"
@@ -524,10 +525,23 @@ function ResumePageContent() {
                           >
                             查看
                           </Link>
+                          <button
+                            onClick={() => void onDeleteResume(file.name)}
+                            disabled={deletingResume === file.name}
+                            className="cursor-pointer rounded-lg p-1 text-muted-foreground/50 transition-colors duration-200 hover:bg-destructive/10 hover:text-destructive"
+                            aria-label="删除简历"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
                         </div>
                       </div>
+                      <div className="mt-1.5 flex items-center gap-2">
+                        <span className="text-[10px] text-muted-foreground/60">
+                          {new Date(file.updated_at).toLocaleString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                        </span>
+                      </div>
                       {file.summary && (
-                        <p className="mt-2 text-xs leading-5 text-muted-foreground">{file.summary}</p>
+                        <p className="mt-1 text-xs leading-5 text-muted-foreground">{file.summary}</p>
                       )}
                     </div>
                   );
@@ -559,7 +573,7 @@ function ResumePageContent() {
               onDragOver={(e) => { e.preventDefault(); setJdDragOver(true); }}
               onDragLeave={() => setJdDragOver(false)}
               onDrop={handleJdDrop}
-              className={`rounded-[1.2rem] border-2 border-dashed p-6 text-center transition-colors duration-200 ${
+              className={`rounded-xl border-2 border-dashed p-6 text-center transition-colors duration-200 ${
                 jdDragOver
                   ? "border-primary/60 bg-primary/5"
                   : "border-border bg-background hover:border-primary/30"
@@ -649,7 +663,20 @@ function ResumePageContent() {
                           >
                             查看
                           </Link>
+                          <button
+                            onClick={() => void onDeleteJd(file.name)}
+                            disabled={deletingJd === file.name}
+                            className="cursor-pointer rounded-lg p-1 text-muted-foreground/50 transition-colors duration-200 hover:bg-destructive/10 hover:text-destructive"
+                            aria-label="删除 JD"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
                         </div>
+                      </div>
+                      <div className="mt-1.5">
+                        <span className="text-[10px] text-muted-foreground/60">
+                          {new Date(file.updated_at).toLocaleString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                        </span>
                       </div>
                     </div>
                   );

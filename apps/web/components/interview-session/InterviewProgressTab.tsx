@@ -54,7 +54,7 @@ export function InterviewProgressTab({
 
   return (
     <div className="space-y-4">
-      <section className="rounded-[1.4rem] border border-border/80 bg-background/75 p-4">
+      <section className="rounded-xl border border-border/70 bg-background/75 p-4">
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">当前状态</p>
         <p className="mt-2 text-base font-semibold text-foreground">{stageLabel}</p>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">
@@ -64,7 +64,7 @@ export function InterviewProgressTab({
 
       <div className="grid gap-3 sm:grid-cols-3">
         {stats.map((item) => (
-          <article key={item.label} className="rounded-[1.4rem] border border-border/80 bg-background/75 p-4">
+          <article key={item.label} className="rounded-xl border border-border/70 bg-background/75 p-4">
             <div className="flex items-center justify-between gap-2">
               <p className="text-xs text-muted-foreground">{item.label}</p>
               <item.icon className="h-4 w-4 text-primary" />

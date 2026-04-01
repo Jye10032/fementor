@@ -5,6 +5,8 @@ import { Loader2, RefreshCw, Search } from "lucide-react";
 type ExperienceSearchBarProps = {
   keyword: string;
   onKeywordChange: (value: string) => void;
+  limit: number;
+  onLimitChange: (value: number) => void;
   syncing: boolean;
   onSync: () => void;
   searchQuery: string;
@@ -13,9 +15,13 @@ type ExperienceSearchBarProps = {
   searchDisabled?: boolean;
 };
 
+const LIMIT_OPTIONS = [1, 5, 10] as const;
+
 export function ExperienceSearchBar({
   keyword,
   onKeywordChange,
+  limit,
+  onLimitChange,
   syncing,
   onSync,
   searchQuery,
@@ -24,16 +30,12 @@ export function ExperienceSearchBar({
   searchDisabled = false,
 }: ExperienceSearchBarProps) {
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
-      <section className="panel-muted space-y-3">
-        <div className="flex items-center gap-2">
-          <RefreshCw className="h-4 w-4 text-primary" />
-          <p className="text-sm font-semibold text-foreground">获取近 7 日面经</p>
-        </div>
-        <p className="text-xs leading-5 text-muted-foreground">
-          输入关键词后系统会自动抓取牛客近 7 日未入库内容，最多新增 10 条。
+    <div className="grid gap-3 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
+      <section className="panel-muted space-y-2">
+        <p className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+          <RefreshCw className="h-3.5 w-3.5 text-primary" />获取面经
         </p>
-        <div className="flex flex-col gap-3 sm:flex-row">
+        <div className="flex flex-col gap-2 sm:flex-row">
           <div className="relative w-full">
             <RefreshCw className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <input
@@ -43,6 +45,23 @@ export function ExperienceSearchBar({
               className="field-shell w-full pl-9"
               disabled={syncDisabled || syncing}
             />
+          </div>
+          <div className="flex shrink-0 gap-1 rounded-xl border border-border/70 bg-background/80 p-0.5">
+            {LIMIT_OPTIONS.map((n) => (
+              <button
+                key={n}
+                type="button"
+                onClick={() => onLimitChange(n)}
+                disabled={syncDisabled || syncing}
+                className={`cursor-pointer rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                  limit === n
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-secondary"
+                }`}
+              >
+                {n}条
+              </button>
+            ))}
           </div>
           <button
             type="button"
@@ -56,19 +75,15 @@ export function ExperienceSearchBar({
                 同步中...
               </>
             ) : (
-              "获取近 7 日面经"
+              "同步"
             )}
           </button>
         </div>
       </section>
 
-      <section className="panel-muted space-y-3">
-        <div className="flex items-center gap-2">
-          <Search className="h-4 w-4 text-primary" />
-          <p className="text-sm font-semibold text-foreground">搜索本地面经库</p>
-        </div>
-        <p className="text-xs leading-5 text-muted-foreground">
-          搜索标题、摘要和规范问题，优先命中已经完成清洗的内容。
+      <section className="panel-muted space-y-2">
+        <p className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+          <Search className="h-3.5 w-3.5 text-primary" />搜索面经库
         </p>
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />

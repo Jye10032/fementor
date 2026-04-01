@@ -39,30 +39,13 @@ export default function HomePage() {
 
   return (
     <PageShell>
-      {/* Compact header */}
-      <header className="fade-in-up flex flex-col gap-4 rounded-[1.5rem] border border-border/80 bg-card/90 p-5 shadow-[var(--shadow-card)] backdrop-blur sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Frontend Interview Studio</p>
-          <h1 className="mt-1 text-xl font-semibold text-foreground">面试训练工作流</h1>
-          <p className="mt-1 text-sm text-muted-foreground">状态灯变绿后，按顺序完成四步即可开始训练。</p>
-        </div>
-        <div className="flex flex-wrap gap-3">
-          <Link href="/resume" className="action-primary">
-            上传简历
-          </Link>
-          <Link href="/interview" className="action-secondary">
-            开始面试
-          </Link>
-        </div>
-      </header>
-
       {/* Zigzag Timeline */}
       <section className="zigzag-timeline fade-in-up-delay-1">
         {/* Step 1: 运行配置 */}
         <article className="zigzag-timeline__step zigzag-timeline__step--left fade-in-up-delay-1">
-          <div className="zigzag-timeline__content panel-surface">
+          <div className="zigzag-timeline__content">
             <div className="flex items-start gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+              <div className="step-icon-muted">
                 <Settings2 className="h-4 w-4" />
               </div>
               <div className="min-w-0">
@@ -85,9 +68,9 @@ export default function HomePage() {
 
         {/* Step 2: 简历解析 */}
         <article className="zigzag-timeline__step zigzag-timeline__step--right fade-in-up-delay-2">
-          <div className="zigzag-timeline__content panel-surface">
+          <div className="zigzag-timeline__content">
             <div className="flex items-start gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <div className="step-icon-primary">
                 <FileText className="h-4 w-4" />
               </div>
               <div className="min-w-0">
@@ -107,9 +90,9 @@ export default function HomePage() {
 
         {/* Step 3: 模拟面试 */}
         <article className="zigzag-timeline__step zigzag-timeline__step--left fade-in-up-delay-3">
-          <div className="zigzag-timeline__content panel-surface">
+          <div className="zigzag-timeline__content">
             <div className="flex items-start gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <div className="step-icon-primary">
                 <MessageSquare className="h-4 w-4" />
               </div>
               <div className="min-w-0">
@@ -129,9 +112,9 @@ export default function HomePage() {
 
         {/* Step 4: 面经库 */}
         <article className="zigzag-timeline__step zigzag-timeline__step--right fade-in-up-delay-4">
-          <div className="zigzag-timeline__content panel-surface">
+          <div className="zigzag-timeline__content">
             <div className="flex items-start gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <div className="step-icon-primary">
                 <BookOpen className="h-4 w-4" />
               </div>
               <div className="min-w-0">

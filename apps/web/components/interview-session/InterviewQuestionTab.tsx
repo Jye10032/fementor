@@ -14,7 +14,7 @@ export function InterviewQuestionTab({
 }: InterviewQuestionTabProps) {
   if (queueItems.length === 0) {
     return (
-      <div className="rounded-[1.4rem] border border-border/80 bg-background/75 p-4 text-sm leading-6 text-muted-foreground">
+      <div className="rounded-xl border border-border/70 bg-background/75 p-4 text-sm leading-6 text-muted-foreground">
         当前还没有加载到题目队列。
       </div>
     );
@@ -29,14 +29,14 @@ export function InterviewQuestionTab({
         return (
           <article
             key={item.id}
-            className={`rounded-[1.4rem] border p-4 ${
+            className={`rounded-xl border p-4 ${
               isPending
                 ? "border-sky-200 bg-sky-50"
                 : isCurrent
                   ? "border-primary/35 bg-primary/5"
                   : item.question_type === "follow_up"
                     ? "border-amber-200 bg-amber-50/80"
-                    : "border-border/80 bg-background/75"
+                    : "border-border/70 bg-background/75"
             }`}
           >
             <div className="flex flex-wrap items-start justify-between gap-3">

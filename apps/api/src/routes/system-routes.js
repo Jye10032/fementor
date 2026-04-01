@@ -1,7 +1,7 @@
 const { DB_PATH, getUserById, upsertUser } = require('../db');
 const { DATABASE_URL, isPostgresEnabled } = require('../postgres');
 const { getSirchmunkStatus, buildQueryPlan, retrieveEvidence } = require('../retrieval');
-const { hasRealLLM, getLlmConfig, setRuntimeLlmConfig } = require('../llm');
+const { hasRealLLM, getLlmConfig, setRuntimeLlmConfig, validateLlmRuntimeConfig } = require('../llm');
 const { json, jsonError, parseNumberOrFallback, readBody } = require('../http');
 const {
   buildViewerPayload,
@@ -19,6 +19,137 @@ const { appendMemoryEntry } = require('../memory');
 const { readJdDoc } = require('../doc');
 const { saveScoringResult } = require('../db');
 const { randomUUID } = require('crypto');
+const {
+  deleteSessionLlmConfig,
+  getSessionLlmConfig,
+  toPublicSessionConfig,
+  upsertSessionLlmConfig,
+} = require('../lib/session-llm-config-store');
+const { getGraph } = require('../experience/knowledge-graph');
+
+const hasText = (value) => String(value || '').trim() !== '';
+
+const readSessionLlmBody = ({ body }) => ({
+  baseUrl: String(body.base_url || '').trim(),
+  apiKey: String(body.api_key || '').trim(),
+  model: String(body.model || '').trim(),
+});
+
+const getRequestSessionContext = async ({ req }) =>
+  getResolvedUserContext({ req, requireAuth: true, allowDevFallback: false });
+
+const getSessionLlmConfigResponse = async ({ req }) => {
+  const context = await getRequestSessionContext({ req });
+  const sessionConfig = getSessionLlmConfig({
+    userId: context.userId,
+    token: context.token,
+  });
+  return {
+    statusCode: 200,
+    payload: {
+      configured: Boolean(sessionConfig?.apiKey),
+      config: toPublicSessionConfig({ sessionConfig }),
+    },
+  };
+};
+
+const upsertSessionLlmConfigResponse = async ({ req, body }) => {
+  const context = await getRequestSessionContext({ req });
+  const payload = readSessionLlmBody({ body });
+
+  if (!hasText(payload.baseUrl) && !hasText(payload.apiKey) && !hasText(payload.model)) {
+    return {
+      statusCode: 400,
+      payload: {
+        error: 'base_url, model or api_key is required',
+      },
+    };
+  }
+
+  const stored = upsertSessionLlmConfig({
+    userId: context.userId,
+    token: context.token,
+    baseUrl: payload.baseUrl,
+    model: payload.model,
+    apiKey: payload.apiKey,
+  });
+
+  if (!stored) {
+    return {
+      statusCode: 400,
+      payload: {
+        error: 'invalid session llm config',
+      },
+    };
+  }
+
+  const sessionConfig = getSessionLlmConfig({ userId: context.userId, token: context.token });
+  return {
+    statusCode: 200,
+    payload: {
+      configured: Boolean(sessionConfig?.apiKey),
+      config: toPublicSessionConfig({ sessionConfig }),
+      message: 'LLM session config updated',
+    },
+  };
+};
+
+const validateSessionLlmConfigResponse = async ({ req, body }) => {
+  const context = await getRequestSessionContext({ req });
+  const existing = getSessionLlmConfig({
+    userId: context.userId,
+    token: context.token,
+  });
+  const payload = readSessionLlmBody({ body });
+  const toValidate = {
+    baseUrl: hasText(payload.baseUrl) ? payload.baseUrl : existing?.baseUrl || '',
+    apiKey: hasText(payload.apiKey) ? payload.apiKey : existing?.apiKey || '',
+    model: hasText(payload.model) ? payload.model : existing?.model || '',
+  };
+
+  if (!hasText(toValidate.apiKey)) {
+    return {
+      statusCode: 400,
+      payload: {
+        error: 'api_key is required',
+      },
+    };
+  }
+
+  await validateLlmRuntimeConfig({
+    baseUrl: toValidate.baseUrl,
+    apiKey: toValidate.apiKey,
+    model: toValidate.model,
+  });
+
+  return {
+    statusCode: 200,
+    payload: {
+      valid: true,
+      configured: true,
+      config: toPublicSessionConfig({
+        sessionConfig: {
+          baseUrl: toValidate.baseUrl,
+          model: toValidate.model,
+          apiKey: toValidate.apiKey,
+        },
+      }),
+    },
+  };
+};
+
+const deleteSessionLlmConfigResponse = async ({ req }) => {
+  const context = await getRequestSessionContext({ req });
+  deleteSessionLlmConfig({ userId: context.userId, token: context.token });
+  return {
+    statusCode: 200,
+    payload: {
+      deleted: true,
+      configured: false,
+      config: toPublicSessionConfig({ sessionConfig: null }),
+    },
+  };
+};
 
 const getHealthPayload = () => {
   const llmConfig = getLlmConfig();
@@ -314,6 +445,59 @@ const handleSystemRoutes = async ({ req, res, url }) => {
     return true;
   }
 
+  if (req.method === 'GET' && url.pathname === '/v1/runtime/session-llm-config') {
+    try {
+      const result = await getSessionLlmConfigResponse({ req });
+      json(res, result.statusCode, result.payload);
+    } catch (error) {
+      jsonError(res, error);
+    }
+    return true;
+  }
+
+  if (req.method === 'PUT' && url.pathname === '/v1/runtime/session-llm-config') {
+    try {
+      const body = await readBody(req);
+      const result = await upsertSessionLlmConfigResponse({ req, body });
+      json(res, result.statusCode, result.payload);
+    } catch (error) {
+      jsonError(res, error);
+    }
+    return true;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/v1/runtime/session-llm-config') {
+    try {
+      const body = await readBody(req);
+      const result = await validateSessionLlmConfigResponse({ req, body });
+      json(res, result.statusCode, result.payload);
+    } catch (error) {
+      jsonError(res, error);
+    }
+    return true;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/v1/runtime/session-llm-config/validate') {
+    try {
+      const body = await readBody(req);
+      const result = await validateSessionLlmConfigResponse({ req, body });
+      json(res, result.statusCode, result.payload);
+    } catch (error) {
+      jsonError(res, error);
+    }
+    return true;
+  }
+
+  if (req.method === 'DELETE' && url.pathname === '/v1/runtime/session-llm-config') {
+    try {
+      const result = await deleteSessionLlmConfigResponse({ req });
+      json(res, result.statusCode, result.payload);
+    } catch (error) {
+      jsonError(res, error);
+    }
+    return true;
+  }
+
   if (req.method === 'GET' && url.pathname === '/v1/me') {
     try {
       json(res, 200, await getViewerResponse({ req }));
@@ -378,6 +562,11 @@ const handleSystemRoutes = async ({ req, res, url }) => {
     return true;
   }
 
+  if (req.method === 'GET' && url.pathname === '/v1/knowledge-graph') {
+    json(res, 200, { graph: getGraph() });
+    return true;
+  }
+
   return false;
 };
 
@@ -388,6 +577,45 @@ async function registerSystemRoutes(app) {
     const payload = await updateRuntimeLlmConfig({ body: request.body || {} });
     reply.code(200);
     return payload;
+  });
+
+  app.get('/v1/runtime/session-llm-config', async (request, reply) => {
+    const result = await getSessionLlmConfigResponse({ req: request.raw });
+    reply.code(result.statusCode);
+    return result.payload;
+  });
+
+  app.put('/v1/runtime/session-llm-config', async (request, reply) => {
+    const result = await upsertSessionLlmConfigResponse({
+      req: request.raw,
+      body: request.body || {},
+    });
+    reply.code(result.statusCode);
+    return result.payload;
+  });
+
+  app.post('/v1/runtime/session-llm-config', async (request, reply) => {
+    const result = await validateSessionLlmConfigResponse({
+      req: request.raw,
+      body: request.body || {},
+    });
+    reply.code(result.statusCode);
+    return result.payload;
+  });
+
+  app.post('/v1/runtime/session-llm-config/validate', async (request, reply) => {
+    const result = await validateSessionLlmConfigResponse({
+      req: request.raw,
+      body: request.body || {},
+    });
+    reply.code(result.statusCode);
+    return result.payload;
+  });
+
+  app.delete('/v1/runtime/session-llm-config', async (request, reply) => {
+    const result = await deleteSessionLlmConfigResponse({ req: request.raw });
+    reply.code(result.statusCode);
+    return result.payload;
   });
 
   app.get('/v1/me', async (request, reply) => {
@@ -428,6 +656,8 @@ async function registerSystemRoutes(app) {
     reply.code(result.statusCode);
     return result.payload;
   });
+
+  app.get('/v1/knowledge-graph', async () => ({ graph: getGraph() }));
 }
 
 module.exports = {

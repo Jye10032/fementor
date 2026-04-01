@@ -31,7 +31,7 @@ export function RetrospectSummary({
 }: RetrospectSummaryProps) {
   if (!retrospect) {
     return (
-      <div className="rounded-[1.4rem] border border-dashed border-border/80 bg-background/75 p-5 text-sm leading-6 text-muted-foreground">
+      <div className="rounded-xl border border-dashed border-border/70 bg-background/75 p-5 text-sm leading-6 text-muted-foreground">
         复盘尚未生成。你可以先完成本场面试，再点击“生成复盘”，系统会整理稳定优势、主要风险和下一轮练习重点。
       </div>
     );
@@ -40,12 +40,12 @@ export function RetrospectSummary({
   const memory = retrospect.long_term_memory;
   const isReport = variant === "report";
   const metricClassName = isReport
-    ? "rounded-[1.5rem] border border-border/80 bg-background/80 p-4"
-    : "rounded-[1.4rem] border border-border/80 bg-background/75 p-4";
+    ? "rounded-2xl border border-border/70 bg-background/80 p-4"
+    : "rounded-xl border border-border/70 bg-background/75 p-4";
 
   const insightClassName = isReport
-    ? "rounded-[1.5rem] border border-border/80 bg-background/82 p-4"
-    : "rounded-[1.4rem] border border-border/80 bg-background/75 p-4";
+    ? "rounded-2xl border border-border/70 bg-background/82 p-4"
+    : "rounded-xl border border-border/70 bg-background/75 p-4";
 
   return (
     <div className="space-y-4">

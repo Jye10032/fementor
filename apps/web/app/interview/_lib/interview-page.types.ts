@@ -7,6 +7,14 @@ export type StartSessionResponse = {
   queue_sources?: string[];
 };
 
+export type StartSessionLimitError = {
+  error: "NEED_USER_LLM_KEY";
+  free_limit?: number;
+  used_today?: number;
+  remaining_free?: number;
+  message?: string;
+};
+
 export type ResumeFile = {
   name: string;
   summary: string;

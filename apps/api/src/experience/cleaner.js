@@ -1,6 +1,27 @@
 const { createHash, randomUUID } = require('crypto');
 const { hasRealLLM, jsonCompletion } = require('../llm');
 
+const PIPELINE_MAX_RETRIES = 2;
+const PIPELINE_RETRY_DELAY_MS = 500;
+
+const sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
+
+const jsonCompletionWithRetry = async (prompt, label = 'step') => {
+  let lastError;
+  for (let attempt = 0; attempt <= PIPELINE_MAX_RETRIES; attempt += 1) {
+    try {
+      return await jsonCompletion(prompt);
+    } catch (error) {
+      lastError = error;
+      if (attempt < PIPELINE_MAX_RETRIES) {
+        console.warn(`[pipeline.${label}.retry]`, { attempt: attempt + 1, error: error.message });
+        await sleep(PIPELINE_RETRY_DELAY_MS * (attempt + 1));
+      }
+    }
+  }
+  throw lastError;
+};
+
 const normalizeWhitespace = (value) =>
   String(value || '')
     .replace(/\r/g, '\n')
@@ -37,6 +58,7 @@ const METADATA_LINE_PATTERNS = [
 
 const CODE_LIKE_LINE_PATTERN = /[{}();=>]/;
 const INTERVIEW_HINT_PATTERN = /什么|如何|为什么|怎么|哪些|区别|原理|流程|方式|实现|介绍|讲一下|讲讲|说一下|是否|有没有|能不能|了解|设计|优化|列举|解释|阐述|输出|作用|优势|步骤|策略|方案|思路|贡献|多吗|吗|么/;
+const NON_QUESTION_LINE_PATTERN = /准备了|感觉|觉得|感受|聊得|聊的|挂了|挂掉|凉了|寄了|心态|难受|好难|难找|找不到|满意的实习|上午面完|下午面完|晚上|没怎么考察|一直问我|面试体验|流程很快|许愿|求捞|祝大家|已oc|offer|通过了|没过|淘汰/i;
 
 const stripListMarker = (line) => String(line || '').replace(/^[\s\-*•\d.、()（）]+/, '').trim();
 
@@ -61,6 +83,23 @@ const isLikelyAnswerLine = (line) => {
 };
 
 const hasQuestionSignal = (line) => INTERVIEW_HINT_PATTERN.test(line) || /[?？]$/.test(line);
+
+const isValidQuestionText = (line) => {
+  const normalizedLine = stripListMarker(normalizeWhitespace(line));
+  if (normalizedLine.length < 6) {
+    return false;
+  }
+
+  if (isMetadataLine(normalizedLine) || isLikelyAnswerLine(normalizedLine)) {
+    return false;
+  }
+
+  if (NON_QUESTION_LINE_PATTERN.test(normalizedLine) && !/[?？]$/.test(normalizedLine)) {
+    return false;
+  }
+
+  return hasQuestionSignal(normalizedLine);
+};
 
 const normalizeContentForCleaning = (content) =>
   normalizeWhitespace(content)
@@ -90,7 +129,7 @@ const extractQuestionLines = (content) => {
       continue;
     }
 
-    if (line.length < 6 || isLikelyAnswerLine(line) || !hasQuestionSignal(line)) {
+    if (!isValidQuestionText(line)) {
       continue;
     }
 
@@ -114,6 +153,13 @@ const inferCategory = (question) => {
   if (/算法|排序|链表|二叉树|树|动态规划|dp|贪心|回溯/.test(text)) return '算法';
   return '其他';
 };
+
+const EXPERIENCE_ANCHOR_SIGNALS = /你[们的]|你这个|你当时|你负责|你做的|你们团队|你项目|贵司|你公司/;
+
+const inferItemChainAnchor = (questionTextRaw) =>
+  EXPERIENCE_ANCHOR_SIGNALS.test(String(questionTextRaw || ''))
+    ? 'experience_anchored'
+    : 'generic';
 
 const buildTopicClusterByCategory = (category) => {
   switch (category) {
@@ -165,6 +211,12 @@ const buildRuleHints = (contentRaw) => {
 const normalizeQuestionItem = (item, fallbackQuestion = '') => {
   const rawQuestion = normalizeWhitespace(item.question_text_raw || fallbackQuestion);
   const normalizedQuestion = normalizeWhitespace(item.question_text_normalized || rawQuestion);
+  const effectiveQuestion = normalizedQuestion || rawQuestion;
+
+  if (effectiveQuestion.length < 4) {
+    return null;
+  }
+
   const currentCategory = String(item.category || '').trim();
 
   return {
@@ -175,6 +227,7 @@ const normalizeQuestionItem = (item, fallbackQuestion = '') => {
     category: currentCategory || inferCategory(normalizedQuestion || rawQuestion),
     difficulty: String(item.difficulty || 'medium').trim() || 'medium',
     follow_up_intent: String(item.follow_up_intent || 'clarify').trim() || 'clarify',
+    chain_anchor: String(item.chain_anchor || '').trim() || inferItemChainAnchor(rawQuestion),
     knowledge_points: Array.isArray(item.knowledge_points) ? item.knowledge_points : [],
     expected_points: Array.isArray(item.expected_points) ? item.expected_points : [],
   };
@@ -226,19 +279,7 @@ const normalizeTopicGroups = (topicGroups = [], fallbackTitle = '') => {
     });
   }
 
-  if (normalizedGroups.length > 0) {
-    return normalizedGroups;
-  }
-
-  return fallbackTitle
-    ? [{
-      topic_cluster: '未分类主题',
-      canonical_question: fallbackTitle,
-      group_type: 'single',
-      confidence: 0.2,
-      items: [],
-    }]
-    : [];
+  return normalizedGroups;
 };
 
 const fallbackCleanExperience = ({ title, contentRaw }) => {
@@ -253,6 +294,7 @@ const fallbackCleanExperience = ({ title, contentRaw }) => {
     category: inferCategory(question),
     difficulty: 'medium',
     follow_up_intent: index === 0 ? 'clarify' : 'deepen',
+    chain_anchor: inferItemChainAnchor(question),
     knowledge_points: [],
     expected_points: [],
   }));
@@ -288,55 +330,174 @@ const fallbackCleanExperience = ({ title, contentRaw }) => {
     });
   }
 
+  const topicGroups = normalizeTopicGroups(groupedItems, title || '面经问题');
+  const hasValidQuestions = topicGroups.some((group) => group.items.length > 0);
+
   return {
     company_name: '',
     role_name: '',
     interview_stage: '未知',
     experience_summary: title || cleanedContent.slice(0, 120),
-    topic_groups: normalizeTopicGroups(groupedItems, title || '面经问题'),
+    topic_groups: topicGroups,
     cleaned_content: cleanedContent,
-    quality_score: Math.min(100, Math.max(20, cleanedContent.length >= 120 ? 70 : 40)),
-    is_valid: cleanedContent.length >= 60,
+    is_valid: hasValidQuestions && cleanedContent.length >= 60,
   };
 };
 
-const buildCleanPrompt = ({ title, sourceUrl, publishedAt, keyword, contentRaw }) => {
-  const ruleHints = buildRuleHints(contentRaw);
-  const candidateQuestions = splitCandidateQuestions(contentRaw).slice(0, 20);
-  const cleanedContent = normalizeContentForCleaning(contentRaw);
-  return {
-    messages: [
+// ── Pipeline Step 1: Metadata + Question extraction (merged) ──
+
+const buildExtractionPrompt = ({ title, contentRaw }) => ({
+  messages: [
     {
       role: 'system',
       content: [
-        '你是前端求职训练系统中的面经结构化清洗器。',
-        '你的任务是把一篇真实面经整理成可入库、可检索、可联动模拟面试的结构化 JSON。',
-        '必须忠于原文，不允许编造公司、岗位、轮次、问题或答案。',
-        '规则提示只作为候选标签，不作为最终判断依据。最终分组和分类必须由你基于原文语义独立判断。',
-        '只输出 JSON，不要输出额外解释。',
-        'JSON 结构：{"company_name":"","role_name":"","interview_stage":"一面|二面|HR面|实习|校招|社招|未知","experience_summary":"","topic_groups":[{"topic_cluster":"","canonical_question":"","group_type":"single|chain|mixed","confidence":0,"items":[{"question_text_raw":"","question_text_normalized":"","question_role":"main|follow_up|probe|compare|scenario","parent_ref":null,"category":"JavaScript|React|Vue|CSS|浏览器|网络|工程化|项目|算法|行为面|其他","difficulty":"easy|medium|hard","follow_up_intent":"clarify|deepen|compare|verify|scenario","knowledge_points":[],"expected_points":[]}]}],"cleaned_content":"","quality_score":0,"is_valid":true}',
-        'cleaned_content 要删除广告、内推码、无关评论、表情噪音，但保留原始意思。',
-        '不要把面试公司、面试时间、岗位、标题标签、感想、广告、答案解析、代码片段行当作问题项。',
-        '如果原文存在多个主题，必须拆成多个 topic_groups，不要把整篇面经塞进一个组。',
-        'topic_groups 必须按原文顺序输出。',
-        '如果候选标签不合理，你必须拒绝它并按语义重新分组。',
+        '从面经原文中提取元数据和所有面试问题。只输出 JSON，不要解释。',
+        '输出：{“is_valid”:true,”company_name”:””,”role_name”:””,”interview_stage”:”一面|二面|HR面|实习|校招|社招|未知”,”experience_summary”:””,”questions”:[{“raw”:””,”normalized”:””,”difficulty”:”easy|medium|hard”,”category”:”JavaScript|React|Vue|CSS|浏览器|网络|工程化|项目|算法|行为面|其他”}]}',
+        'is_valid 默认 true，只有完全无面试问题（纯广告/内推/感想）才为 false，此时 questions 留空数组。',
+        'normalized 规则：去除口头过渡词（”可以，””好的，””嗯，”等）；含”你/你们/你项目”等指代词时改写为通用形式。',
+        '只有题目类型标签（如”代码输出题”）而没有具体内容的，跳过不提取。',
+        '不要把公司、岗位、时间、感想、广告、答案当作问题。',
       ].join('\n'),
     },
     {
       role: 'user',
+      content: `标题：字节前端一面\n\n自我介绍\n说一下闭包\n闭包会导致内存泄漏吗\n怎么排查内存泄漏\nCSS 水平垂直居中有哪些方案\n你们项目里为什么选 Redis Cluster\n手写防抖\n代码输出题\n#内推码# abc123\n写面经攒人品`,
+    },
+    {
+      role: 'assistant',
       content: JSON.stringify({
-        source_platform: 'nowcoder',
-        source_url: sourceUrl,
-        title,
-        published_at: publishedAt,
-        keyword,
-        rule_hints: ruleHints,
-        candidate_questions: candidateQuestions,
-        cleaned_content_hint: cleanedContent,
-        content_raw: String(contentRaw || '').slice(0, 12000),
+        is_valid: true,
+        company_name: '字节',
+        role_name: '前端',
+        interview_stage: '一面',
+        experience_summary: '字节前端一面，涉及闭包、内存泄漏排查、CSS 布局、项目技术选型和手写防抖。',
+        questions: [
+          { raw: '自我介绍', normalized: '自我介绍', difficulty: 'easy', category: '行为面' },
+          { raw: '说一下闭包', normalized: '讲讲闭包的概念和应用场景', difficulty: 'medium', category: 'JavaScript' },
+          { raw: '闭包会导致内存泄漏吗', normalized: '闭包会导致内存泄漏吗？', difficulty: 'medium', category: 'JavaScript' },
+          { raw: '怎么排查内存泄漏', normalized: '怎么排查内存泄漏？', difficulty: 'hard', category: 'JavaScript' },
+          { raw: 'CSS 水平垂直居中有哪些方案', normalized: 'CSS 水平垂直居中有哪些方案？', difficulty: 'easy', category: 'CSS' },
+          { raw: '你们项目里为什么选 Redis Cluster', normalized: '什么场景下应该选 Redis Cluster 而不是单机 Redis？', difficulty: 'medium', category: '项目' },
+          { raw: '手写防抖', normalized: '手写防抖', difficulty: 'medium', category: 'JavaScript' },
+        ],
       }),
     },
-    ],
+    {
+      role: 'user',
+      content: `标题：${title || ''}\n\n${String(contentRaw || '').slice(0, 12000)}`,
+    },
+  ],
+});
+
+// ── Pipeline Step 3: Grouping ──
+
+const buildGroupingPrompt = ({ questions }) => ({
+  messages: [
+    {
+      role: 'system',
+      content: [
+        '将面试问题按主题分组。只输出 JSON，不要解释。',
+        '输出：{“groups”:[{“topic_cluster”:”中文短语主题”,”canonical_question”:”代表性问题”,”group_type”:”single|chain|mixed”,”confidence”:0.0,”items”:[{“index”:0,”question_role”:”main|follow_up”,”parent_ref”:null,”follow_up_intent”:”clarify|deepen|compare|verify|scenario”,”chain_anchor”:”generic|experience_anchored”}]}]}',
+        'index 引用输入 questions 数组的下标。',
+        'chain：后一个问题是对前一个的逐步深入追问，话题连贯。parent_ref 指向它追问的 item 在当前 group items 中的位置。',
+        'mixed：同话题下的独立问题，parent_ref 为 null。',
+        'single：只有一道题。',
+        '不同话题必须拆成不同 group，宁可多拆也不要混在一起。',
+      ].join('\n'),
+    },
+    {
+      role: 'user',
+      content: JSON.stringify([
+        { index: 0, question: '讲讲闭包的概念和应用场景' },
+        { index: 1, question: '闭包会导致内存泄漏吗？' },
+        { index: 2, question: '怎么排查内存泄漏？' },
+        { index: 3, question: 'CSS 水平垂直居中有哪些方案？' },
+        { index: 4, question: '手写防抖' },
+      ]),
+    },
+    {
+      role: 'assistant',
+      content: JSON.stringify({ groups: [
+        { topic_cluster: '闭包与内存管理', canonical_question: '讲讲闭包的概念和应用场景', group_type: 'chain', confidence: 0.95, items: [
+          { index: 0, question_role: 'main', parent_ref: null, follow_up_intent: 'clarify', chain_anchor: 'generic' },
+          { index: 1, question_role: 'follow_up', parent_ref: 0, follow_up_intent: 'deepen', chain_anchor: 'generic' },
+          { index: 2, question_role: 'follow_up', parent_ref: 1, follow_up_intent: 'deepen', chain_anchor: 'generic' },
+        ] },
+        { topic_cluster: 'CSS 布局', canonical_question: 'CSS 水平垂直居中有哪些方案？', group_type: 'single', confidence: 0.99, items: [
+          { index: 3, question_role: 'main', parent_ref: null, follow_up_intent: 'clarify', chain_anchor: 'generic' },
+        ] },
+        { topic_cluster: '手写题', canonical_question: '手写防抖', group_type: 'single', confidence: 0.99, items: [
+          { index: 4, question_role: 'main', parent_ref: null, follow_up_intent: 'clarify', chain_anchor: 'generic' },
+        ] },
+      ] }),
+    },
+    {
+      role: 'user',
+      content: JSON.stringify(questions.map((q, i) => ({ index: i, question: q.normalized || q.raw }))),
+    },
+  ],
+});
+
+// ── Pipeline Step 4: Annotation ──
+
+const buildAnnotationPrompt = ({ questions }) => ({
+  messages: [
+    {
+      role: 'system',
+      content: [
+        '为每道面试问题标注知识点和评分要点。只输出 JSON，不要解释。',
+        '输出：{“annotations”:[{“index”:0,”knowledge_points”:[“短词标签”],”expected_points”:[“句子粒度的评分要点”]}]}',
+        'knowledge_points：该题考察的知识领域标签，短词粒度，用于检索（如 [“闭包”, “垃圾回收”]）。',
+        'expected_points：候选人回答应覆盖的要点，句子粒度，用于评分（如 [“闭包的定义和形成条件”]）。',
+      ].join('\n'),
+    },
+    {
+      role: 'user',
+      content: JSON.stringify(questions.map((q, i) => ({ index: i, question: q.normalized || q.raw, category: q.category }))),
+    },
+  ],
+});
+
+// ── Pipeline orchestration ──
+
+const assemblePipelineResult = ({ metadata, questions, grouping, annotations, cleanedContent }) => {
+  const annotationMap = new Map();
+  for (const a of annotations) {
+    annotationMap.set(a.index, a);
+  }
+
+  const topicGroups = grouping.map((group) => ({
+    topic_cluster: group.topic_cluster || '',
+    canonical_question: group.canonical_question || '',
+    group_type: group.group_type || 'single',
+    confidence: Number(group.confidence || 0),
+    items: (group.items || []).map((ref) => {
+      const q = questions[ref.index];
+      if (!q) return null;
+      const ann = annotationMap.get(ref.index) || {};
+      return {
+        question_text_raw: q.raw || '',
+        question_text_normalized: q.normalized || q.raw || '',
+        question_role: ref.question_role || 'follow_up',
+        parent_ref: Number.isInteger(ref.parent_ref) ? ref.parent_ref : null,
+        category: q.category || '其他',
+        difficulty: q.difficulty || 'medium',
+        follow_up_intent: ref.follow_up_intent || 'clarify',
+        chain_anchor: ref.chain_anchor || 'generic',
+        knowledge_points: Array.isArray(ann.knowledge_points) ? ann.knowledge_points : [],
+        expected_points: Array.isArray(ann.expected_points) ? ann.expected_points : [],
+      };
+    }).filter(Boolean),
+  }));
+
+  return {
+    company_name: String(metadata.company_name || '').trim(),
+    role_name: String(metadata.role_name || '').trim(),
+    interview_stage: String(metadata.interview_stage || '未知').trim() || '未知',
+    experience_summary: normalizeWhitespace(metadata.experience_summary || ''),
+    topic_groups: normalizeTopicGroups(topicGroups),
+    cleaned_content: cleanedContent,
+    is_valid: Boolean(metadata.is_valid),
   };
 };
 
@@ -345,27 +506,97 @@ const cleanExperienceContent = async ({ title, sourceUrl, publishedAt, keyword, 
     return fallbackCleanExperience({ title, contentRaw });
   }
 
-  try {
-    const result = await jsonCompletion(buildCleanPrompt({
-      title,
-      sourceUrl,
-      publishedAt,
-      keyword,
-      contentRaw,
-    }));
+  const cleanedContent = normalizeContentForCleaning(contentRaw);
 
-    return {
-      company_name: String(result.company_name || '').trim(),
-      role_name: String(result.role_name || '').trim(),
-      interview_stage: String(result.interview_stage || '未知').trim() || '未知',
-      experience_summary: normalizeWhitespace(result.experience_summary || ''),
-      topic_groups: normalizeTopicGroups(Array.isArray(result.topic_groups) ? result.topic_groups : [], title || '面经问题'),
-      cleaned_content: normalizeWhitespace(result.cleaned_content || ''),
-      quality_score: Number(result.quality_score || 0),
-      is_valid: Boolean(result.is_valid),
+  try {
+    console.log('[pipeline.input]', {
+      title,
+      source_url: sourceUrl,
+      content_length: contentRaw?.length || 0,
+      content_preview: String(contentRaw || '').slice(0, 200),
+    });
+
+    // Step 1: Extract metadata + questions
+    const extractionResult = await jsonCompletionWithRetry(
+      buildExtractionPrompt({ title, contentRaw }), 'extraction',
+    ).catch((err) => {
+      console.warn('[pipeline.extraction.failed]', err.message);
+      return null;
+    });
+
+    const metadata = {
+      is_valid: extractionResult?.is_valid !== false,
+      company_name: extractionResult?.company_name || '',
+      role_name: extractionResult?.role_name || '',
+      interview_stage: extractionResult?.interview_stage || '未知',
+      experience_summary: extractionResult?.experience_summary || '',
     };
+
+    if (!metadata.is_valid) {
+      return {
+        company_name: String(metadata.company_name).trim(),
+        role_name: String(metadata.role_name).trim(),
+        interview_stage: String(metadata.interview_stage).trim() || '未知',
+        experience_summary: normalizeWhitespace(metadata.experience_summary),
+        topic_groups: [],
+        cleaned_content: cleanedContent,
+        is_valid: false,
+      };
+    }
+
+    // Question fallback: regex extraction
+    const questions = Array.isArray(extractionResult?.questions) && extractionResult.questions.length > 0
+      ? extractionResult.questions
+      : splitCandidateQuestions(contentRaw).map((q) => ({
+          raw: q,
+          normalized: q,
+          difficulty: 'medium',
+          category: inferCategory(q),
+        }));
+
+    if (questions.length === 0) {
+      return {
+        ...metadata,
+        topic_groups: [],
+        cleaned_content: cleanedContent,
+        is_valid: false,
+      };
+    }
+
+    // Step 3 + Step 4: parallel (both depend on Step 2)
+    const [groupingResult, annotationResult] = await Promise.all([
+      jsonCompletionWithRetry(buildGroupingPrompt({ questions }), 'grouping').catch((err) => {
+        console.warn('[pipeline.step3.failed]', err.message);
+        return null;
+      }),
+      jsonCompletionWithRetry(buildAnnotationPrompt({ questions }), 'annotation').catch((err) => {
+        console.warn('[pipeline.step4.failed]', err.message);
+        return null;
+      }),
+    ]);
+
+    // Step 3 fallback: each question as a single group
+    const grouping = Array.isArray(groupingResult?.groups) && groupingResult.groups.length > 0
+      ? groupingResult.groups
+      : questions.map((q, i) => ({
+          topic_cluster: buildTopicClusterByCategory(q.category || inferCategory(q.normalized || q.raw)),
+          canonical_question: q.normalized || q.raw,
+          group_type: 'single',
+          confidence: 0.3,
+          items: [{ index: i, question_role: 'main', parent_ref: null, follow_up_intent: 'clarify', chain_anchor: inferItemChainAnchor(q.raw) }],
+        }));
+
+    const annotations = Array.isArray(annotationResult?.annotations) ? annotationResult.annotations : [];
+
+    return assemblePipelineResult({
+      metadata,
+      questions,
+      grouping,
+      annotations,
+      cleanedContent,
+    });
   } catch (error) {
-    console.error('[experience.cleaner.fallback]', {
+    console.error('[experience.cleaner.pipeline.fallback]', {
       title,
       source_url: sourceUrl,
       error: error instanceof Error ? error.message : String(error),
@@ -389,7 +620,7 @@ const buildPostInsertPayload = ({ jobId, keyword, article, cleaned }) => ({
   company_name: cleaned.company_name || '',
   role_name: cleaned.role_name || '',
   interview_stage: cleaned.interview_stage || '未知',
-  quality_score: Number(cleaned.quality_score || 0),
+  popularity: Number(article.popularity || 0),
   is_valid: Boolean(cleaned.is_valid),
   clean_status: 'completed',
   crawl_job_id: jobId,
@@ -415,6 +646,7 @@ const buildGroupsInsertPayload = ({ postId, topicGroups = [] }) =>
         category: String(item.category || '其他').trim() || '其他',
         difficulty: String(item.difficulty || 'medium').trim() || 'medium',
         follow_up_intent: String(item.follow_up_intent || 'clarify').trim() || 'clarify',
+        chain_anchor: String(item.chain_anchor || 'generic').trim(),
         expected_points: Array.isArray(item.expected_points) ? item.expected_points : [],
         knowledge_points: Array.isArray(item.knowledge_points) ? item.knowledge_points : [],
       };

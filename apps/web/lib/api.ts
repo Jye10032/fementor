@@ -2,11 +2,13 @@ export type JsonValue = Record<string, unknown>;
 
 export class ApiError extends Error {
   status: number;
+  code: string | null;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, code: string | null = null) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -62,7 +64,8 @@ export async function apiRequest<T>(
 
   const data = await readResponsePayload<T>(res);
   if (!res.ok) {
-    throw new ApiError((data as { error?: string }).error || `HTTP ${res.status}`, res.status);
+    const payload = data as { error?: string; message?: string };
+    throw new ApiError(payload.message || payload.error || `HTTP ${res.status}`, res.status, payload.error || null);
   }
   return data;
 }

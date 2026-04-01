@@ -4,6 +4,8 @@ export type ViewerCapabilities = {
   can_use_resume_ocr?: boolean;
   daily_resume_ocr_limit?: number;
   remaining_resume_ocr_count?: number;
+  daily_interview_session_limit?: number;
+  remaining_interview_session_count?: number;
   can_manage_public_sources?: boolean;
 };
 

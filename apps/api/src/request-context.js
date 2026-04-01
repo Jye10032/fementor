@@ -9,6 +9,7 @@ const {
   getExperienceStorageTarget,
 } = require('./experience/store');
 const {
+  countSessionsStartedOnUtcDate,
   getInterviewSession,
   getUserById,
   upsertUser,
@@ -142,6 +143,7 @@ const ensureLocalUserProfile = ({
   authUser = null,
   name = undefined,
   resumeSummary = undefined,
+  resumeStructuredJson = undefined,
   activeResumeFile = undefined,
   activeJdFile = undefined,
 }) => {
@@ -149,6 +151,7 @@ const ensureLocalUserProfile = ({
     id: userId,
     name: name !== undefined ? name : authUser?.name || authUser?.email || '',
     resume_summary: resumeSummary,
+    resume_structured_json: resumeStructuredJson,
     active_resume_file: activeResumeFile,
     active_jd_file: activeJdFile,
   });
@@ -173,6 +176,9 @@ const buildViewerPayload = async ({ userId, authUser }) => {
   const remainingCount = todayUsageCount === null
     ? dailyLimit
     : Math.max(0, dailyLimit - todayUsageCount);
+  const dailyInterviewLimit = 1;
+  const todayInterviewCount = countSessionsStartedOnUtcDate({ userId });
+  const remainingInterviewCount = Math.max(0, dailyInterviewLimit - todayInterviewCount);
   const runtimeMode = getAppRuntimeMode();
   const role = resolveViewerRole({ authUser, appUser });
   const storageTarget = getRuntimeStorageTarget();
@@ -196,6 +202,8 @@ const buildViewerPayload = async ({ userId, authUser }) => {
         can_use_resume_ocr: true,
         daily_resume_ocr_limit: dailyLimit,
         remaining_resume_ocr_count: remainingCount,
+        daily_interview_session_limit: dailyInterviewLimit,
+        remaining_interview_session_count: remainingInterviewCount,
         can_manage_public_sources: canManagePublicSources({ runtimeMode, role }),
       },
     },

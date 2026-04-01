@@ -19,6 +19,7 @@ export default function ExperienceDetailPage() {
   const [item, setItem] = useState<ExperienceDetailResponse["item"] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [recleaning, setRecleaning] = useState(false);
   const canManagePublicSources = viewer?.capabilities?.can_manage_public_sources === true;
 
@@ -38,6 +39,7 @@ export default function ExperienceDetailPage() {
         });
         if (!cancelled) {
           setItem(response.item);
+          setNotice(null);
         }
       } catch (requestError) {
         if (!cancelled) {
@@ -65,11 +67,13 @@ export default function ExperienceDetailPage() {
     try {
       setRecleaning(true);
       setError(null);
+      setNotice(null);
       const response = await apiRequest<ExperienceRecleanResponse>(apiBase, `/v1/experiences/${params.id}/reclean`, {
         method: "POST",
         auth: "required",
       });
       setItem(response.item);
+      setNotice(`重新清洗完成，共抽取 ${response.item.groups.length} 个问题簇。`);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "重清洗失败");
     } finally {
@@ -80,12 +84,9 @@ export default function ExperienceDetailPage() {
   return (
     <PageShell>
       <div className="flex items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold text-foreground">面经详情</h1>
-        </div>
-        <Link href="/experience" className="action-secondary cursor-pointer">
-          <ArrowLeft className="mr-1.5 h-4 w-4" />
-          返回面经库
+        <h1 className="text-lg font-semibold text-foreground">面经详情</h1>
+        <Link href="/experience" className="action-secondary cursor-pointer text-sm">
+          <ArrowLeft className="mr-1 h-3.5 w-3.5" />返回
         </Link>
       </div>
 
@@ -107,31 +108,30 @@ export default function ExperienceDetailPage() {
         </PagePanel>
       ) : loading ? (
         <PagePanel>正在加载面经详情...</PagePanel>
-      ) : error ? (
-        <PagePanel className="text-[oklch(0.53_0.19_25)]">{error}</PagePanel>
+      ) : error && !item ? (
+        <PagePanel className="text-destructive">{error}</PagePanel>
       ) : item ? (
-        <div className="space-y-4">
+        <div className="space-y-3">
           {canManagePublicSources ? (
-            <PagePanel className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-start gap-3">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-                  <Shield className="h-4 w-4 text-primary" />
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-foreground">管理员操作</p>
-                  <p className="mt-0.5 text-sm text-muted-foreground">如果当前题组分类不正确，可以对这条面经重新清洗。</p>
-                </div>
+            <div className="space-y-2 rounded-xl border border-border/70 bg-secondary/40 px-4 py-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Shield className="h-3.5 w-3.5 text-primary" />
+                  抽取结果有误？可重新清洗
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void handleReclean()}
+                  disabled={!authReady || !isSignedIn || recleaning}
+                  className="action-primary text-sm"
+                >
+                  {recleaning ? "重清洗中..." : "重新清洗"}
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => void handleReclean()}
-                disabled={!authReady || !isSignedIn || recleaning}
-                className="action-primary"
-              >
-                {recleaning ? "重清洗中..." : "重新清洗这条面经"}
-              </button>
-            </PagePanel>
+              {notice ? <p className="text-sm text-success">{notice}</p> : null}
+            </div>
           ) : null}
+          {error ? <PagePanel className="text-destructive">{error}</PagePanel> : null}
           <ExperienceDetail item={item} />
         </div>
       ) : (

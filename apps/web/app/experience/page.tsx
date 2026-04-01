@@ -32,30 +32,21 @@ export default function ExperiencePage() {
 
   return (
     <PageShell>
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-            <BookOpen className="h-5 w-5 text-primary" />
-          </div>
-          <div>
-            <h1 className="text-xl font-semibold text-foreground">面经库</h1>
-            <p className="mt-0.5 text-sm text-muted-foreground">
-              抓取牛客近 7 日面经，结构化清洗后供搜索、练习和模拟面试使用
-            </p>
-          </div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2.5">
+          <BookOpen className="h-5 w-5 shrink-0 text-primary" />
+          <h1 className="text-lg font-semibold text-foreground">面经库</h1>
+          <span className="hidden text-sm text-muted-foreground sm:inline">·</span>
+          <p className="hidden text-sm text-muted-foreground sm:inline">抓取牛客近 7 日面经，结构化清洗后供搜索和练习</p>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-2 rounded-full border border-border/80 bg-background/80 px-3.5 py-1.5 text-sm">
-            <Database className="h-3.5 w-3.5 text-muted-foreground" />
-            <span className="font-semibold text-foreground">{experienceList.total}</span>
-            <span className="text-muted-foreground">条</span>
-          </div>
-          <div className="flex items-center gap-2 rounded-full border border-border/80 bg-background/80 px-3.5 py-1.5 text-sm">
-            <User className="h-3.5 w-3.5 text-muted-foreground" />
-            <span className="font-semibold text-foreground">
-              {isSignedIn ? viewer?.name || viewer?.email || "已登录" : "未登录"}
-            </span>
-          </div>
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Database className="h-3 w-3" />
+          <span className="font-semibold text-foreground">{experienceList.total}</span>条
+          <span className="mx-1 text-border">|</span>
+          <User className="h-3 w-3" />
+          <span className="font-semibold text-foreground">
+            {isSignedIn ? viewer?.name || viewer?.email || "已登录" : "未登录"}
+          </span>
         </div>
       </div>
 
@@ -80,6 +71,8 @@ export default function ExperiencePage() {
       <ExperienceSearchBar
         keyword={experienceSync.keyword}
         onKeywordChange={experienceSync.setKeyword}
+        limit={experienceSync.limit}
+        onLimitChange={experienceSync.setLimit}
         syncing={experienceSync.syncing}
         onSync={() => void experienceSync.startSync()}
         searchQuery={searchQuery}
@@ -94,6 +87,8 @@ export default function ExperiencePage() {
         items={experienceList.items}
         loading={experienceList.loading}
         error={experienceList.error}
+        onDelete={isSignedIn ? experienceList.deleteItem : undefined}
+        onDeleteBatch={isSignedIn ? experienceList.deleteItems : undefined}
       />
     </PageShell>
   );

@@ -6,6 +6,9 @@ const {
   buildPostInsertPayload,
   buildGroupsInsertPayload,
 } = require('./cleaner');
+const { setGroupEmbedding } = require('./embedding-cache');
+const { updateGraphIncremental, buildKnowledgeGraph } = require('./knowledge-graph');
+const { hasRealLLM, embeddingCompletion } = require('../llm');
 
 const runningJobs = new Set();
 
@@ -58,6 +61,118 @@ const isWithinDays = (publishedAt, days = 7) => {
 
 const normalizeSourcePostId = (url) => String(url || '').split('/').pop()?.split('?')[0] || '';
 
+const buildSyncedArticlePayload = (article) => ({
+  ...article,
+  url: article.url,
+  publishedAt: normalizePublishedAt(article.publishedAt),
+});
+
+const cleanExperienceArticle = async ({ title, sourceUrl, publishedAt, keyword, contentRaw }) =>
+  cleanExperienceContent({
+    title,
+    sourceUrl,
+    publishedAt,
+    keyword,
+    contentRaw,
+  });
+
+const buildGroupEmbeddingText = (group) => {
+  const items = Array.isArray(group.items) ? group.items : [];
+  const texts = [group.canonical_question || ''];
+  for (const item of items) {
+    const t = String(item.question_text_normalized || item.question_text_raw || '').trim();
+    if (t) texts.push(t);
+  }
+  return texts.join(' | ').slice(0, 2000);
+};
+
+const computeGroupEmbeddings = async (groups) => {
+  if (!hasRealLLM()) return;
+  for (const group of groups) {
+    try {
+      const text = buildGroupEmbeddingText(group);
+      if (!text || text.length < 4) continue;
+      const embedding = await embeddingCompletion({ input: text });
+      if (Array.isArray(embedding) && embedding.length > 0) {
+        group.embedding_json = JSON.stringify(embedding);
+        setGroupEmbedding(group.id, embedding);
+      }
+    } catch (error) {
+      console.warn('[experience.embedding.failed]', { group_id: group.id, error: error.message });
+    }
+  }
+};
+
+const upsertExperienceArticle = async ({ store, jobId, keyword, article, existingPost = null }) => {
+  const cleaned = await cleanExperienceArticle({
+    title: article.title,
+    sourceUrl: article.url,
+    publishedAt: article.publishedAt,
+    keyword,
+    contentRaw: article.content,
+  });
+
+  if (!cleaned.is_valid) {
+    return { skipped: true };
+  }
+
+  const syncedArticle = buildSyncedArticlePayload(article);
+  const post = buildPostInsertPayload({
+    jobId,
+    keyword,
+    article: syncedArticle,
+    cleaned,
+  });
+
+  if (existingPost) {
+    post.id = existingPost.id;
+    post.source_post_id = existingPost.source_post_id;
+    post.source_platform = existingPost.source_platform;
+    post.created_at = existingPost.created_at;
+    post.updated_at = new Date().toISOString();
+
+    const groups = buildGroupsInsertPayload({
+      postId: existingPost.id,
+      topicGroups: cleaned.topic_groups,
+    });
+
+    await computeGroupEmbeddings(groups);
+    updateGraphIncremental(groups);
+
+    return store.updateExperiencePostWithGroups({
+      postId: existingPost.id,
+      post,
+      groups,
+    });
+  }
+
+  post.source_post_id = normalizeSourcePostId(article.url);
+  const groups = buildGroupsInsertPayload({
+    postId: post.id,
+    topicGroups: cleaned.topic_groups,
+  });
+
+  await computeGroupEmbeddings(groups);
+  updateGraphIncremental(groups);
+
+  return store.insertExperiencePostWithGroups({ post, groups });
+};
+
+const persistExperienceSyncProgress = async ({
+  store,
+  jobId,
+  createdCount,
+  skippedCount,
+  failedCount,
+}) =>
+  store.updateExperienceSyncJob({
+    jobId,
+    status: 'running',
+    createdCount,
+    skippedCount,
+    failedCount,
+  });
+
 const runExperienceSyncJob = async ({ jobId, userId, keyword, days = 7, limit = 10 }) => {
   const store = getExperienceStore();
   if (runningJobs.has(jobId)) {
@@ -83,68 +198,75 @@ const runExperienceSyncJob = async ({ jobId, userId, keyword, days = 7, limit = 
     let skippedCount = 0;
     let failedCount = 0;
 
-    for (const article of crawlResult.items || []) {
-      if (createdCount >= limit) {
-        skippedCount += 1;
-        continue;
-      }
+    const CONCURRENCY = 3;
+    const pending = [];
 
-      if (!isWithinDays(article.publishedAt, days)) {
-        skippedCount += 1;
-        continue;
-      }
-
+    const processArticle = async (article) => {
       const sourcePostId = normalizeSourcePostId(article.url);
       if (!sourcePostId) {
         failedCount += 1;
-        continue;
+        await persistExperienceSyncProgress({ store, jobId, createdCount, skippedCount, failedCount });
+        return;
       }
 
       const existed = await store.getExperiencePostBySource({
         sourcePlatform: 'nowcoder',
         sourcePostId,
       });
+
+      if (!existed && createdCount >= limit) {
+        skippedCount += 1;
+        await persistExperienceSyncProgress({ store, jobId, createdCount, skippedCount, failedCount });
+        return;
+      }
+
       if (existed) {
         skippedCount += 1;
-        continue;
+        await persistExperienceSyncProgress({ store, jobId, createdCount, skippedCount, failedCount });
+        return;
       }
 
       try {
-        const cleaned = await cleanExperienceContent({
-          title: article.title,
-          sourceUrl: article.url,
-          publishedAt: article.publishedAt,
-          keyword,
-          contentRaw: article.content,
-        });
-
-        const post = buildPostInsertPayload({
+        const result = await upsertExperienceArticle({
+          store,
           jobId,
           keyword,
-          article: {
-            ...article,
-            url: article.url,
-            publishedAt: normalizePublishedAt(article.publishedAt),
-          },
-          cleaned,
-        });
-        post.source_post_id = sourcePostId;
-        const groups = buildGroupsInsertPayload({
-          postId: post.id,
-          topicGroups: cleaned.topic_groups,
+          article,
+          existingPost: existed,
         });
 
-        await store.insertExperiencePostWithGroups({ post, groups });
-        createdCount += 1;
+        if (result?.skipped) {
+          skippedCount += 1;
+        } else {
+          createdCount += 1;
+        }
+        await persistExperienceSyncProgress({ store, jobId, createdCount, skippedCount, failedCount });
       } catch (error) {
         failedCount += 1;
+        await persistExperienceSyncProgress({ store, jobId, createdCount, skippedCount, failedCount });
         console.error('[experience.sync.item.failed]', {
           job_id: jobId,
           url: article.url,
           error: error.message,
         });
       }
+    };
+
+    for (const article of crawlResult.items || []) {
+      const task = processArticle(article);
+      pending.push(task);
+
+      if (pending.length >= CONCURRENCY) {
+        await Promise.race(pending);
+        // Remove settled promises
+        for (let i = pending.length - 1; i >= 0; i--) {
+          const settled = await Promise.race([pending[i].then(() => true), Promise.resolve(false)]);
+          if (settled) pending.splice(i, 1);
+        }
+      }
     }
+
+    await Promise.all(pending);
 
     await store.updateExperienceSyncJob({
       jobId,
@@ -154,6 +276,11 @@ const runExperienceSyncJob = async ({ jobId, userId, keyword, days = 7, limit = 
       failedCount,
       finishedAt: new Date().toISOString(),
       errorMessage: '',
+    });
+
+    setImmediate(() => {
+      void buildKnowledgeGraph(store).catch((err) =>
+        console.warn('[knowledge-graph.rebuild.failed]', err.message));
     });
   } catch (error) {
     await store.updateExperienceSyncJob({
@@ -209,6 +336,7 @@ const recleanExperiencePost = async ({ postId }) => {
       publishedAt: existingPost.published_at,
       content: existingPost.content_raw,
       summary: existingPost.summary,
+      popularity: existingPost.popularity,
     },
     cleaned,
   });
@@ -223,6 +351,8 @@ const recleanExperiencePost = async ({ postId }) => {
     postId: existingPost.id,
     topicGroups: cleaned.topic_groups,
   });
+
+  await computeGroupEmbeddings(groups);
 
   return store.updateExperiencePostWithGroups({
     postId: existingPost.id,
@@ -275,10 +405,12 @@ const recleanAllExperiencePosts = async ({ onlyValid = false, onProgress } = {})
 module.exports = {
   startExperienceSync,
   getExperienceSyncJobById: (...args) => getExperienceStore().getExperienceSyncJobById(...args),
+  getLatestActiveSyncJob: (...args) => getExperienceStore().getLatestActiveSyncJob(...args),
   listExperiencePosts: (...args) => getExperienceStore().listExperiencePosts(...args),
   getExperiencePostDetail: (...args) => getExperienceStore().getExperiencePostDetail(...args),
   recleanExperiencePost,
   recleanAllExperiencePosts,
   searchExperienceQuestionItems: (...args) => getExperienceStore().searchExperienceQuestionItems(...args),
+  deleteExperiencePost: (...args) => getExperienceStore().deleteExperiencePost(...args),
   normalizePublishedAt,
 };

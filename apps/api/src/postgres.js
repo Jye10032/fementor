@@ -120,6 +120,7 @@ async function initPostgres() {
             status text NOT NULL,
             requested_limit integer NOT NULL DEFAULT 10,
             created_count integer NOT NULL DEFAULT 0,
+            updated_count integer NOT NULL DEFAULT 0,
             skipped_count integer NOT NULL DEFAULT 0,
             failed_count integer NOT NULL DEFAULT 0,
             started_at timestamptz,
@@ -150,6 +151,7 @@ async function initPostgres() {
             role_name text NOT NULL DEFAULT '',
             interview_stage text NOT NULL DEFAULT '未知',
             quality_score integer NOT NULL DEFAULT 0,
+            popularity integer NOT NULL DEFAULT 0,
             is_valid boolean NOT NULL DEFAULT true,
             clean_status text NOT NULL DEFAULT 'pending',
             crawl_job_id text,
@@ -214,6 +216,18 @@ async function initPostgres() {
         await client.query(`
           ALTER TABLE users
           ADD COLUMN IF NOT EXISTS role text NOT NULL DEFAULT 'user';
+        `);
+        await client.query(`
+          ALTER TABLE experience_sync_job
+          ADD COLUMN IF NOT EXISTS updated_count integer NOT NULL DEFAULT 0;
+        `);
+        await client.query(`
+          ALTER TABLE users ADD COLUMN IF NOT EXISTS resume_structured_json text NOT NULL DEFAULT '';
+          ALTER TABLE experience_question_group ADD COLUMN IF NOT EXISTS embedding_json text NOT NULL DEFAULT '';
+          ALTER TABLE experience_question_item ADD COLUMN IF NOT EXISTS chain_anchor text NOT NULL DEFAULT 'generic';
+        `);
+        await client.query(`
+          ALTER TABLE experience_post ADD COLUMN IF NOT EXISTS popularity integer NOT NULL DEFAULT 0;
         `);
         await enableRowLevelSecurity(client);
       } finally {

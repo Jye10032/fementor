@@ -13,9 +13,11 @@ const {
 const {
   startExperienceSync,
   getExperienceSyncJobById,
+  getLatestActiveSyncJob,
   listExperiencePosts,
   getExperiencePostDetail,
   recleanExperiencePost,
+  deleteExperiencePost,
   searchExperienceQuestionItems,
 } = require('../experience/service');
 
@@ -28,7 +30,7 @@ const createSyncJobResponse = async ({ req, body }) => {
 
   const keyword = String(body.keyword || '').trim();
   const days = parseNumberOrFallback(body.days || 7, 7);
-  const limit = Math.min(10, parseNumberOrFallback(body.limit || 10, 10));
+  const limit = Math.min(20, Math.max(1, parseNumberOrFallback(body.limit || 5, 5)));
 
   if (!keyword) {
     return { statusCode: 400, payload: { error: 'keyword is required' } };
@@ -69,13 +71,23 @@ const getSyncJobResponse = async ({ req, pathname }) => {
   };
 };
 
+const getActiveSyncJobResponse = async ({ req }) => {
+  const context = await getResolvedViewerAccessContext({ req });
+  assertCanManagePublicSources(context);
+  const job = await getLatestActiveSyncJob();
+  if (!job || job.user_id !== context.userId) {
+    return { statusCode: 200, payload: { job: null } };
+  }
+  return { statusCode: 200, payload: { job } };
+};
+
 const listExperiencesResponse = async ({ req, searchParams }) => {
   const query = String(searchParams.get('query') || '').trim();
   const company = String(searchParams.get('company') || '').trim();
   const role = String(searchParams.get('role') || '').trim();
   const days = parseNumberOrFallback(searchParams.get('days') || 0, 0);
   const page = Math.max(1, parseNumberOrFallback(searchParams.get('page') || 1, 1));
-  const pageSize = Math.min(50, Math.max(1, parseNumberOrFallback(searchParams.get('page_size') || 20, 20)));
+  const pageSize = Math.min(200, Math.max(1, parseNumberOrFallback(searchParams.get('page_size') || 20, 20)));
   const onlyValid = String(searchParams.get('only_valid') || '1') !== '0';
 
   const result = await listExperiencePosts({
@@ -109,6 +121,14 @@ const getExperienceDetailResponse = async ({ req, pathname }) => {
     statusCode: 200,
     payload: { item },
   };
+};
+
+const deleteExperienceResponse = async ({ req, pathname }) => {
+  const context = await getResolvedViewerAccessContext({ req });
+  assertCanManagePublicSources(context);
+  const experienceId = requirePathSegment(pathname, 3, 'id');
+  await deleteExperiencePost(experienceId);
+  return { statusCode: 200, payload: { deleted: true } };
 };
 
 const recleanExperienceResponse = async ({ req, pathname }) => {
@@ -160,6 +180,16 @@ const handleExperienceRoutes = async ({ req, res, url }) => {
     return true;
   }
 
+  if (req.method === 'GET' && url.pathname === '/v1/experiences/sync/active') {
+    try {
+      const result = await getActiveSyncJobResponse({ req });
+      json(res, result.statusCode, result.payload);
+    } catch (error) {
+      jsonError(res, error);
+    }
+    return true;
+  }
+
   if (req.method === 'GET' && /^\/v1\/experiences\/sync\/[^/]+$/.test(url.pathname)) {
     try {
       const result = await getSyncJobResponse({ req, pathname: url.pathname });
@@ -204,6 +234,16 @@ const handleExperienceRoutes = async ({ req, res, url }) => {
     return true;
   }
 
+  if (req.method === 'DELETE' && /^\/v1\/experiences\/[^/]+$/.test(url.pathname)) {
+    try {
+      const result = await deleteExperienceResponse({ req, pathname: url.pathname });
+      json(res, result.statusCode, result.payload);
+    } catch (error) {
+      jsonError(res, error);
+    }
+    return true;
+  }
+
   if (req.method === 'POST' && url.pathname === '/v1/interview/experience-retrieval/preview') {
     try {
       const body = await readBody(req);
@@ -224,6 +264,12 @@ async function registerExperienceRoutes(app) {
       req: request.raw,
       body: request.body || {},
     });
+    reply.code(result.statusCode);
+    return result.payload;
+  });
+
+  app.get('/v1/experiences/sync/active', async (request, reply) => {
+    const result = await getActiveSyncJobResponse({ req: request.raw });
     reply.code(result.statusCode);
     return result.payload;
   });

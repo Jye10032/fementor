@@ -35,9 +35,18 @@ export function useInterviewHistory({ apiBase, enabled }: UseInterviewHistoryPar
     void refreshSessionHistory();
   }, [apiBase, enabled]);
 
+  const deleteSession = async (sessionId: string) => {
+    await apiRequest(apiBase, `/v1/interview/sessions/${sessionId}`, {
+      method: "DELETE",
+      auth: "required",
+    });
+    await refreshSessionHistory();
+  };
+
   return {
     sessionHistory,
     loadingHistory,
     refreshSessionHistory,
+    deleteSession,
   };
 }

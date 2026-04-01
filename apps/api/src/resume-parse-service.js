@@ -221,7 +221,8 @@ const parseResumeRequest = async ({ req, parsedMultipart = null }) => {
   });
 
   const summaryStartedAt = Date.now();
-  const summary = await summarizeResumeWithLLM(resumeText);
+  const resumeStructured = await summarizeResumeWithLLM(resumeText);
+  const summary = resumeStructured.summary;
   console.log('[resume.parse.request.summary.done]', {
     elapsed_ms: Date.now() - summaryStartedAt,
   });
@@ -242,6 +243,7 @@ const parseResumeRequest = async ({ req, parsedMultipart = null }) => {
     authUser: context.authUser,
     name,
     resumeSummary: summary,
+    resumeStructuredJson: JSON.stringify(resumeStructured),
     activeResumeFile: path.basename(savedPath),
   });
 

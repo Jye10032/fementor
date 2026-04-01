@@ -10,12 +10,13 @@ const formatTurnForContext = (turn) => [
   `weaknesses=${(turn.weaknesses || []).join('、') || '无'}`,
 ].join('\n');
 
-const summarizeInterviewOverflow = async ({ overflowTurns, currentQuestion }) => {
+const summarizeInterviewOverflow = async ({ overflowTurns, currentQuestion, sessionContext }) => {
   if (overflowTurns.length === 0) {
     return { summary: '', open_points: [] };
   }
 
   const result = await jsonCompletion({
+    sessionContext,
     messages: [
       {
         role: 'system',
@@ -57,6 +58,7 @@ const summarizeInterviewOverflow = async ({ overflowTurns, currentQuestion }) =>
 const buildInterviewContextWindow = async ({
   turns,
   currentQuestion,
+  sessionContext,
 }) => {
   const orderedTurns = [...(turns || [])].sort((left, right) => (right.turn_index || 0) - (left.turn_index || 0));
   const rawTurns = [];
@@ -76,6 +78,7 @@ const buildInterviewContextWindow = async ({
   const overflowSummary = await summarizeInterviewOverflow({
     overflowTurns: [...overflowTurns].reverse(),
     currentQuestion,
+    sessionContext,
   });
   const recentTurnsOrdered = [...rawTurns].reverse();
 

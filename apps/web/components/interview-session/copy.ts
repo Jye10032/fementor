@@ -1,6 +1,7 @@
 import {
   ConversationRow,
   InterviewQuestion,
+  InterviewTurnHistoryItem,
   InterviewTurnStageEvent,
   StageStep,
   TurnRecord,
@@ -47,8 +48,8 @@ export function buildEvaluationNarration(turn: TurnRecord) {
   return [
     typeof turn.score === "number" ? `本轮得分 ${turn.score} 分。` : "",
     turn.feedback ? `总体评价：${turn.feedback}` : "",
-    turn.strengths?.length ? `做得较好的点：${turn.strengths.join("，")}。` : "",
-    turn.weaknesses?.length ? `接下来优先补强：${turn.weaknesses.join("，")}。` : "",
+    turn.strengths?.length ? `做得较好的点：${turn.strengths.map(s => s.replace(/[。，；、,;.]+$/, "")).join("，")}。` : "",
+    turn.weaknesses?.length ? `接下来优先补强：${turn.weaknesses.map(s => s.replace(/[。，；、,;.]+$/, "")).join("，")}。` : "",
     turn.standard_answer ? `参考标准答案：${turn.standard_answer}` : "",
     typeof turn.evidence_refs_count === "number"
       ? `本轮命中 ${turn.evidence_refs_count} 条资料佐证${turn.retrieval_strategy ? `，检索策略为 ${getRetrievalStrategyLabel(turn.retrieval_strategy)}` : ""}。`
@@ -73,6 +74,39 @@ export function normalizeTurnRecord(data: TurnResponse, question: string, answer
     question,
     answer,
   };
+}
+
+export function normalizePersistedTurnRecord(item: InterviewTurnHistoryItem): TurnRecord {
+  return {
+    session_id: item.session_id,
+    question_id: item.question_id || null,
+    turn_id: item.id,
+    turn_index: item.turn_index,
+    handled_as: "answer",
+    score: item.score,
+    strengths: item.strengths || [],
+    weaknesses: item.weaknesses || [],
+    evidence_refs_count: item.evidence_refs_count ?? 0,
+    question: item.question,
+    answer: item.answer,
+  };
+}
+
+export function buildConversationRowsFromTurns(turns: TurnRecord[]): ConversationRow[] {
+  return turns.flatMap((turn) => [
+    {
+      id: `history-answer-${turn.turn_id || turn.turn_index}`,
+      role: "user",
+      kind: "answer",
+      content: turn.answer,
+    },
+    {
+      id: `history-evaluation-${turn.turn_id || turn.turn_index}`,
+      role: "assistant",
+      kind: "evaluation",
+      content: buildEvaluationNarration(turn),
+    },
+  ]);
 }
 
 export function reconcileQueueItems(

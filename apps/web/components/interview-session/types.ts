@@ -36,6 +36,20 @@ export type TurnRecord = TurnResponse & {
   answer: string;
 };
 
+export type InterviewTurnHistoryItem = {
+  id: string;
+  session_id: string;
+  question_id?: string | null;
+  turn_index: number;
+  question: string;
+  answer: string;
+  score: number;
+  strengths: string[];
+  weaknesses: string[];
+  evidence_refs_count: number;
+  created_at: string;
+};
+
 export type RetrospectResponse = {
   session_id: string;
   chapter: string;
@@ -58,6 +72,11 @@ export type QuestionQueueResponse = {
   session_id: string;
   items: InterviewQuestion[];
   current_question: InterviewQuestion | null;
+};
+
+export type TurnHistoryResponse = {
+  session_id: string;
+  items: InterviewTurnHistoryItem[];
 };
 
 export type ConversationRow = {
@@ -95,4 +114,15 @@ export type ComposerTextareaRef = RefObject<HTMLTextAreaElement>;
 
 export type Props = {
   initialSessionId: string;
+};
+
+export type InterviewSessionDetail = {
+  id: string;
+  user_id?: string;
+  status: "in_progress" | "completed";
+  summary: string;
+  started_at: string;
+  ended_at: string | null;
+  created_at: string;
+  updated_at: string;
 };

@@ -17,7 +17,7 @@ function normalizeExperiencePostRow(row) {
 
   return {
     ...row,
-    quality_score: Number(row.quality_score || 0),
+    popularity: Number(row.popularity || 0),
     is_valid: Boolean(row.is_valid),
   };
 }
@@ -64,10 +64,10 @@ async function createExperienceSyncJob({ id, userId, keyword, requestedLimit = 1
       `
       INSERT INTO experience_sync_job (
         id, user_id, keyword, status, requested_limit,
-        created_count, skipped_count, failed_count,
+        created_count, updated_count, skipped_count, failed_count,
         started_at, finished_at, error_message, created_at, updated_at
       )
-      VALUES ($1, $2, $3, 'pending', $4, 0, 0, 0, NULL, NULL, '', now(), now())
+      VALUES ($1, $2, $3, 'pending', $4, 0, 0, 0, 0, NULL, NULL, '', now(), now())
       `,
       [id, userId, keyword, requestedLimit],
     );
@@ -81,7 +81,7 @@ async function getExperienceSyncJobById(jobId) {
     const result = await client.query(
       `
       SELECT id, user_id, keyword, status, requested_limit,
-             created_count, skipped_count, failed_count,
+             created_count, updated_count, skipped_count, failed_count,
              started_at, finished_at, error_message, created_at, updated_at
       FROM experience_sync_job
       WHERE id = $1
@@ -98,6 +98,7 @@ async function updateExperienceSyncJob({
   jobId,
   status,
   createdCount,
+  updatedCount,
   skippedCount,
   failedCount,
   startedAt,
@@ -108,7 +109,7 @@ async function updateExperienceSyncJob({
     const currentResult = await client.query(
       `
       SELECT id, user_id, keyword, status, requested_limit,
-             created_count, skipped_count, failed_count,
+             created_count, updated_count, skipped_count, failed_count,
              started_at, finished_at, error_message, created_at, updated_at
       FROM experience_sync_job
       WHERE id = $1
@@ -125,11 +126,12 @@ async function updateExperienceSyncJob({
       UPDATE experience_sync_job
       SET status = $2,
           created_count = $3,
-          skipped_count = $4,
-          failed_count = $5,
-          started_at = $6,
-          finished_at = $7,
-          error_message = $8,
+          updated_count = $4,
+          skipped_count = $5,
+          failed_count = $6,
+          started_at = $7,
+          finished_at = $8,
+          error_message = $9,
           updated_at = now()
       WHERE id = $1
       `,
@@ -137,6 +139,7 @@ async function updateExperienceSyncJob({
         jobId,
         status !== undefined ? status : current.status,
         createdCount !== undefined ? createdCount : current.created_count,
+        updatedCount !== undefined ? updatedCount : current.updated_count,
         skippedCount !== undefined ? skippedCount : current.skipped_count,
         failedCount !== undefined ? failedCount : current.failed_count,
         startedAt !== undefined ? startedAt : current.started_at,
@@ -155,7 +158,7 @@ async function getExperiencePostBySource({ sourcePlatform, sourcePostId }) {
       `
       SELECT id, source_platform, source_post_id, source_url, keyword, title, author_name,
              published_at, content_raw, content_cleaned, summary, company_name, role_name,
-             interview_stage, quality_score, is_valid, clean_status, crawl_job_id, content_hash,
+             interview_stage, popularity, is_valid, clean_status, crawl_job_id, content_hash,
              created_at, updated_at
       FROM experience_post
       WHERE source_platform = $1 AND source_post_id = $2
@@ -174,7 +177,7 @@ async function getExperiencePostById(postId) {
       `
       SELECT id, source_platform, source_post_id, source_url, keyword, title, author_name,
              published_at, content_raw, content_cleaned, summary, company_name, role_name,
-             interview_stage, quality_score, is_valid, clean_status, crawl_job_id, content_hash,
+             interview_stage, popularity, is_valid, clean_status, crawl_job_id, content_hash,
              created_at, updated_at
       FROM experience_post
       WHERE id = $1
@@ -197,7 +200,7 @@ async function insertExperiencePostWithGroups({ post, groups = [] }) {
         INSERT INTO experience_post (
           id, source_platform, source_post_id, source_url, keyword, title, author_name,
           published_at, content_raw, content_cleaned, summary, company_name, role_name,
-          interview_stage, quality_score, is_valid, clean_status, crawl_job_id, content_hash,
+          interview_stage, popularity, is_valid, clean_status, crawl_job_id, content_hash,
           created_at, updated_at
         )
         VALUES (
@@ -222,7 +225,7 @@ async function insertExperiencePostWithGroups({ post, groups = [] }) {
           post.company_name || '',
           post.role_name || '',
           post.interview_stage || '未知',
-          Number(post.quality_score || 0),
+          Number(post.popularity || 0),
           Boolean(post.is_valid),
           post.clean_status || 'completed',
           post.crawl_job_id || null,
@@ -237,11 +240,11 @@ async function insertExperiencePostWithGroups({ post, groups = [] }) {
           `
           INSERT INTO experience_question_group (
             id, post_id, topic_cluster, canonical_question, group_order,
-            group_type, frequency_score, confidence, created_at, updated_at
+            group_type, frequency_score, confidence, embedding_json, created_at, updated_at
           )
           VALUES (
             $1, $2, $3, $4, $5,
-            $6, $7, $8, now(), now()
+            $6, $7, $8, $9, now(), now()
           )
           `,
           [
@@ -253,6 +256,7 @@ async function insertExperiencePostWithGroups({ post, groups = [] }) {
             group.group_type || 'single',
             Number(group.frequency_score || 0),
             Number(group.confidence || 0),
+            group.embedding_json || '',
           ],
         );
 
@@ -262,12 +266,12 @@ async function insertExperiencePostWithGroups({ post, groups = [] }) {
             INSERT INTO experience_question_item (
               id, group_id, post_id, question_text_raw, question_text_normalized, question_role,
               order_in_group, parent_item_id, category, difficulty, follow_up_intent,
-              expected_points_json, knowledge_points_json, embedding_id, created_at, updated_at
+              expected_points_json, knowledge_points_json, embedding_id, chain_anchor, created_at, updated_at
             )
             VALUES (
               $1, $2, $3, $4, $5, $6,
               $7, $8, $9, $10, $11,
-              $12::jsonb, $13::jsonb, $14, now(), now()
+              $12::jsonb, $13::jsonb, $14, $15, now(), now()
             )
             `,
             [
@@ -285,6 +289,7 @@ async function insertExperiencePostWithGroups({ post, groups = [] }) {
               JSON.stringify(item.expected_points || []),
               JSON.stringify(item.knowledge_points || []),
               item.embedding_id || '',
+              item.chain_anchor || 'generic',
             ],
           );
         }
@@ -306,7 +311,7 @@ async function updateExperiencePostWithGroups({ postId, post, groups = [] }) {
       `
       SELECT id, source_platform, source_post_id, source_url, keyword, title, author_name,
              published_at, content_raw, content_cleaned, summary, company_name, role_name,
-             interview_stage, quality_score, is_valid, clean_status, crawl_job_id, content_hash,
+             interview_stage, popularity, is_valid, clean_status, crawl_job_id, content_hash,
              created_at, updated_at
       FROM experience_post
       WHERE id = $1
@@ -337,7 +342,7 @@ async function updateExperiencePostWithGroups({ postId, post, groups = [] }) {
             company_name = $10,
             role_name = $11,
             interview_stage = $12,
-            quality_score = $13,
+            popularity = $13,
             is_valid = $14,
             clean_status = $15,
             crawl_job_id = $16,
@@ -358,7 +363,7 @@ async function updateExperiencePostWithGroups({ postId, post, groups = [] }) {
           post.company_name || '',
           post.role_name || '',
           post.interview_stage || '未知',
-          Number(post.quality_score || 0),
+          Number(post.popularity || 0),
           Boolean(post.is_valid),
           post.clean_status || 'completed',
           post.crawl_job_id || existingPost.crawl_job_id || null,
@@ -375,11 +380,11 @@ async function updateExperiencePostWithGroups({ postId, post, groups = [] }) {
           `
           INSERT INTO experience_question_group (
             id, post_id, topic_cluster, canonical_question, group_order,
-            group_type, frequency_score, confidence, created_at, updated_at
+            group_type, frequency_score, confidence, embedding_json, created_at, updated_at
           )
           VALUES (
             $1, $2, $3, $4, $5,
-            $6, $7, $8, now(), now()
+            $6, $7, $8, $9, now(), now()
           )
           `,
           [
@@ -391,6 +396,7 @@ async function updateExperiencePostWithGroups({ postId, post, groups = [] }) {
             group.group_type || 'single',
             Number(group.frequency_score || 0),
             Number(group.confidence || 0),
+            group.embedding_json || '',
           ],
         );
 
@@ -400,12 +406,12 @@ async function updateExperiencePostWithGroups({ postId, post, groups = [] }) {
             INSERT INTO experience_question_item (
               id, group_id, post_id, question_text_raw, question_text_normalized, question_role,
               order_in_group, parent_item_id, category, difficulty, follow_up_intent,
-              expected_points_json, knowledge_points_json, embedding_id, created_at, updated_at
+              expected_points_json, knowledge_points_json, embedding_id, chain_anchor, created_at, updated_at
             )
             VALUES (
               $1, $2, $3, $4, $5, $6,
               $7, $8, $9, $10, $11,
-              $12::jsonb, $13::jsonb, $14, now(), now()
+              $12::jsonb, $13::jsonb, $14, $15, now(), now()
             )
             `,
             [
@@ -423,6 +429,7 @@ async function updateExperiencePostWithGroups({ postId, post, groups = [] }) {
               JSON.stringify(item.expected_points || []),
               JSON.stringify(item.knowledge_points || []),
               item.embedding_id || '',
+              item.chain_anchor || 'generic',
             ],
           );
         }
@@ -496,7 +503,7 @@ async function listExperiencePosts({
       `
       SELECT
         p.id, p.title, p.source_platform, p.source_url, p.company_name, p.role_name,
-        p.interview_stage, p.published_at, p.summary, p.quality_score,
+        p.interview_stage, p.published_at, p.summary, p.popularity,
         COUNT(DISTINCT g.id)::int AS question_group_count,
         COUNT(DISTINCT qi.id)::int AS question_item_count
       FROM experience_post p
@@ -522,7 +529,7 @@ async function listExperiencePosts({
     return {
       items: itemsResult.rows.map((row) => ({
         ...row,
-        quality_score: Number(row.quality_score || 0),
+        popularity: Number(row.popularity || 0),
         question_group_count: Number(row.question_group_count || 0),
         question_item_count: Number(row.question_item_count || 0),
       })),
@@ -537,7 +544,7 @@ async function getExperiencePostDetail(postId) {
       `
       SELECT id, source_platform, source_post_id, source_url, keyword, title, author_name,
              published_at, content_raw, content_cleaned, summary, company_name, role_name,
-             interview_stage, quality_score, is_valid, clean_status, crawl_job_id, content_hash,
+             interview_stage, popularity, is_valid, clean_status, crawl_job_id, content_hash,
              created_at, updated_at
       FROM experience_post
       WHERE id = $1
@@ -564,7 +571,7 @@ async function getExperiencePostDetail(postId) {
       `
       SELECT id, group_id, post_id, question_text_raw, question_text_normalized, question_role,
              order_in_group, parent_item_id, category, difficulty, follow_up_intent,
-             expected_points_json, knowledge_points_json, embedding_id, created_at, updated_at
+             expected_points_json, knowledge_points_json, embedding_id, chain_anchor, created_at, updated_at
       FROM experience_question_item
       WHERE post_id = $1
       ORDER BY order_in_group ASC, created_at ASC
@@ -596,7 +603,7 @@ async function searchExperienceQuestionItems({ query, limit = 10 }) {
       `
       SELECT
         qi.id, qi.post_id, qi.group_id, qi.question_text_normalized, qi.question_role,
-        qi.category, qi.difficulty, p.title AS source_post_title, p.source_url,
+        qi.category, qi.difficulty, qi.chain_anchor, p.title AS source_post_title, p.source_url,
         p.company_name, p.role_name, p.published_at
       FROM experience_question_item qi
       INNER JOIN experience_post p ON p.id = qi.post_id
@@ -632,13 +639,97 @@ async function listExperiencePostIds({ onlyValid = false } = {}) {
   });
 }
 
+async function listExperienceGroupEmbeddings() {
+  return withClient(async (client) => {
+    const result = await client.query(
+      `SELECT id, embedding_json FROM experience_question_group
+       WHERE embedding_json != '' AND embedding_json IS NOT NULL`,
+    );
+    return result.rows;
+  });
+}
+
+async function getExperienceGroupsWithItems(groupIds) {
+  if (!Array.isArray(groupIds) || groupIds.length === 0) return [];
+  return withClient(async (client) => {
+    const groupResult = await client.query(
+      `SELECT id, post_id, topic_cluster, canonical_question, group_order,
+              group_type, frequency_score, confidence, embedding_json
+       FROM experience_question_group
+       WHERE id = ANY($1)`,
+      [groupIds],
+    );
+
+    const itemResult = await client.query(
+      `SELECT id, group_id, question_text_raw, question_text_normalized, question_role,
+              order_in_group, parent_item_id, category, difficulty, follow_up_intent,
+              expected_points_json, knowledge_points_json, chain_anchor
+       FROM experience_question_item
+       WHERE group_id = ANY($1)
+       ORDER BY order_in_group ASC`,
+      [groupIds],
+    );
+
+    const itemsByGroup = new Map();
+    for (const item of itemResult.rows) {
+      if (!itemsByGroup.has(item.group_id)) itemsByGroup.set(item.group_id, []);
+      itemsByGroup.get(item.group_id).push({
+        ...item,
+        knowledge_points: Array.isArray(item.knowledge_points_json) ? item.knowledge_points_json : JSON.parse(item.knowledge_points_json || '[]'),
+        expected_points: Array.isArray(item.expected_points_json) ? item.expected_points_json : JSON.parse(item.expected_points_json || '[]'),
+      });
+    }
+
+    return groupResult.rows.map((group) => ({
+      ...group,
+      items: itemsByGroup.get(group.id) || [],
+    }));
+  });
+}
+
+async function getLatestActiveSyncJob() {
+  return withClient(async (client) => {
+    const result = await client.query(
+      `
+      SELECT id, user_id, keyword, status, requested_limit,
+             created_count, updated_count, skipped_count, failed_count,
+             started_at, finished_at, error_message, created_at, updated_at
+      FROM experience_sync_job
+      WHERE status IN ('pending', 'running')
+      ORDER BY created_at DESC
+      LIMIT 1
+      `,
+    );
+    return result.rows[0] || null;
+  });
+}
+
+async function deleteExperiencePost(postId) {
+  return withClient(async (client) => {
+    await client.query('BEGIN');
+    try {
+      await client.query('DELETE FROM experience_question_item WHERE post_id = $1', [postId]);
+      await client.query('DELETE FROM experience_question_group WHERE post_id = $1', [postId]);
+      await client.query('DELETE FROM experience_post WHERE id = $1', [postId]);
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    }
+  });
+}
+
 module.exports = {
   createExperienceSyncJob,
+  deleteExperiencePost,
+  getExperienceGroupsWithItems,
   getExperiencePostById,
   getExperiencePostBySource,
   getExperiencePostDetail,
+  getLatestActiveSyncJob,
   getExperienceSyncJobById,
   insertExperiencePostWithGroups,
+  listExperienceGroupEmbeddings,
   listExperiencePostIds,
   listExperiencePosts,
   searchExperienceQuestionItems,

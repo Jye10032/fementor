@@ -10,9 +10,10 @@ import { CurrentQuestionCard } from "./interview-session/CurrentQuestionCard";
 import { InterviewCompletionReport } from "./interview-session/InterviewCompletionReport";
 import { InterviewPanelDrawer } from "./interview-session/InterviewPanelDrawer";
 import {
-  buildEvaluationNarration,
+  buildConversationRowsFromTurns,
   formatElapsed,
   getStageDisplay,
+  normalizePersistedTurnRecord,
   normalizeTurnRecord,
   reconcileQueueItems,
 } from "./interview-session/copy";
@@ -21,6 +22,8 @@ import { StageStatusBar } from "./interview-session/StageStatusBar";
 import {
   ConversationRow,
   InterviewQuestion,
+  InterviewSessionDetail,
+  InterviewTurnHistoryItem,
   InterviewTurnStageEvent,
   InterviewTurnTokenEvent,
   PanelTab,
@@ -29,6 +32,7 @@ import {
   QuestionQueueResponse,
   RetrospectResponse,
   StageStep,
+  TurnHistoryResponse,
   TurnRecord,
   TurnResponse,
 } from "./interview-session/types";
@@ -43,6 +47,35 @@ function getInitialStageLabel(currentQuestion: InterviewQuestion | null) {
   return currentQuestion ? "等待你的回答" : "等待题目同步";
 }
 
+function getHistoryStorageKey(sessionId: string) {
+  return `interview-session-history:${sessionId}`;
+}
+
+function isConversationRowList(value: unknown): value is ConversationRow[] {
+  return Array.isArray(value) && value.every((item) => {
+    if (!item || typeof item !== "object") return false;
+    return (
+      typeof (item as ConversationRow).id === "string" &&
+      typeof (item as ConversationRow).role === "string" &&
+      typeof (item as ConversationRow).kind === "string" &&
+      typeof (item as ConversationRow).content === "string"
+    );
+  });
+}
+
+function isPersistedTurnList(value: unknown): value is InterviewTurnHistoryItem[] {
+  return Array.isArray(value) && value.every((item) => {
+    if (!item || typeof item !== "object") return false;
+    return (
+      typeof (item as InterviewTurnHistoryItem).id === "string" &&
+      typeof (item as InterviewTurnHistoryItem).session_id === "string" &&
+      typeof (item as InterviewTurnHistoryItem).turn_index === "number" &&
+      typeof (item as InterviewTurnHistoryItem).question === "string" &&
+      typeof (item as InterviewTurnHistoryItem).answer === "string"
+    );
+  });
+}
+
 export function InterviewSessionRoom({ initialSessionId }: Props) {
   const { apiBase } = useRuntimeConfig();
   const { getToken, isLoaded, isSignedIn } = useAuthState();
@@ -51,6 +84,7 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
   const [turns, setTurns] = useState<TurnRecord[]>([]);
   const [conversationRows, setConversationRows] = useState<ConversationRow[]>([]);
   const [queueItems, setQueueItems] = useState<InterviewQuestion[]>([]);
+  const [sessionDetail, setSessionDetail] = useState<InterviewSessionDetail | null>(null);
   const [currentQuestionId, setCurrentQuestionId] = useState<string | null>(null);
   const [pendingNextQuestion, setPendingNextQuestion] = useState<InterviewQuestion | null>(null);
   const [questionCardMode, setQuestionCardMode] = useState<QuestionCardMode>("active");
@@ -61,6 +95,7 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
   const [showCompletionReport, setShowCompletionReport] = useState(false);
   const [retrospect, setRetrospect] = useState<RetrospectResponse | null>(null);
   const [output, setOutput] = useState("");
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const [queueLoading, setQueueLoading] = useState(false);
   const [submittingTurn, setSubmittingTurn] = useState(false);
   const [finishing, setFinishing] = useState(false);
@@ -72,6 +107,7 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const autoAdvanceTimerRef = useRef<number | null>(null);
+  const restoredHistoryRef = useRef(false);
 
   const currentQuestion = useMemo(
     () => queueItems.find((item) => item.id === currentQuestionId) ?? null,
@@ -95,6 +131,19 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
       !pendingNextQuestion
     );
   }, [currentQuestion, pendingNextQuestion, queueItems, showCompletionReport]);
+  const sessionClosed = sessionDetail?.status === "completed";
+  const elapsedMs = useMemo(() => {
+    if (sessionClosed && sessionDetail?.started_at) {
+      const startedTime = new Date(sessionDetail.started_at).getTime();
+      const endedTime = sessionDetail.ended_at ? new Date(sessionDetail.ended_at).getTime() : Date.now();
+
+      if (Number.isFinite(startedTime) && Number.isFinite(endedTime) && endedTime >= startedTime) {
+        return endedTime - startedTime;
+      }
+    }
+
+    return now - startedAt;
+  }, [now, sessionClosed, sessionDetail?.ended_at, sessionDetail?.started_at, startedAt]);
 
   const clearAutoAdvanceTimer = useCallback(() => {
     if (autoAdvanceTimerRef.current) {
@@ -152,6 +201,44 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
     }
   }, [apiBase, sessionId]);
 
+  const loadSessionDetail = useCallback(async () => {
+    if (!sessionId) return;
+
+    try {
+      const data = await apiRequest<InterviewSessionDetail>(
+        apiBase,
+        `/v1/interview/sessions/${sessionId}`,
+        { auth: "required" },
+      );
+      setSessionDetail(data);
+      if (data.status === "completed") {
+        setStageStep("completed");
+        setStageLabel("本场面试已结束，请返回重新开始");
+      }
+    } catch (error) {
+      setOutput(String(error));
+    }
+  }, [apiBase, sessionId]);
+
+  const loadTurnHistory = useCallback(async () => {
+    if (!sessionId) return;
+
+    try {
+      const data = await apiRequest<TurnHistoryResponse>(
+        apiBase,
+        `/v1/interview/sessions/${sessionId}/turns`,
+        { auth: "required" },
+      );
+      const historyTurns = (data.items || []).map(normalizePersistedTurnRecord);
+      setTurns(historyTurns);
+      setConversationRows(buildConversationRowsFromTurns(historyTurns));
+    } catch (error) {
+      setOutput(String(error));
+    } finally {
+      setHistoryLoaded(true);
+    }
+  }, [apiBase, sessionId]);
+
   const advanceToNextQuestion = useCallback((nextQuestion?: InterviewQuestion | null) => {
     const targetQuestion = nextQuestion ?? pendingNextQuestion;
     if (!targetQuestion) return;
@@ -166,7 +253,10 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
 
     window.requestAnimationFrame(() => {
       questionViewportRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-      transcriptScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+      transcriptScrollRef.current?.scrollTo({
+        top: transcriptScrollRef.current.scrollHeight,
+        behavior: "smooth",
+      });
       composerRef.current?.focus({ preventScroll: true });
     });
   }, [clearAutoAdvanceTimer, pendingNextQuestion]);
@@ -179,9 +269,10 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
   }, [advanceToNextQuestion, clearAutoAdvanceTimer]);
 
   useEffect(() => {
+    if (sessionClosed) return;
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [sessionClosed]);
 
   useEffect(() => {
     return () => {
@@ -190,8 +281,70 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
   }, [clearAutoAdvanceTimer]);
 
   useEffect(() => {
+    if (!sessionId) return;
+
+    setHistoryLoaded(false);
+    restoredHistoryRef.current = false;
+    if (typeof window !== "undefined") {
+      const cachedHistory = window.sessionStorage.getItem(getHistoryStorageKey(sessionId));
+      if (cachedHistory) {
+        try {
+          const parsed = JSON.parse(cachedHistory) as {
+            turns?: InterviewTurnHistoryItem[];
+            conversationRows?: ConversationRow[];
+          };
+          if (isPersistedTurnList(parsed.turns)) {
+            const restoredTurns = parsed.turns.map(normalizePersistedTurnRecord);
+            setTurns(restoredTurns);
+            if (!isConversationRowList(parsed.conversationRows)) {
+              setConversationRows(buildConversationRowsFromTurns(restoredTurns));
+            }
+            restoredHistoryRef.current = true;
+          }
+          if (isConversationRowList(parsed.conversationRows)) {
+            setConversationRows(parsed.conversationRows);
+            restoredHistoryRef.current = true;
+          }
+        } catch {
+          window.sessionStorage.removeItem(getHistoryStorageKey(sessionId));
+        }
+      }
+    }
+
+    void loadSessionDetail();
     void loadQuestionQueue({ resetStageToIdle: true });
-  }, [loadQuestionQueue]);
+    if (!restoredHistoryRef.current) {
+      void loadTurnHistory();
+      return;
+    }
+    setHistoryLoaded(true);
+  }, [loadQuestionQueue, loadSessionDetail, loadTurnHistory, sessionId]);
+
+  useEffect(() => {
+    if (!sessionId || !historyLoaded || typeof window === "undefined") return;
+
+    const persistedTurns: InterviewTurnHistoryItem[] = turns.map((turn) => ({
+      id: turn.turn_id || `turn-${turn.turn_index}`,
+      session_id: turn.session_id,
+      question_id: turn.question_id || null,
+      turn_index: turn.turn_index,
+      question: turn.question,
+      answer: turn.answer,
+      score: turn.score ?? 0,
+      strengths: turn.strengths || [],
+      weaknesses: turn.weaknesses || [],
+      evidence_refs_count: turn.evidence_refs_count ?? 0,
+      created_at: "",
+    }));
+
+    window.sessionStorage.setItem(
+      getHistoryStorageKey(sessionId),
+      JSON.stringify({
+        turns: persistedTurns,
+        conversationRows,
+      }),
+    );
+  }, [conversationRows, historyLoaded, sessionId, turns]);
 
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -212,6 +365,20 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
 
   const onAddTurn = async () => {
     if (!sessionId || !currentQuestion || !answer.trim()) return;
+    if (sessionClosed) {
+      setStageStep("completed");
+      setStageLabel("本场面试已结束，请返回重新开始");
+      setConversationRows((previousRows) => [
+        ...previousRows,
+        {
+          id: `notice-${Date.now()}`,
+          role: "assistant",
+          kind: "notice",
+          content: "系统提示：本场面试已经结束，当前会话不再接收新的回答，请返回面试准备页重新开始。",
+        },
+      ]);
+      return;
+    }
 
     try {
       setSubmittingTurn(true);
@@ -289,7 +456,7 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
             evaluationId,
             finalData.evaluation_text ||
               finalData.reply_text ||
-              buildEvaluationNarration(finalTurnRecord),
+              "当前 LLM 服务不可用，未能生成评价文本。",
           );
           if (finalData.handled_as === "answer") {
             setTurns((previousTurns) => [...previousTurns, finalTurnRecord!]);
@@ -448,16 +615,18 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
   }
 
   return (
-    <section className="min-h-[calc(100dvh-57px)] px-4 py-4 md:px-6 md:py-6">
-      <div className="mx-auto flex max-w-6xl flex-col gap-4">
+    <section className="flex h-dvh flex-col overflow-hidden px-3 py-3 md:px-4 md:py-4">
+      <div className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col gap-3">
         <SessionTopBar
           answeredCount={answeredCount}
           totalCount={queueItems.length}
           currentQuestion={currentQuestion ?? pendingNextQuestion}
-          elapsedLabel={formatElapsed(now - startedAt)}
+          elapsedLabel={formatElapsed(elapsedMs)}
           interviewCompleted={interviewCompleted}
+          sessionClosed={sessionClosed}
           stageLabel={stageLabel}
           stageStep={stageStep}
+          endedNotice={sessionClosed ? "本场面试已经结束，请返回重新开始" : stageLabel}
           onOpenPanel={() => {
             setPanelTab("progress");
             setIsPanelOpen(true);
@@ -498,7 +667,7 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
         />
 
         {showCompletionReport ? (
-          <section className="flex min-h-[calc(100vh-240px)] items-center justify-center rounded-[2rem] border border-border/80 bg-card/92 p-5 shadow-[var(--shadow-soft)]">
+          <section className="flex min-h-0 flex-1 items-center justify-center overflow-auto rounded-2xl border border-border/70 bg-card/92 p-5 shadow-[var(--shadow-soft)]">
             <InterviewCompletionReport
               answeredCount={answeredCount}
               averageScore={averageScore}
@@ -515,9 +684,9 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
             />
           </section>
         ) : (
-          <section className="flex h-[calc(100dvh-9rem)] min-h-[560px] flex-col overflow-hidden rounded-[1.5rem] border border-border/80 bg-card/92 shadow-[var(--shadow-soft)] sm:min-h-[620px] md:h-[calc(100dvh-168px)] md:min-h-[720px] md:rounded-[1.75rem]">
-            <div className="shrink-0 border-b border-border/80 bg-background/72 px-4 py-4 md:px-6">
-              <div ref={questionViewportRef} className="mx-auto max-w-4xl space-y-0">
+          <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border/70 bg-card/92 shadow-[var(--shadow-soft)]">
+            <div className="shrink-0 bg-background/72 px-4 py-3 md:px-6">
+              <div ref={questionViewportRef} className="mx-auto space-y-0">
                 <CurrentQuestionCard
                   currentQuestion={currentQuestion}
                   pendingNextQuestion={pendingNextQuestion}
@@ -538,6 +707,7 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
               answer={answer}
               currentQuestion={currentQuestion}
               interviewCompleted={interviewCompleted}
+              sessionClosed={sessionClosed}
               questionCardMode={questionCardMode}
               submittingTurn={submittingTurn}
               composerRef={composerRef}

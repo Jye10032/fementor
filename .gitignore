@@ -20,7 +20,7 @@ data/user_docs/*
 !data/user_docs/.gitkeep
 data/memory/*
 !data/memory/.gitkeep
-docs/
+docs/reports
 react-best-practices/
 evals/sirchmunk-eval-cases.json
 AGENTS.md

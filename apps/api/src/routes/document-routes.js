@@ -1,7 +1,7 @@
 const path = require('path');
 const { getUserById, setActiveResumeFile, setActiveJdFile } = require('../db');
-const { saveJdDoc, listJdDocs, readJdDoc } = require('../doc');
-const { listResumeDocs, readResumeDoc, updateResumeDocMeta } = require('../resume');
+const { saveJdDoc, listJdDocs, readJdDoc, deleteJdDoc } = require('../doc');
+const { listResumeDocs, readResumeDoc, updateResumeDocMeta, deleteResumeDoc } = require('../resume');
 const { json, jsonError, readBody } = require('../http');
 const { ensureLocalUserProfile, getResolvedUserContext } = require('../request-context');
 const { summarizeResumeWithLLM } = require('../interview/llm-service');
@@ -87,9 +87,12 @@ const selectResumeResponse = async ({ req, body }) => {
     return { statusCode: 404, payload: { error: 'resume file not found' } };
   }
 
-  const summary = String(doc.meta?.summary || '').trim()
-    || await summarizeResumeWithLLM(doc.content);
-  if (!String(doc.meta?.summary || '').trim()) {
+  let summary = String(doc.meta?.summary || '').trim();
+  let resumeStructuredJson = '';
+  if (!summary) {
+    const structured = await summarizeResumeWithLLM(doc.content);
+    summary = structured.summary;
+    resumeStructuredJson = JSON.stringify(structured);
     updateResumeDocMeta({
       userId,
       fileName: doc.name,
@@ -101,6 +104,7 @@ const selectResumeResponse = async ({ req, body }) => {
     userId,
     fileName: doc.name,
     resumeSummary: summary,
+    resumeStructuredJson,
   });
 
   return {
@@ -258,6 +262,50 @@ const selectJdResponse = async ({ req, body }) => {
   };
 };
 
+const deleteResumeResponse = async ({ req, body }) => {
+  const context = await getResolvedUserContext({
+    req,
+    bodyUserId: String(body.user_id || '').trim(),
+    requireAuth: true,
+  });
+  const userId = context.userId;
+  const fileName = String(body.file_name || '').trim();
+  if (!fileName) {
+    return { statusCode: 400, payload: { error: 'file_name is required' } };
+  }
+  const deleted = deleteResumeDoc({ userId, fileName });
+  if (!deleted) {
+    return { statusCode: 404, payload: { error: 'resume file not found' } };
+  }
+  const user = getUserById(userId);
+  if (user && user.active_resume_file === fileName) {
+    setActiveResumeFile({ userId, fileName: '', resumeSummary: '', resumeStructuredJson: '' });
+  }
+  return { statusCode: 200, payload: { deleted: true } };
+};
+
+const deleteJdResponse = async ({ req, body }) => {
+  const context = await getResolvedUserContext({
+    req,
+    bodyUserId: String(body.user_id || '').trim(),
+    requireAuth: true,
+  });
+  const userId = context.userId;
+  const fileName = String(body.file_name || '').trim();
+  if (!fileName) {
+    return { statusCode: 400, payload: { error: 'file_name is required' } };
+  }
+  const deleted = deleteJdDoc({ userId, fileName });
+  if (!deleted) {
+    return { statusCode: 404, payload: { error: 'jd file not found' } };
+  }
+  const user = getUserById(userId);
+  if (user && user.active_jd_file === fileName) {
+    setActiveJdFile({ userId, fileName: '' });
+  }
+  return { statusCode: 200, payload: { deleted: true } };
+};
+
 const handleDocumentRoutes = async ({ req, res, url }) => {
   if (req.method === 'POST' && url.pathname === '/v1/resume/parse') {
     try {
@@ -356,6 +404,28 @@ const handleDocumentRoutes = async ({ req, res, url }) => {
     return true;
   }
 
+  if (req.method === 'DELETE' && url.pathname === '/v1/resume/delete') {
+    try {
+      const body = await readBody(req);
+      const result = await deleteResumeResponse({ req, body });
+      json(res, result.statusCode, result.payload);
+    } catch (error) {
+      jsonError(res, error);
+    }
+    return true;
+  }
+
+  if (req.method === 'DELETE' && url.pathname === '/v1/jd/delete') {
+    try {
+      const body = await readBody(req);
+      const result = await deleteJdResponse({ req, body });
+      json(res, result.statusCode, result.payload);
+    } catch (error) {
+      jsonError(res, error);
+    }
+    return true;
+  }
+
   return false;
 };
 
@@ -431,6 +501,24 @@ async function registerDocumentRoutes(app) {
 
   app.post('/v1/jd/select', async (request, reply) => {
     const result = await selectJdResponse({
+      req: request.raw,
+      body: request.body || {},
+    });
+    reply.code(result.statusCode);
+    return result.payload;
+  });
+
+  app.delete('/v1/resume/delete', async (request, reply) => {
+    const result = await deleteResumeResponse({
+      req: request.raw,
+      body: request.body || {},
+    });
+    reply.code(result.statusCode);
+    return result.payload;
+  });
+
+  app.delete('/v1/jd/delete', async (request, reply) => {
+    const result = await deleteJdResponse({
       req: request.raw,
       body: request.body || {},
     });

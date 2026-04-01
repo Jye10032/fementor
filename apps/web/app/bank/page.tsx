@@ -173,7 +173,7 @@ export default function BankPage() {
 
             <section className="space-y-3">
               {filteredItems.map((item) => (
-                <article key={item.id} className="rounded-[1.4rem] border border-border bg-background/85 p-4">
+                <article key={item.id} className="rounded-xl border border-border bg-background/85 p-4">
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">

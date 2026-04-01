@@ -21,7 +21,7 @@ export type ExperienceListItem = {
   interview_stage: string;
   published_at: string;
   summary: string;
-  quality_score: number;
+  popularity: number;
   question_group_count: number;
   question_item_count: number;
 };
@@ -76,7 +76,7 @@ export type ExperienceDetail = {
   company_name: string;
   role_name: string;
   interview_stage: string;
-  quality_score: number;
+  popularity: number;
   is_valid: number;
   clean_status: string;
   groups: ExperienceQuestionGroup[];

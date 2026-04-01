@@ -6,6 +6,7 @@ type ComposerProps = {
   answer: string;
   currentQuestion: InterviewQuestion | null;
   interviewCompleted: boolean;
+  sessionClosed: boolean;
   questionCardMode: QuestionCardMode;
   submittingTurn: boolean;
   composerRef: ComposerTextareaRef;
@@ -16,8 +17,12 @@ type ComposerProps = {
 function getPlaceholder({
   currentQuestion,
   interviewCompleted,
+  sessionClosed,
   questionCardMode,
-}: Pick<ComposerProps, "currentQuestion" | "interviewCompleted" | "questionCardMode">) {
+}: Pick<ComposerProps, "currentQuestion" | "interviewCompleted" | "sessionClosed" | "questionCardMode">) {
+  if (sessionClosed) {
+    return "本场面试已经结束，请返回面试准备页重新开始新的一场。";
+  }
   if (interviewCompleted) {
     return "本场题目已全部完成，可先查看总结并选择生成复盘。";
   }
@@ -34,13 +39,14 @@ export function Composer({
   answer,
   currentQuestion,
   interviewCompleted,
+  sessionClosed,
   questionCardMode,
   submittingTurn,
   composerRef,
   onAnswerChange,
   onSubmit,
 }: ComposerProps) {
-  const disabled = !currentQuestion || interviewCompleted || submittingTurn || questionCardMode !== "active";
+  const disabled = !currentQuestion || interviewCompleted || sessionClosed || submittingTurn || questionCardMode !== "active";
 
   useEffect(() => {
     const el = composerRef.current;
@@ -50,11 +56,16 @@ export function Composer({
   }, [answer, composerRef]);
 
   return (
-    <div className="bg-card/95 px-4 py-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] md:px-6">
-      <div className="mx-auto max-w-4xl space-y-3">
+    <div className="border-t border-border/70 bg-card/95 px-4 py-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] md:px-6">
+      <div className="mx-auto space-y-3">
         {questionCardMode === "transition" ? (
-          <div className="rounded-[1.4rem] border border-sky-200 bg-sky-50 px-4 py-4 text-sm leading-6 text-sky-800">
+          <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-4 text-sm leading-6 text-sky-800">
             当前正在等待切换到下一题，输入区暂时锁定，避免上一轮评价与下一题回答混在一起。
+          </div>
+        ) : null}
+        {sessionClosed ? (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm leading-6 text-amber-800">
+            本场面试已经结束，当前会话不再接收新的回答。请返回面试准备页重新开始。
           </div>
         ) : null}
         <textarea
@@ -62,7 +73,7 @@ export function Composer({
           value={answer}
           onChange={(event) => onAnswerChange(event.target.value)}
           rows={2}
-          placeholder={getPlaceholder({ currentQuestion, interviewCompleted, questionCardMode })}
+          placeholder={getPlaceholder({ currentQuestion, interviewCompleted, sessionClosed, questionCardMode })}
           className="field-shell min-h-[72px] max-h-[280px] w-full resize-none overflow-y-auto text-sm leading-7"
           disabled={disabled}
         />
@@ -73,7 +84,7 @@ export function Composer({
             className="action-primary rounded-2xl gap-2 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {submittingTurn ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            {submittingTurn ? "提交中..." : currentQuestion ? "提交回答" : "暂无可回答题目"}
+            {submittingTurn ? "提交中..." : sessionClosed ? "本场已结束" : currentQuestion ? "提交回答" : "暂无可回答题目"}
           </button>
         </div>
       </div>

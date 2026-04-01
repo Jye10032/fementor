@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { ArrowRight, FileQuestion, Sparkles } from "lucide-react";
-import { difficultyLabel, questionTypeLabel, sourceLabel } from "./copy";
 import { InterviewQuestion, QuestionCardMode } from "./types";
+import { difficultyLabel, questionTypeLabel } from "./copy";
 
 type CurrentQuestionCardProps = {
   currentQuestion: InterviewQuestion | null;
@@ -52,36 +52,23 @@ export function CurrentQuestionCard({
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
               {isShowingPendingQuestion ? "下一题" : "当前题目"}
             </p>
+            <span className="rounded-full bg-secondary px-2.5 py-1 text-[11px] text-muted-foreground">
+              {displayQuestion.question_type === "follow_up" ? "追问" : questionTypeLabel[displayQuestion.question_type]}
+            </span>
+            <span className="rounded-full bg-secondary px-2.5 py-1 text-[11px] text-muted-foreground">
+              {difficultyLabel[displayQuestion.difficulty]}
+            </span>
             {isTransitioning ? (
               <span className="rounded-full bg-sky-100 px-2.5 py-1 text-[11px] font-medium text-sky-700">
                 即将切题
               </span>
             ) : null}
-            {displayQuestion.question_type === "follow_up" ? (
-              <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-medium text-amber-700">
-                追问
-              </span>
-            ) : null}
           </div>
           <p className="mt-2 text-[1.05rem] font-semibold leading-7 text-foreground">{displayQuestion.stem}</p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <span className="rounded-full bg-secondary px-2.5 py-1 text-[11px] text-muted-foreground">
-              第 {displayQuestion.order_no} 题
-            </span>
-            <span className="rounded-full bg-secondary px-2.5 py-1 text-[11px] text-muted-foreground">
-              {questionTypeLabel[displayQuestion.question_type]}
-            </span>
-            <span className="rounded-full bg-secondary px-2.5 py-1 text-[11px] text-muted-foreground">
-              {difficultyLabel[displayQuestion.difficulty]}
-            </span>
-            <span className="rounded-full bg-secondary px-2.5 py-1 text-[11px] text-muted-foreground">
-              {sourceLabel[displayQuestion.source]}
-            </span>
-          </div>
         </div>
 
         {nextQuestion ? (
-          <div className="question-card-settle w-full rounded-[1.2rem] border border-sky-200 bg-sky-50 p-3 lg:max-w-[260px]">
+          <div className="question-card-settle w-full rounded-xl border border-sky-200 bg-sky-50 p-3 lg:max-w-[260px]">
             <div className="flex items-center gap-2">
               <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-white text-sky-700">
                 <Sparkles className="h-3.5 w-3.5" />

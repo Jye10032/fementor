@@ -10,6 +10,9 @@
   "dependencies": {
     "@clerk/nextjs": "^7.0.6",
     "@tailwindcss/postcss": "^4.2.0",
+    "@tanstack/react-virtual": "^3.13.23",
+    "@types/d3": "^7.4.3",
+    "d3": "^7.9.0",
     "lucide-react": "^0.575.0",
     "next": "^15.5.14",
     "react": "18.3.1",

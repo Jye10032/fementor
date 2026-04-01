@@ -4,14 +4,17 @@ const { readResumeDoc } = require('./resume');
 const { buildQueryPlan, retrieveEvidence } = require('./retrieval');
 const { jsonCompletion } = require('./llm');
 
+/** @deprecated Use processInterviewTurnWithLLM instead. Kept for legacy pipeline fallback. */
 const planRetrievalWithLLM = async ({
   question,
   answer,
   questionType,
   intent = 'answer',
   interviewContext = '',
+  sessionContext,
 }) => {
   return jsonCompletion({
+    sessionContext,
     messages: [
       {
         role: 'system',
@@ -38,13 +41,16 @@ const planRetrievalWithLLM = async ({
   });
 };
 
+/** @deprecated Use processInterviewTurnWithLLM instead. Kept for legacy pipeline fallback. */
 const classifyQuestionType = async ({
   question,
   answer = '',
   queuedQuestionType = '',
   interviewContext = '',
+  sessionContext,
 }) => {
   const result = await jsonCompletion({
+    sessionContext,
     messages: [
       {
         role: 'system',

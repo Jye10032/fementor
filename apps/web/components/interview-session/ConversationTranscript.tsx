@@ -14,8 +14,8 @@ export function ConversationTranscript({
   transcriptEndRef,
 }: ConversationTranscriptProps) {
   return (
-    <div ref={scrollContainerRef} className="flex-1 overflow-y-auto overscroll-contain px-4 py-5 md:px-6">
-      <div className="mx-auto max-w-4xl space-y-4">
+    <div ref={scrollContainerRef} className="flex-1 overflow-y-auto overscroll-contain px-4 py-4 md:px-6">
+      <div className="mx-auto space-y-4">
         {conversationRows.map((item) => (
           <article
             key={item.id}
@@ -24,8 +24,8 @@ export function ConversationTranscript({
             <div
               className={
                 item.role === "assistant"
-                  ? "max-w-[82%] rounded-[24px] rounded-tl-md border border-border bg-background/92 px-4 py-3 shadow-sm"
-                  : "max-w-[82%] rounded-[24px] rounded-tr-md bg-primary px-4 py-3 text-primary-foreground shadow-sm"
+                  ? "max-w-[88%] rounded-[24px] rounded-tl-md border border-border bg-background/92 px-4 py-3 shadow-sm"
+                  : "max-w-[88%] rounded-[24px] rounded-tr-md bg-primary px-4 py-3 text-primary-foreground shadow-sm"
               }
             >
               <p

@@ -3,9 +3,9 @@ import { StageStep } from "./types";
 
 const stageItems = [
   { id: "receiving", label: "接收回答" },
+  { id: "deciding", label: "识别题型" },
   { id: "retrieving", label: "检索资料" },
-  { id: "evaluating", label: "生成评分" },
-  { id: "deciding", label: "判断追问" },
+  { id: "evaluating", label: "生成反馈" },
 ] as const;
 
 function getStageTone(step: StageStep) {
@@ -37,9 +37,9 @@ function getStageTone(step: StageStep) {
 
 function getActiveStageIndex(step: StageStep) {
   if (step === "receiving") return 0;
-  if (step === "retrieving") return 1;
-  if (step === "evaluating") return 2;
-  if (step === "deciding" || step === "generating_followup") return 3;
+  if (step === "deciding") return 1;
+  if (step === "retrieving") return 2;
+  if (step === "evaluating" || step === "generating_followup") return 3;
   if (step === "transition" || step === "completed") return stageItems.length;
   return -1;
 }
@@ -55,8 +55,8 @@ export function StageStatusBar({ stageLabel, stageStep }: StageStatusBarProps) {
   const activeIndex = getActiveStageIndex(stageStep);
 
   return (
-    <div className="border-t border-border/60 pt-3">
-      <div className={`flex items-center gap-2 text-sm ${tone.textClassName}`}>
+    <div className="pt-2">
+      <div className={`flex items-center gap-2 text-xs ${tone.textClassName}`}>
         <Icon className={`h-3.5 w-3.5 shrink-0 ${stageStep === "idle" ? "" : "animate-spin"}`} />
         <span className="font-medium">{stageLabel}</span>
         <span className={`ml-auto rounded-full px-2.5 py-0.5 text-xs font-medium ${tone.badgeClassName}`}>
@@ -64,7 +64,7 @@ export function StageStatusBar({ stageLabel, stageStep }: StageStatusBarProps) {
         </span>
       </div>
 
-      <div className="mt-2.5 flex items-center gap-0">
+      <div className="mt-2 flex items-center gap-0">
         {stageItems.map((item, index) => {
           const isDone = activeIndex > index;
           const isCurrent = activeIndex === index;
@@ -76,7 +76,7 @@ export function StageStatusBar({ stageLabel, stageStep }: StageStatusBarProps) {
                 <span
                   className={`relative inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold transition-colors ${
                     isCurrent
-                      ? "bg-amber-500 text-white shadow-[0_0_0_3px_oklch(0.9_0.08_85)]"
+                      ? "bg-primary text-primary-foreground shadow-[0_0_0_3px_color-mix(in_oklab,var(--primary)_25%,transparent)]"
                       : isDone
                         ? "bg-sky-500 text-white"
                         : "bg-secondary text-muted-foreground"

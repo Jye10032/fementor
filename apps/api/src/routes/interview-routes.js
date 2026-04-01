@@ -1,14 +1,46 @@
 const { randomUUID } = require('crypto');
-const { getUserById, listInterviewSessions, createInterviewSession, saveInterviewQuestions, getNextInterviewQuestion, listInterviewQuestions, listInterviewTurns, finishInterviewSession } = require('../db');
+const {
+  getUserById,
+  listInterviewSessions,
+  createInterviewSession,
+  deleteInterviewSession,
+  getInterviewSession,
+  saveInterviewQuestions,
+  getNextInterviewQuestion,
+  listInterviewQuestions,
+  listInterviewTurns,
+  finishInterviewSession,
+  countSessionsStartedOnUtcDate,
+  getSessionKeywordQueue,
+  updateSessionKeywordQueue,
+} = require('../db');
 const { readJdDoc } = require('../doc');
 const { appendMemoryEntry } = require('../memory');
 const { json, jsonError, parseNumberOrFallback, readBody, writeSse, flushSseFrame, getErrorMessage } = require('../http');
 const { getResolvedUserContext, ensureLocalUserProfile, ensureSessionOwner } = require('../request-context');
 const { summarizeLongTermMemory } = require('../interview/context-service');
-const { generateInterviewQuestionQueue } = require('../interview/llm-service');
+const { generateInterviewQuestionQueue, generateKeywordQueue, generateQuestionForKeyword } = require('../interview/llm-service');
 const { submitInterviewTurn } = require('../interview/turn-service');
 const { searchExperienceQuestionItems } = require('../experience/service');
+const { recallExperienceChains, recallQuestionForKeyword } = require('../experience/recall');
+const { getEmbeddingCacheSize } = require('../experience/embedding-cache');
+const { getLevel2Vocabulary } = require('../experience/knowledge-graph');
 const { promoteInterviewRetrospectQuestions } = require('../question-bank/service');
+const { getSessionLlmConfig } = require('../lib/session-llm-config-store');
+
+const USE_KEYWORD_QUEUE = process.env.INTERVIEW_QUEUE_VERSION !== 'legacy';
+
+const EXPERIENCE_QUERY_HINTS = [
+  { label: 'React', patterns: ['react'] },
+  { label: 'Vue', patterns: ['vue'] },
+  { label: 'TypeScript', patterns: ['typescript', 'ts'] },
+  { label: 'JavaScript', patterns: ['javascript', 'js'] },
+  { label: '浏览器', patterns: ['浏览器'] },
+  { label: '网络', patterns: ['网络', 'http'] },
+  { label: '工程化', patterns: ['工程化', 'webpack', 'vite'] },
+  { label: '性能优化', patterns: ['性能优化', '性能'] },
+  { label: '移动端', patterns: ['移动端', 'h5', 'react native'] },
+];
 
 const buildExperienceQueueQuestions = ({ query, limit = 2 }) =>
   searchExperienceQuestionItems({ query, limit })
@@ -23,6 +55,33 @@ const buildExperienceQueueQuestions = ({ query, limit = 2 }) =>
       status: 'pending',
     }))
     .filter((item) => String(item.stem || '').trim());
+
+const buildRecalledQueueQuestions = (chains) =>
+  chains.map((chain) => {
+    const mainItem = (chain.items || []).find((i) => i.question_role === 'main') || chain.items?.[0];
+    const followUpChain = (chain.items || []).filter((i) => i.question_role !== 'main');
+    return {
+      source: 'experience',
+      question_type: chain.group_type === 'chain' ? 'project' : 'knowledge',
+      difficulty: mainItem?.difficulty || 'medium',
+      stem: mainItem?.question_text_normalized || mainItem?.question_text_raw || chain.canonical_question,
+      expected_points: mainItem?.expected_points || [],
+      resume_anchor: '',
+      source_ref: `experience_group:${chain.id}`,
+      status: 'pending',
+      _follow_up_chain: followUpChain,
+    };
+  }).filter((item) => String(item.stem || '').trim());
+
+const buildExperienceQuery = ({ resumeSummary = '', jobDescription = '' }) => {
+  const sourceText = `${String(resumeSummary || '')}\n${String(jobDescription || '')}`.toLowerCase();
+  const matchedTerms = EXPERIENCE_QUERY_HINTS
+    .filter(({ patterns }) => patterns.some((pattern) => sourceText.includes(pattern)))
+    .map(({ label }) => label);
+
+  const uniqueTerms = Array.from(new Set(matchedTerms)).slice(0, 3);
+  return ['前端', '面经', ...uniqueTerms].join(' ');
+};
 
 const mergeExperienceQuestionsIntoQueue = ({ queueItems, experienceQuestions = [] }) => {
   if (experienceQuestions.length === 0) {
@@ -56,6 +115,33 @@ const handleInterviewRoutes = async ({ req, res, url, corsHeaders }) => {
     return true;
   }
 
+  if (
+    req.method === 'GET'
+    && /^\/v1\/interview\/sessions\/[^/]+$/.test(url.pathname)
+  ) {
+    try {
+      const { session } = await ensureSessionOwner({ req, pathname: url.pathname });
+      json(res, 200, session);
+    } catch (error) {
+      jsonError(res, error);
+    }
+    return true;
+  }
+
+  if (
+    req.method === 'DELETE'
+    && /^\/v1\/interview\/sessions\/[^/]+$/.test(url.pathname)
+  ) {
+    try {
+      const { session } = await ensureSessionOwner({ req, pathname: url.pathname });
+      deleteInterviewSession(session.id);
+      json(res, 200, { deleted: true });
+    } catch (error) {
+      jsonError(res, error);
+    }
+    return true;
+  }
+
   if (req.method === 'POST' && url.pathname === '/v1/interview/sessions/start') {
     try {
       const body = await readBody(req);
@@ -68,51 +154,188 @@ const handleInterviewRoutes = async ({ req, res, url, corsHeaders }) => {
       let jobDescription = String(body.job_description || body.jd_text || '').trim();
       const targetLevel = String(body.target_level || 'mid').trim();
       const useExperienceQuestions = body.use_experience_questions === true;
-      const experienceQuery = String(body.experience_query || '').trim();
       const user = ensureLocalUserProfile({ userId, authUser: context.authUser });
+      const experienceQuery = String(body.experience_query || '').trim();
       if (!jobDescription && user.active_jd_file) {
         const activeJdDoc = readJdDoc({ userId, fileName: user.active_jd_file });
         jobDescription = String(activeJdDoc?.content || '').trim();
       }
       if (!jobDescription) return json(res, 400, { error: 'job_description is required' });
+      const todayUsedCount = countSessionsStartedOnUtcDate({ userId });
+      const hasUserSessionKey = Boolean(getSessionLlmConfig({ userId, token: context.token })?.apiKey);
+      if (todayUsedCount >= 1 && !hasUserSessionKey) {
+        return json(res, 403, {
+          error: 'NEED_USER_LLM_KEY',
+          free_limit: 1,
+          used_today: todayUsedCount,
+          remaining_free: 0,
+          message: '请先上传 session 级 LLM Key 后再启动本日更多模拟面试',
+        });
+      }
 
       const sessionId = randomUUID();
       const session = createInterviewSession({ id: sessionId, userId });
-      let queueItems = await generateInterviewQuestionQueue({
-        user,
-        jobDescription,
-        targetLevel,
-      });
-      const experienceQuestions = useExperienceQuestions && experienceQuery
-        ? buildExperienceQueueQuestions({
-          query: experienceQuery,
-          limit: 2,
-        })
-        : [];
-      queueItems = mergeExperienceQuestionsIntoQueue({
-        queueItems,
-        experienceQuestions,
-      });
-      saveInterviewQuestions({ sessionId, items: queueItems });
-      const currentQuestion = getNextInterviewQuestion(sessionId);
-      json(res, 200, {
-        ...session,
-        interview_mode: 'resume_jd',
-        job_description_present: true,
-        target_level: targetLevel,
-        queue_count: queueItems.length,
-        experience_question_count: experienceQuestions.length,
-        queue_sources: Array.from(new Set(queueItems.map((item) => item.source))),
-        current_question: currentQuestion ? {
-          id: currentQuestion.id,
-          order_no: currentQuestion.order_no,
-          stem: currentQuestion.stem,
-          source: currentQuestion.source,
-          question_type: currentQuestion.question_type,
-          difficulty: currentQuestion.difficulty,
-          status: currentQuestion.status,
-        } : null,
-      });
+
+      if (USE_KEYWORD_QUEUE) {
+        // --- Keyword queue driven flow ---
+        const resumeStructured = (() => {
+          try { return JSON.parse(user?.resume_structured_json || ''); } catch { return null; }
+        })();
+        const level2Vocabulary = getLevel2Vocabulary();
+
+        const keywordEntries = await generateKeywordQueue({
+          resumeStructured,
+          jobDescription,
+          targetLevel,
+          level2Vocabulary,
+          sessionContext: { userId, token: context.token },
+        });
+
+        if (keywordEntries.length > 0) {
+          keywordEntries[0].status = 'active';
+        }
+        const keywordQueueJson = JSON.stringify({
+          max_turns_per_keyword: 3,
+          entries: keywordEntries,
+        });
+        updateSessionKeywordQueue({ sessionId, keywordQueueJson });
+
+        // Self-intro question (fixed template)
+        const selfIntroQuestion = {
+          id: randomUUID(),
+          order_no: 1,
+          source: 'llm',
+          question_type: 'basic',
+          difficulty: 'easy',
+          stem: '请先做一个简短的自我介绍，重点讲讲你最有代表性的一段项目经历。',
+          expected_points: ['个人背景', '核心项目', '技术栈', '个人职责', '项目成果'],
+          resume_anchor: '',
+          source_ref: 'self_intro_template',
+          status: 'asked',
+          keyword: '',
+        };
+
+        // Recall first keyword's question from experience bank
+        const firstKeyword = keywordEntries[0];
+        let firstKeywordQuestion = null;
+        if (firstKeyword) {
+          const recalled = await recallQuestionForKeyword({
+            keyword: firstKeyword.keyword,
+            resumeAnchor: firstKeyword.resume_anchor,
+            targetLevel,
+            sessionContext: { userId, token: context.token },
+          });
+          if (recalled) {
+            const mainItem = (recalled.items || []).find((i) => i.question_role === 'main') || recalled.items?.[0];
+            const followUpChain = (recalled.items || []).filter((i) => i.question_role !== 'main');
+            firstKeywordQuestion = {
+              id: randomUUID(),
+              order_no: 2,
+              source: 'experience',
+              question_type: mainItem?.category === 'project' ? 'project' : 'knowledge',
+              difficulty: mainItem?.difficulty || 'medium',
+              stem: mainItem?.question_text_normalized || mainItem?.question_text_raw || recalled.canonical_question,
+              expected_points: mainItem?.expected_points || [],
+              resume_anchor: firstKeyword.resume_anchor,
+              source_ref: `experience_group:${recalled.id}`,
+              status: 'pending',
+              keyword: firstKeyword.keyword,
+              _follow_up_chain: followUpChain,
+            };
+          }
+        }
+
+        // Fallback: generate via LLM if recall failed
+        if (!firstKeywordQuestion && firstKeyword) {
+          firstKeywordQuestion = await generateQuestionForKeyword({
+            keyword: firstKeyword.keyword,
+            resumeAnchor: firstKeyword.resume_anchor,
+            resumeSummary: user?.resume_summary || '',
+            jobDescription,
+            targetLevel,
+            sessionContext: { userId, token: context.token },
+          });
+          firstKeywordQuestion.order_no = 2;
+          firstKeywordQuestion.keyword = firstKeyword.keyword;
+        }
+
+        const queueItems = [selfIntroQuestion, firstKeywordQuestion].filter(Boolean);
+        saveInterviewQuestions({ sessionId, items: queueItems });
+        const currentQuestion = selfIntroQuestion;
+
+        json(res, 200, {
+          ...session,
+          interview_mode: 'keyword_driven',
+          job_description_present: true,
+          target_level: targetLevel,
+          queue_count: queueItems.length,
+          keyword_queue: keywordEntries.map((e) => ({ keyword: e.keyword, category: e.category, status: e.status })),
+          current_question: {
+            id: currentQuestion.id,
+            order_no: currentQuestion.order_no,
+            stem: currentQuestion.stem,
+            source: currentQuestion.source,
+            question_type: currentQuestion.question_type,
+            difficulty: currentQuestion.difficulty,
+            status: currentQuestion.status,
+          },
+        });
+      } else {
+        // --- Legacy: pre-generate 5 questions ---
+        let queueItems = await generateInterviewQuestionQueue({
+          user,
+          jobDescription,
+          targetLevel,
+          sessionContext: { userId, token: context.token },
+        });
+        const resolvedExperienceQuery = experienceQuery || buildExperienceQuery({
+          resumeSummary: user?.resume_summary || '',
+          jobDescription,
+        });
+
+        let experienceQuestions = [];
+        if (useExperienceQuestions) {
+          const resumeStructured = (() => {
+            try { return JSON.parse(user?.resume_structured_json || ''); } catch { return null; }
+          })();
+          if (resumeStructured?.projects?.length > 0) {
+            const chains = await recallExperienceChains({
+              resumeStructured,
+              targetLevel,
+              limit: 2,
+              sessionContext: { userId, token: context.token },
+            });
+            experienceQuestions = buildRecalledQueueQuestions(chains);
+          }
+          if (experienceQuestions.length === 0 && resolvedExperienceQuery) {
+            experienceQuestions = buildExperienceQueueQuestions({
+              query: resolvedExperienceQuery,
+              limit: 2,
+            });
+          }
+        }
+        queueItems = mergeExperienceQuestionsIntoQueue({ queueItems, experienceQuestions });
+        saveInterviewQuestions({ sessionId, items: queueItems });
+        const currentQuestion = getNextInterviewQuestion(sessionId);
+        json(res, 200, {
+          ...session,
+          interview_mode: 'resume_jd',
+          job_description_present: true,
+          target_level: targetLevel,
+          queue_count: queueItems.length,
+          experience_question_count: experienceQuestions.length,
+          queue_sources: Array.from(new Set(queueItems.map((item) => item.source))),
+          current_question: currentQuestion ? {
+            id: currentQuestion.id,
+            order_no: currentQuestion.order_no,
+            stem: currentQuestion.stem,
+            source: currentQuestion.source,
+            question_type: currentQuestion.question_type,
+            difficulty: currentQuestion.difficulty,
+            status: currentQuestion.status,
+          } : null,
+        });
+      }
     } catch (error) {
       jsonError(res, error);
     }
@@ -149,11 +372,12 @@ const handleInterviewRoutes = async ({ req, res, url, corsHeaders }) => {
     try {
       const body = await readBody(req);
       streamRequestStartedAt = Date.now();
-      ({ sessionId } = await ensureSessionOwner({
+      const ownership = await ensureSessionOwner({
         req,
         pathname: url.pathname,
         bodyUserId: String(body.user_id || '').trim(),
-      }));
+      });
+      ({ sessionId } = ownership);
 
       res.writeHead(200, {
         'Content-Type': 'text/event-stream; charset=utf-8',
@@ -213,12 +437,16 @@ const handleInterviewRoutes = async ({ req, res, url, corsHeaders }) => {
         await flushSseFrame();
       };
 
-      await writeStage('saving', '已接收回答，正在准备评分...');
+      await writeStage('preparing', '已接收回答，正在准备...');
       const result = await submitInterviewTurn({
         sessionId,
         body,
         onPhase: writeStage,
         onToken: writeToken,
+        sessionContext: {
+          userId: ownership.context.userId,
+          token: ownership.context.token,
+        },
       });
       console.log('[interview.turn.stream.result]', {
         session_id: sessionId,
@@ -256,17 +484,40 @@ const handleInterviewRoutes = async ({ req, res, url, corsHeaders }) => {
   }
 
   if (
+    req.method === 'GET'
+    && /^\/v1\/interview\/sessions\/[^/]+\/turns$/.test(url.pathname)
+  ) {
+    try {
+      const { sessionId } = await ensureSessionOwner({ req, pathname: url.pathname });
+      json(res, 200, {
+        session_id: sessionId,
+        items: listInterviewTurns(sessionId),
+      });
+    } catch (error) {
+      jsonError(res, error);
+    }
+    return true;
+  }
+
+  if (
     req.method === 'POST'
     && /^\/v1\/interview\/sessions\/[^/]+\/turns$/.test(url.pathname)
   ) {
     try {
       const body = await readBody(req);
-      const { sessionId } = await ensureSessionOwner({
+      const ownership = await ensureSessionOwner({
         req,
         pathname: url.pathname,
         bodyUserId: String(body.user_id || '').trim(),
       });
-      json(res, 200, await submitInterviewTurn({ sessionId, body }));
+      json(res, 200, await submitInterviewTurn({
+        sessionId: ownership.sessionId,
+        body,
+        sessionContext: {
+          userId: ownership.context.userId,
+          token: ownership.context.token,
+        },
+      }));
     } catch (error) {
       jsonError(res, error);
     }
@@ -286,6 +537,38 @@ const handleInterviewRoutes = async ({ req, res, url, corsHeaders }) => {
         bodyUserId: String(body.user_id || '').trim(),
       });
       json(res, 200, finishInterviewSession({ sessionId, summary }));
+    } catch (error) {
+      jsonError(res, error);
+    }
+    return true;
+  }
+
+  if (
+    req.method === 'POST'
+    && /^\/v1\/interview\/sessions\/[^/]+\/report$/.test(url.pathname)
+  ) {
+    try {
+      const { sessionId, context } = await ensureSessionOwner({ req, pathname: url.pathname });
+      const session = getInterviewSession(sessionId);
+      const keywordQueue = getSessionKeywordQueue(sessionId);
+      if (!keywordQueue) {
+        return json(res, 400, { error: 'session has no keyword queue (legacy mode)' });
+      }
+      const turns = listInterviewTurns(sessionId);
+      const user = getUserById(session.user_id);
+      const activeJd = user?.active_jd_file
+        ? readJdDoc({ userId: session.user_id, fileName: user.active_jd_file })
+        : null;
+
+      const { generateInterviewReport } = require('../interview/llm-service');
+      const report = await generateInterviewReport({
+        keywordQueue,
+        turns,
+        resumeSummary: user?.resume_summary || '',
+        jobDescription: String(activeJd?.content || '').trim(),
+        sessionContext: { userId: context.userId, token: context.token },
+      });
+      json(res, 200, report);
     } catch (error) {
       jsonError(res, error);
     }

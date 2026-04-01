@@ -150,6 +150,13 @@ const ensureLegacyColumns = () => {
   ensureColumn('question_bank', 'source_question_id', 'TEXT');
   ensureColumn('question_bank', 'source_question_type', "TEXT NOT NULL DEFAULT ''");
   ensureColumn('question_bank', 'source_question_source', "TEXT NOT NULL DEFAULT ''");
+  ensureColumn('experience_sync_job', 'updated_count', 'INTEGER NOT NULL DEFAULT 0');
+  ensureColumn('user_profile', 'resume_structured_json', "TEXT NOT NULL DEFAULT ''");
+  ensureColumn('experience_question_group', 'embedding_json', "TEXT NOT NULL DEFAULT ''");
+  ensureColumn('experience_question_item', 'chain_anchor', "TEXT NOT NULL DEFAULT 'generic'");
+  ensureColumn('experience_post', 'popularity', 'INTEGER NOT NULL DEFAULT 0');
+  ensureColumn('interview_session', 'keyword_queue_json', "TEXT NOT NULL DEFAULT ''");
+  ensureColumn('interview_question', 'keyword', "TEXT NOT NULL DEFAULT ''");
 };
 
 const registerExperienceTables = () => {
@@ -162,6 +169,7 @@ const registerExperienceTables = () => {
       status TEXT NOT NULL,
       requested_limit INTEGER NOT NULL DEFAULT 10,
       created_count INTEGER NOT NULL DEFAULT 0,
+      updated_count INTEGER NOT NULL DEFAULT 0,
       skipped_count INTEGER NOT NULL DEFAULT 0,
       failed_count INTEGER NOT NULL DEFAULT 0,
       started_at TEXT,
@@ -192,6 +200,7 @@ const registerExperienceTables = () => {
       role_name TEXT NOT NULL DEFAULT '',
       interview_stage TEXT NOT NULL DEFAULT '未知',
       quality_score INTEGER NOT NULL DEFAULT 0,
+      popularity INTEGER NOT NULL DEFAULT 0,
       is_valid INTEGER NOT NULL DEFAULT 1,
       clean_status TEXT NOT NULL DEFAULT 'pending',
       crawl_job_id TEXT,
@@ -355,8 +364,8 @@ const registerQuestionSourceTables = () => {
 const init = () => {
   registerBaseTables();
   registerInterviewTables();
-  ensureLegacyColumns();
   registerExperienceTables();
+  ensureLegacyColumns();
   registerQuestionSourceTables();
 };
 

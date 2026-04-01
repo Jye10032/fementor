@@ -8,6 +8,7 @@ const {
   createUniqueFilePath,
   saveUserDoc,
   readUserDoc,
+  deleteUserDoc,
 } = require('../doc');
 
 const normalizeStoredTextFilename = ({ filename, prefix }) => {
@@ -153,6 +154,9 @@ const updateResumeDocMeta = ({ userId, fileName, summary = '', originalFilename 
   return readResumeDoc({ userId, fileName: doc.name });
 };
 
+const deleteResumeDoc = ({ userId, fileName }) =>
+  deleteUserDoc({ userId, fileName, prefix: 'resume', category: 'profile' });
+
 module.exports = {
   normalizeStoredTextFilename,
   RESUME_META_OPEN,
@@ -167,4 +171,5 @@ module.exports = {
   readResumeDoc,
   updateResumeDocMeta,
   createUniqueFilePath,
+  deleteResumeDoc,
 };

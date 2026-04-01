@@ -26,7 +26,7 @@ export function InterviewCompletionReport({
 }: InterviewCompletionReportProps) {
   return (
     <section className="mx-auto flex max-w-4xl flex-col gap-5">
-      <div className="rounded-[2rem] border border-border/80 bg-card/95 p-6 shadow-[var(--shadow-soft)] md:p-8">
+      <div className="rounded-2xl border border-border/70 bg-card/95 p-6 shadow-[var(--shadow-soft)] md:p-8">
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary">Interview Summary</p>
@@ -35,7 +35,7 @@ export function InterviewCompletionReport({
               题目作答与评分流程已经结束。先看本场结论，再决定是继续生成复盘沉淀，还是直接结束本次会话。
             </p>
           </div>
-          <div className="rounded-[1.4rem] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
             <div className="flex items-center gap-2">
               <CheckCircle2 className="h-4 w-4" />
               已完成 {answeredCount} 道题
@@ -44,14 +44,14 @@ export function InterviewCompletionReport({
         </div>
 
         <div className="mt-6 grid gap-3 md:grid-cols-3">
-          <article className="rounded-[1.5rem] border border-border/80 bg-background/80 p-4">
+          <article className="rounded-2xl border border-border/70 bg-background/80 p-4">
             <div className="flex items-center justify-between">
               <p className="text-xs text-muted-foreground">平均得分</p>
               <Trophy className="h-4 w-4 text-primary" />
             </div>
             <p className="mt-3 text-3xl font-semibold text-foreground">{averageScore ?? "-"}</p>
           </article>
-          <article className="rounded-[1.5rem] border border-border/80 bg-background/80 p-4">
+          <article className="rounded-2xl border border-border/70 bg-background/80 p-4">
             <div className="flex items-center justify-between">
               <p className="text-xs text-muted-foreground">最近一轮资料佐证</p>
               <FileStack className="h-4 w-4 text-primary" />
@@ -61,7 +61,7 @@ export function InterviewCompletionReport({
               {getRetrievalStrategyLabel(latestTurn?.retrieval_strategy)}
             </p>
           </article>
-          <article className="rounded-[1.5rem] border border-border/80 bg-background/80 p-4">
+          <article className="rounded-2xl border border-border/70 bg-background/80 p-4">
             <div className="flex items-center justify-between">
               <p className="text-xs text-muted-foreground">当前状态</p>
               <Sparkles className="h-4 w-4 text-primary" />
@@ -90,7 +90,7 @@ export function InterviewCompletionReport({
         </div>
       </div>
 
-      <section className="rounded-[1.8rem] border border-border/80 bg-card/92 p-5 shadow-[var(--shadow-card)]">
+      <section className="rounded-2xl border border-border/70 bg-card/92 p-5 shadow-[var(--shadow-card)]">
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">复盘结论</p>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">
           这里和抽屉中的“复盘”保持同一套结构，优先展示可行动结论，而不是原始字段堆叠。

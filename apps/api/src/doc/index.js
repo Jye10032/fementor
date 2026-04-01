@@ -150,6 +150,15 @@ const readUserDoc = ({ userId, fileName, prefix, category = 'knowledge' }) => {
 
 const readJdDoc = ({ userId, fileName }) => readUserDoc({ userId, fileName, prefix: 'jd', category: 'profile' });
 
+const deleteUserDoc = ({ userId, fileName, prefix, category = 'profile' }) => {
+  const doc = readUserDoc({ userId, fileName, prefix, category });
+  if (!doc) return false;
+  fs.unlinkSync(doc.path);
+  return true;
+};
+
+const deleteJdDoc = ({ userId, fileName }) => deleteUserDoc({ userId, fileName, prefix: 'jd', category: 'profile' });
+
 module.exports = {
   DATA_ROOT,
   USER_DOC_ROOT,
@@ -170,4 +179,6 @@ module.exports = {
   listJdDocs,
   readUserDoc,
   readJdDoc,
+  deleteUserDoc,
+  deleteJdDoc,
 };

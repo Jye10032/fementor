@@ -7,6 +7,9 @@ const multipart = require('@fastify/multipart');
 const { initPostgres } = require('./postgres');
 const { init } = require('./db');
 const { json } = require('./http');
+const { getExperienceStore } = require('./experience/store');
+const { loadEmbeddingsFromStore } = require('./experience/embedding-cache');
+const { buildKnowledgeGraph } = require('./experience/knowledge-graph');
 const { registerSystemRoutes } = require('./routes/system-routes');
 const { handleChatRoutes, registerChatRoutes } = require('./routes/chat-routes');
 const { registerDocumentRoutes } = require('./routes/document-routes');
@@ -32,16 +35,25 @@ async function buildApp() {
     console.error('[postgres.init.failed]', error);
   });
 
+  setImmediate(async () => {
+    try {
+      const store = getExperienceStore();
+      await loadEmbeddingsFromStore(store);
+      await buildKnowledgeGraph(store);
+    } catch (error) {
+      console.warn('[experience.init.failed]', error.message);
+    }
+  });
+
   const app = Fastify({
     logger: false,
   });
 
   await app.register(cors, {
-    origin(origin, callback) {
-      callback(null, origin || '*');
-    },
-    methods: ['GET', 'POST', 'OPTIONS'],
+    origin: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,
     maxAge: 86400,
   });
 
@@ -62,7 +74,7 @@ async function buildApp() {
   await app.register(registerDocumentRoutes);
 
   app.route({
-    method: ['GET', 'POST'],
+    method: ['GET', 'POST', 'DELETE'],
     url: '/*',
     async handler(request, reply) {
       reply.hijack();

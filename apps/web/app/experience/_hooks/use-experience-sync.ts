@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { apiRequest } from "../../../lib/api";
 import { ExperienceSyncCreateResponse, ExperienceSyncJob, ExperienceSyncStatusResponse } from "../_lib/experience.types";
 
@@ -14,10 +14,13 @@ type UseExperienceSyncParams = {
 
 export function useExperienceSync({ apiBase, enabled, onCompleted }: UseExperienceSyncParams) {
   const [keyword, setKeyword] = useState("前端 面经");
+  const [limit, setLimit] = useState(5);
   const [job, setJob] = useState<ExperienceSyncJob | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const timerRef = useRef<number | null>(null);
+  const onCompletedRef = useRef(onCompleted);
+  onCompletedRef.current = onCompleted;
 
   const clearPolling = () => {
     if (timerRef.current !== null) {
@@ -26,7 +29,7 @@ export function useExperienceSync({ apiBase, enabled, onCompleted }: UseExperien
     }
   };
 
-  const pollJob = async (jobId: string) => {
+  const pollJob = useCallback(async (jobId: string) => {
     try {
       const response = await apiRequest<ExperienceSyncStatusResponse>(apiBase, `/v1/experiences/sync/${jobId}`, {
         auth: "required",
@@ -42,18 +45,39 @@ export function useExperienceSync({ apiBase, enabled, onCompleted }: UseExperien
 
       setSyncing(false);
       if (response.job.status === "completed") {
-        onCompleted?.();
+        onCompletedRef.current?.();
       }
     } catch (requestError) {
       setSyncing(false);
       setError(requestError instanceof Error ? requestError.message : "同步状态获取失败");
     }
-  };
+  }, [apiBase]);
+
+  // On mount, check if there's an active sync job on the server
+  useEffect(() => {
+    if (!enabled || !apiBase) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const response = await apiRequest<{ job: ExperienceSyncJob | null }>(apiBase, "/v1/experiences/sync/active", {
+          auth: "required",
+        });
+        if (cancelled || !response.job) return;
+        setJob(response.job);
+        setKeyword(response.job.keyword);
+        setSyncing(true);
+        void pollJob(response.job.id);
+      } catch {
+        // ignore — no active job
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [enabled, apiBase, pollJob]);
 
   const startSync = async () => {
-    if (!enabled || !keyword.trim()) {
-      return;
-    }
+    if (!enabled || !keyword.trim()) return;
 
     try {
       clearPolling();
@@ -63,8 +87,7 @@ export function useExperienceSync({ apiBase, enabled, onCompleted }: UseExperien
         method: "POST",
         body: JSON.stringify({
           keyword,
-          days: 7,
-          limit: 10,
+          limit,
         }),
         auth: "required",
       });
@@ -72,7 +95,7 @@ export function useExperienceSync({ apiBase, enabled, onCompleted }: UseExperien
         id: response.job_id,
         keyword,
         status: response.status,
-        requested_limit: 10,
+        requested_limit: limit,
         created_count: 0,
         skipped_count: 0,
         failed_count: 0,
@@ -92,6 +115,8 @@ export function useExperienceSync({ apiBase, enabled, onCompleted }: UseExperien
   return {
     keyword,
     setKeyword,
+    limit,
+    setLimit,
     job,
     syncing,
     error,
