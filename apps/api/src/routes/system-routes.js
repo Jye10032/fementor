@@ -25,7 +25,7 @@ const {
   toPublicSessionConfig,
   upsertSessionLlmConfig,
 } = require('../lib/session-llm-config-store');
-const { getGraph } = require('../experience/knowledge-graph');
+const { getGraph, getBuildStatus } = require('../experience/knowledge-graph');
 
 const hasText = (value) => String(value || '').trim() !== '';
 
@@ -662,7 +662,7 @@ async function registerSystemRoutes(app) {
     const nodeCount = Object.keys(graph).length;
     const sources = { skeleton: 0, cooccurrence: 0, both: 0 };
     for (const node of Object.values(graph)) sources[node.source || 'unknown']++;
-    return { graph, _debug: { nodeCount, sources } };
+    return { graph, _debug: { nodeCount, sources, build: getBuildStatus() } };
   });
 }
 

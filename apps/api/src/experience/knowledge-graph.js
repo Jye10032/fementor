@@ -215,23 +215,35 @@ function inferOrphanParents(graph) {
   }
 }
 
+let buildStatus = { state: 'pending', error: null, skeleton: 0, cooccurrence: 0, nodes: 0 };
+
+function getBuildStatus() {
+  return buildStatus;
+}
+
 async function buildKnowledgeGraph(store) {
+  buildStatus = { state: 'building', error: null, skeleton: 0, cooccurrence: 0, nodes: 0 };
   console.log('[knowledge-graph] starting build...');
   const skeleton = loadSkeleton();
-  console.log('[knowledge-graph] skeleton loaded:', Object.keys(skeleton).length, 'entries');
+  buildStatus.skeleton = Object.keys(skeleton).length;
+  console.log('[knowledge-graph] skeleton loaded:', buildStatus.skeleton, 'entries');
   let cooccurrence = {};
   try {
     cooccurrence = await buildCooccurrenceFromStore(store);
-    console.log('[knowledge-graph] cooccurrence built:', Object.keys(cooccurrence).length, 'tags');
+    buildStatus.cooccurrence = Object.keys(cooccurrence).length;
+    console.log('[knowledge-graph] cooccurrence built:', buildStatus.cooccurrence, 'tags');
   } catch (error) {
+    buildStatus.error = error.message;
     console.warn('[knowledge-graph.cooccurrence.failed]', error.message);
   }
   globalGraph = mergeSkeletonWithCooccurrence(skeleton, cooccurrence);
   inferOrphanParents(globalGraph);
+  buildStatus.nodes = Object.keys(globalGraph).length;
+  buildStatus.state = 'done';
   console.log('[knowledge-graph.built]', {
-    node_count: Object.keys(globalGraph).length,
-    skeleton_count: Object.keys(skeleton).length,
-    cooccurrence_count: Object.keys(cooccurrence).length,
+    node_count: buildStatus.nodes,
+    skeleton_count: buildStatus.skeleton,
+    cooccurrence_count: buildStatus.cooccurrence,
   });
 }
 
@@ -308,6 +320,7 @@ function getLevel2Vocabulary() {
 
 module.exports = {
   buildKnowledgeGraph,
+  getBuildStatus,
   updateGraphIncremental,
   expandWithGraph,
   getGraph,
