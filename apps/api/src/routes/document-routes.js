@@ -7,6 +7,43 @@ const { ensureLocalUserProfile, getResolvedUserContext } = require('../request-c
 const { summarizeResumeWithLLM } = require('../interview/llm-service');
 const { parseResumeRequest } = require('../resume-parse-service');
 const { ensureExampleProfileDocs } = require('../profile-example-docs');
+const { isPostgresEnabled, upsertAppUserByClerk } = require('../postgres');
+
+const mergeProfileUsers = (sqliteUser, postgresUser) => {
+  if (!postgresUser) {
+    return sqliteUser;
+  }
+
+  if (!sqliteUser) {
+    return postgresUser;
+  }
+
+  return {
+    ...sqliteUser,
+    ...postgresUser,
+    resume_summary: postgresUser.resume_summary || sqliteUser.resume_summary || '',
+    resume_structured_json: postgresUser.resume_structured_json || sqliteUser.resume_structured_json || '',
+    active_resume_file: postgresUser.active_resume_file || sqliteUser.active_resume_file || '',
+    active_jd_file: postgresUser.active_jd_file || sqliteUser.active_jd_file || '',
+  };
+};
+
+const syncPostgresProfile = async ({ authUser, profile = {} }) => {
+  if (!isPostgresEnabled() || !authUser?.clerkUserId) {
+    return null;
+  }
+
+  return upsertAppUserByClerk({
+    clerkUserId: authUser.clerkUserId,
+    email: authUser.email,
+    name: authUser.name,
+    avatarUrl: authUser.avatarUrl,
+    resumeSummary: profile.resumeSummary,
+    resumeStructuredJson: profile.resumeStructuredJson,
+    activeResumeFile: profile.activeResumeFile,
+    activeJdFile: profile.activeJdFile,
+  });
+};
 
 const readMultipartParts = async (request) => {
   const fields = {};
@@ -41,8 +78,10 @@ const getResumeLibraryResponse = async ({ req, queryUserId }) => {
     requireAuth: true,
   });
   const userId = context.userId;
-  ensureExampleProfileDocs({ userId, authUser: context.authUser });
-  const user = getUserById(userId);
+  await ensureExampleProfileDocs({ userId, authUser: context.authUser });
+  const sqliteUser = await getUserById(userId);
+  const postgresUser = await syncPostgresProfile({ authUser: context.authUser });
+  const user = mergeProfileUsers(sqliteUser, postgresUser);
   const files = listResumeDocs(userId);
   const activeFile = files.find((item) => item.name === user?.active_resume_file) || null;
   const activeSummary = String(activeFile?.summary || user?.resume_summary || '').trim();
@@ -77,7 +116,7 @@ const selectResumeResponse = async ({ req, body }) => {
     return { statusCode: 400, payload: { error: 'file_name is required' } };
   }
 
-  const user = getUserById(userId);
+  const user = await getUserById(userId);
   if (!user) {
     return { statusCode: 404, payload: { error: 'user not found' } };
   }
@@ -100,11 +139,19 @@ const selectResumeResponse = async ({ req, body }) => {
       originalFilename: doc.meta?.original_filename || doc.name,
     });
   }
-  const updated = setActiveResumeFile({
+  const updated = await setActiveResumeFile({
     userId,
     fileName: doc.name,
     resumeSummary: summary,
     resumeStructuredJson,
+  });
+  await syncPostgresProfile({
+    authUser: context.authUser,
+    profile: {
+      resumeSummary: updated?.resume_summary || summary,
+      resumeStructuredJson,
+      activeResumeFile: updated?.active_resume_file || doc.name,
+    },
   });
 
   return {
@@ -124,7 +171,7 @@ const readResumeResponse = async ({ req, queryUserId, fileName }) => {
     requireAuth: true,
   });
   const userId = context.userId;
-  ensureExampleProfileDocs({ userId, authUser: context.authUser });
+  await ensureExampleProfileDocs({ userId, authUser: context.authUser });
   if (!fileName) {
     return { statusCode: 400, payload: { error: 'file_name is required' } };
   }
@@ -186,10 +233,16 @@ const uploadJdResponse = async ({ req, body }) => {
   }
 
   const savedPath = saveJdDoc({ userId, jdText, filename });
-  ensureLocalUserProfile({
+  await ensureLocalUserProfile({
     userId,
     authUser: context.authUser,
     activeJdFile: path.basename(savedPath),
+  });
+  await syncPostgresProfile({
+    authUser: context.authUser,
+    profile: {
+      activeJdFile: path.basename(savedPath),
+    },
   });
 
   return {
@@ -209,8 +262,10 @@ const jdLibraryResponse = async ({ req, queryUserId }) => {
     requireAuth: true,
   });
   const userId = context.userId;
-  ensureExampleProfileDocs({ userId, authUser: context.authUser });
-  const user = getUserById(userId);
+  await ensureExampleProfileDocs({ userId, authUser: context.authUser });
+  const sqliteUser = await getUserById(userId);
+  const postgresUser = await syncPostgresProfile({ authUser: context.authUser });
+  const user = mergeProfileUsers(sqliteUser, postgresUser);
   const files = listJdDocs(userId);
 
   return {
@@ -241,7 +296,7 @@ const selectJdResponse = async ({ req, body }) => {
     return { statusCode: 400, payload: { error: 'file_name is required' } };
   }
 
-  const user = getUserById(userId);
+  const user = await getUserById(userId);
   if (!user) {
     return { statusCode: 404, payload: { error: 'user not found' } };
   }
@@ -251,7 +306,13 @@ const selectJdResponse = async ({ req, body }) => {
     return { statusCode: 404, payload: { error: 'jd file not found' } };
   }
 
-  const updated = setActiveJdFile({ userId, fileName: doc.name });
+  const updated = await setActiveJdFile({ userId, fileName: doc.name });
+  await syncPostgresProfile({
+    authUser: context.authUser,
+    profile: {
+      activeJdFile: updated?.active_jd_file || doc.name,
+    },
+  });
 
   return {
     statusCode: 200,
@@ -277,9 +338,17 @@ const deleteResumeResponse = async ({ req, body }) => {
   if (!deleted) {
     return { statusCode: 404, payload: { error: 'resume file not found' } };
   }
-  const user = getUserById(userId);
+  const user = await getUserById(userId);
   if (user && user.active_resume_file === fileName) {
-    setActiveResumeFile({ userId, fileName: '', resumeSummary: '', resumeStructuredJson: '' });
+    await setActiveResumeFile({ userId, fileName: '', resumeSummary: '', resumeStructuredJson: '' });
+    await syncPostgresProfile({
+      authUser: context.authUser,
+      profile: {
+        resumeSummary: '',
+        resumeStructuredJson: '',
+        activeResumeFile: '',
+      },
+    });
   }
   return { statusCode: 200, payload: { deleted: true } };
 };
@@ -299,9 +368,15 @@ const deleteJdResponse = async ({ req, body }) => {
   if (!deleted) {
     return { statusCode: 404, payload: { error: 'jd file not found' } };
   }
-  const user = getUserById(userId);
+  const user = await getUserById(userId);
   if (user && user.active_jd_file === fileName) {
-    setActiveJdFile({ userId, fileName: '' });
+    await setActiveJdFile({ userId, fileName: '' });
+    await syncPostgresProfile({
+      authUser: context.authUser,
+      profile: {
+        activeJdFile: '',
+      },
+    });
   }
   return { statusCode: 200, payload: { deleted: true } };
 };

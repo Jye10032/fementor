@@ -11,7 +11,7 @@ const {
 
 const getLocalStatusResponse = async () => ({
   statusCode: 200,
-  payload: buildLocalPublicSourceStatus(),
+  payload: await buildLocalPublicSourceStatus(),
 });
 
 const checkUpdateResponse = async ({ req }) => {

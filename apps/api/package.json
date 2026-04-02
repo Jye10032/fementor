@@ -8,6 +8,9 @@
     "dev:fastify": "node src/start.js",
     "start": "node src/server.js",
     "start:fastify": "node src/start.js",
+    "db:migrate": "node scripts/migrate.js",
+    "db:migrate:status": "node scripts/migrate.js --status",
+    "db:seed:dev": "node scripts/seed-dev.js",
     "crawl:niuke": "node scripts/niuke-crawler.js",
     "reclean:experiences": "node scripts/reclean-experiences.js"
   },

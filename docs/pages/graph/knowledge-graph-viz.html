@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>FEMentor 知识图谱可视化</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0f172a; color: #e2e8f0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; overflow: hidden; }
+#container { width: 100vw; height: 100vh; position: relative; }
+svg { width: 100%; height: 100%; }
+.title-bar { position: absolute; top: 20px; left: 20px; z-index: 10; }
+.title-bar h1 { font-size: 20px; font-weight: 600; color: #f1f5f9; }
+.title-bar p { font-size: 13px; color: #94a3b8; margin-top: 4px; }
+.legend { position: absolute; bottom: 20px; left: 20px; z-index: 10; background: rgba(15,23,42,0.85); border: 1px solid #334155; border-radius: 8px; padding: 12px 16px; }
+.legend-item { display: flex; align-items: center; gap: 8px; margin: 4px 0; font-size: 12px; color: #94a3b8; }
+.legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+.tooltip { position: absolute; background: #1e293b; border: 1px solid #475569; border-radius: 8px; padding: 10px 14px; font-size: 13px; pointer-events: none; opacity: 0; transition: opacity 0.15s; z-index: 20; max-width: 280px; }
+.tooltip .tt-title { font-weight: 600; color: #f1f5f9; margin-bottom: 4px; }
+.tooltip .tt-parent { color: #94a3b8; font-size: 12px; }
+.tooltip .tt-related { color: #67e8f9; font-size: 12px; margin-top: 4px; }
+.controls { position: absolute; top: 20px; right: 20px; z-index: 10; display: flex; gap: 8px; }
+.controls button { background: #1e293b; border: 1px solid #334155; color: #e2e8f0; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.controls button:hover { background: #334155; }
+.controls button.active { background: #3b82f6; border-color: #3b82f6; }
+</style>
+</head>
+<body>
+<div id="container">
+  <div class="title-bar">
+    <h1>FEMentor 前端知识图谱</h1>
+    <p>LLM 骨架 + 面经共现数据 | 拖拽节点 / 滚轮缩放 / 点击高亮关联</p>
+  </div>
+  <div class="controls">
+    <button onclick="resetView()">重置视图</button>
+    <button onclick="toggleLabels(this)">隐藏标签</button>
+  </div>
+  <div class="legend" id="legend"></div>
+  <div class="tooltip" id="tooltip"></div>
+  <svg id="graph"></svg>
+</div>
+<script>
+const CATEGORIES = {
+  "JavaScript":  { color: "#facc15", children: ["闭包","原型链","事件循环","Promise","this指向","作用域","类型判断","ES6+"] },
+  "React":       { color: "#60a5fa", children: ["Hooks","Fiber架构","虚拟DOM","状态管理","React Router","SSR","性能优化-React","Context"] },
+  "Vue":         { color: "#34d399", children: ["响应式原理","Composition API","Vue Router","Vuex/Pinia","虚拟DOM-Vue","模板编译","keep-alive","nextTick"] },
+  "CSS":         { color: "#f472b6", children: ["BFC","Flex布局","Grid布局","CSS动画","选择器优先级","响应式设计","CSS变量","层叠上下文"] },
+  "浏览器":      { color: "#fb923c", children: ["浏览器渲染","回流重绘","跨域","缓存策略","安全-XSS","安全-CSRF","存储方案","垃圾回收"] },
+  "工程化":      { color: "#a78bfa", children: ["Webpack","Vite","Babel","ESLint","CI/CD","模块化","微前端","Monorepo"] },
+  "性能优化":    { color: "#2dd4bf", children: ["LCP","FCP","CLS","懒加载","代码分割","CDN","图片优化","预渲染"] },
+  "算法":        { color: "#f87171", children: ["排序","二叉树","动态规划","链表","栈和队列","DFS/BFS","双指针","滑动窗口"] },
+  "Node.js":     { color: "#38bdf8", children: ["Node事件循环","Stream","Express/Koa","中间件","进程管理","Buffer","文件系统","NPM"] }
+};
+
+const DEEPER = {
+  "闭包":     ["词法作用域","内存泄漏","柯里化","IIFE"],
+  "事件循环": ["宏任务","微任务","requestAnimationFrame","MessageChannel"],
+  "Promise":  ["async/await","Promise.all","微任务队列"],
+  "原型链":   ["继承","new操作符","Object.create"],
+  "Hooks":    ["useState","useEffect","useRef","useMemo","自定义Hook"],
+  "Fiber架构":["时间切片","优先级调度","Concurrent Mode"],
+  "响应式原理":["Proxy","依赖收集","派发更新"],
+  "Webpack":  ["Loader","Plugin","Tree Shaking","HMR","Module Federation"],
+  "Vite":     ["ESM","Rollup","预构建"],
+  "LCP":      ["关键渲染路径","资源优先级","预加载"],
+  "浏览器渲染":["DOM树","CSSOM","合成层","GPU加速"]
+};
+
+const RELATED_EDGES = [
+  ["闭包","作用域"],["闭包","垃圾回收"],["闭包","this指向"],
+  ["事件循环","Promise"],["事件循环","Node事件循环"],["事件循环","浏览器渲染"],
+  ["Promise","async/await"],["Promise","微任务"],
+  ["原型链","this指向"],["原型链","ES6+"],
+  ["虚拟DOM","虚拟DOM-Vue"],["虚拟DOM","Fiber架构"],
+  ["Hooks","状态管理"],["Hooks","Composition API"],
+  ["响应式原理","Proxy"],["响应式原理","虚拟DOM-Vue"],
+  ["Webpack","Vite"],["Webpack","Babel"],["Webpack","代码分割"],["Webpack","Tree Shaking"],
+  ["Vite","ESM"],["微前端","Module Federation"],["微前端","Monorepo"],
+  ["LCP","FCP"],["LCP","浏览器渲染"],["FCP","CLS"],
+  ["CDN","缓存策略"],["CDN","图片优化"],
+  ["懒加载","代码分割"],["懒加载","图片优化"],
+  ["BFC","Flex布局"],["Flex布局","Grid布局"],
+  ["回流重绘","CSS动画"],["回流重绘","浏览器渲染"],
+  ["跨域","安全-CSRF"],["安全-XSS","安全-CSRF"],
+  ["SSR","预渲染"],["SSR","Node.js"],
+  ["排序","动态规划"],["二叉树","DFS/BFS"],["链表","双指针"],
+  ["Express/Koa","中间件"],["Stream","Buffer"],
+  ["性能优化-React","useMemo"],["性能优化-React","代码分割"],
+  ["模块化","ESM"],["CI/CD","ESLint"]
+];
+
+// Build nodes and links
+const nodes = [];
+const links = [];
+const nodeMap = {};
+
+function addNode(name, level, parent, category) {
+  if (nodeMap[name]) return;
+  const cat = category || name;
+  const catColor = CATEGORIES[cat]?.color || CATEGORIES[parent]?.color || "#64748b";
+  const rootCat = CATEGORIES[cat] ? cat : (CATEGORIES[parent] ? parent : findRootCat(parent));
+  const node = { id: name, level, parent, category: rootCat, color: CATEGORIES[rootCat]?.color || "#64748b" };
+  nodes.push(node);
+  nodeMap[name] = node;
+}
+
+function findRootCat(name) {
+  for (const [cat, data] of Object.entries(CATEGORIES)) {
+    if (data.children.includes(name)) return cat;
+  }
+  for (const [p, kids] of Object.entries(DEEPER)) {
+    if (kids.includes(name)) return findRootCat(p);
+  }
+  return "JavaScript";
+}
+
+// Level 0: root categories
+for (const cat of Object.keys(CATEGORIES)) addNode(cat, 0, null, cat);
+// Level 1: direct children
+for (const [cat, data] of Object.entries(CATEGORIES)) {
+  for (const child of data.children) {
+    addNode(child, 1, cat, cat);
+    links.push({ source: cat, target: child, type: "parent" });
+  }
+}
+// Level 2: deeper children
+for (const [parent, kids] of Object.entries(DEEPER)) {
+  for (const kid of kids) {
+    addNode(kid, 2, parent);
+    links.push({ source: parent, target: kid, type: "parent" });
+  }
+}
+// Related edges
+for (const [a, b] of RELATED_EDGES) {
+  if (nodeMap[a] && nodeMap[b]) {
+    links.push({ source: a, target: b, type: "related" });
+  }
+}
+
+// D3 Force Simulation
+const width = window.innerWidth, height = window.innerHeight;
+const svg = d3.select("#graph").attr("viewBox", [0, 0, width, height]);
+const g = svg.append("g");
+const tooltip = d3.select("#tooltip");
+
+// Zoom
+const zoom = d3.zoom().scaleExtent([0.2, 4]).on("zoom", e => g.attr("transform", e.transform));
+svg.call(zoom);
+
+function resetView() { svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity); }
+let labelsVisible = true;
+function toggleLabels(btn) {
+  labelsVisible = !labelsVisible;
+  btn.textContent = labelsVisible ? "隐藏标签" : "显示标签";
+  btn.classList.toggle("active", !labelsVisible);
+  g.selectAll(".label").attr("opacity", labelsVisible ? 1 : 0);
+}
+
+const simulation = d3.forceSimulation(nodes)
+  .force("link", d3.forceLink(links).id(d => d.id).distance(d => d.type === "parent" ? 60 : 100).strength(d => d.type === "parent" ? 0.8 : 0.15))
+  .force("charge", d3.forceManyBody().strength(d => d.level === 0 ? -600 : d.level === 1 ? -200 : -80))
+  .force("center", d3.forceCenter(width / 2, height / 2))
+  .force("collision", d3.forceCollide().radius(d => getRadius(d) + 8));
+
+function getRadius(d) { return d.level === 0 ? 20 : d.level === 1 ? 10 : 6; }
+
+// Draw links
+const link = g.append("g").selectAll("line").data(links).join("line")
+  .attr("stroke", d => d.type === "parent" ? "#334155" : "#1e3a5f")
+  .attr("stroke-width", d => d.type === "parent" ? 1.5 : 0.8)
+  .attr("stroke-dasharray", d => d.type === "related" ? "4,3" : null)
+  .attr("opacity", 0.6);
+
+// Draw nodes
+const node = g.append("g").selectAll("circle").data(nodes).join("circle")
+  .attr("r", d => getRadius(d))
+  .attr("fill", d => d.color)
+  .attr("stroke", "#0f172a").attr("stroke-width", 1.5)
+  .attr("opacity", d => d.level === 0 ? 1 : d.level === 1 ? 0.85 : 0.65)
+  .attr("cursor", "pointer")
+  .call(d3.drag().on("start", dragStart).on("drag", dragging).on("end", dragEnd));
+
+// Labels
+const label = g.append("g").selectAll("text").data(nodes).join("text")
+  .attr("class", "label")
+  .text(d => d.id)
+  .attr("font-size", d => d.level === 0 ? 13 : d.level === 1 ? 10 : 8)
+  .attr("fill", d => d.level === 0 ? "#f1f5f9" : "#94a3b8")
+  .attr("font-weight", d => d.level === 0 ? 600 : 400)
+  .attr("text-anchor", "middle")
+  .attr("dy", d => -(getRadius(d) + 6))
+  .attr("pointer-events", "none");
+
+// Tick
+simulation.on("tick", () => {
+  link.attr("x1",d=>d.source.x).attr("y1",d=>d.source.y).attr("x2",d=>d.target.x).attr("y2",d=>d.target.y);
+  node.attr("cx",d=>d.x).attr("cy",d=>d.y);
+  label.attr("x",d=>d.x).attr("y",d=>d.y);
+});
+
+// Drag
+function dragStart(e,d){ if(!e.active) simulation.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; }
+function dragging(e,d){ d.fx=e.x; d.fy=e.y; }
+function dragEnd(e,d){ if(!e.active) simulation.alphaTarget(0); d.fx=null; d.fy=null; }
+
+// Click highlight
+let selectedNode = null;
+node.on("click", function(e, d) {
+  e.stopPropagation();
+  if (selectedNode === d.id) { selectedNode = null; resetHighlight(); return; }
+  selectedNode = d.id;
+  const connected = new Set([d.id]);
+  links.forEach(l => {
+    const sid = typeof l.source === "object" ? l.source.id : l.source;
+    const tid = typeof l.target === "object" ? l.target.id : l.target;
+    if (sid === d.id) connected.add(tid);
+    if (tid === d.id) connected.add(sid);
+  });
+  node.attr("opacity", n => connected.has(n.id) ? 1 : 0.08);
+  link.attr("opacity", l => {
+    const sid = typeof l.source === "object" ? l.source.id : l.source;
+    const tid = typeof l.target === "object" ? l.target.id : l.target;
+    return (sid === d.id || tid === d.id) ? 0.9 : 0.03;
+  });
+  label.attr("opacity", n => connected.has(n.id) && labelsVisible ? 1 : 0);
+});
+svg.on("click", () => { selectedNode = null; resetHighlight(); });
+function resetHighlight() {
+  node.attr("opacity", d => d.level===0?1:d.level===1?0.85:0.65);
+  link.attr("opacity", 0.6);
+  label.attr("opacity", labelsVisible ? 1 : 0);
+}
+
+// Tooltip
+node.on("mouseover", function(e, d) {
+  const related = [];
+  links.filter(l => l.type === "related").forEach(l => {
+    const sid = typeof l.source==="object"?l.source.id:l.source;
+    const tid = typeof l.target==="object"?l.target.id:l.target;
+    if (sid===d.id) related.push(tid);
+    if (tid===d.id) related.push(sid);
+  });
+  let html = `<div class="tt-title">${d.id}</div>`;
+  if (d.parent) html += `<div class="tt-parent">父节点: ${d.parent} | 分类: ${d.category}</div>`;
+  else html += `<div class="tt-parent">一级分类</div>`;
+  if (related.length) html += `<div class="tt-related">关联: ${related.join(", ")}</div>`;
+  tooltip.html(html).style("opacity",1).style("left",(e.pageX+12)+"px").style("top",(e.pageY-10)+"px");
+  d3.select(this).attr("stroke","#f1f5f9").attr("stroke-width",3);
+}).on("mousemove", function(e) {
+  tooltip.style("left",(e.pageX+12)+"px").style("top",(e.pageY-10)+"px");
+}).on("mouseout", function() {
+  tooltip.style("opacity",0);
+  d3.select(this).attr("stroke","#0f172a").attr("stroke-width",1.5);
+});
+
+// Legend
+const legendEl = d3.select("#legend");
+for (const [cat, data] of Object.entries(CATEGORIES)) {
+  legendEl.append("div").attr("class","legend-item")
+    .html(`<span class="legend-dot" style="background:${data.color}"></span>${cat}`);
+}
+legendEl.append("div").attr("class","legend-item").style("margin-top","8px")
+  .html(`<span style="width:20px;height:2px;background:#334155;display:inline-block"></span> 父子关系`);
+legendEl.append("div").attr("class","legend-item")
+  .html(`<span style="width:20px;height:0;border-top:2px dashed #1e3a5f;display:inline-block"></span> 共现关联`);
+
+</script>
+</body>
+</html>

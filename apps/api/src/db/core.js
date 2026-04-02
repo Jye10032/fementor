@@ -1,13 +1,30 @@
 const fs = require('fs');
 const path = require('path');
 const Database = require('better-sqlite3');
+const { isPostgresEnabled } = require('../postgres');
 
 const DB_PATH = process.env.DB_PATH || path.resolve(__dirname, '../../../../data/fementor.db');
 
-fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+let sqliteDb = null;
 
-const db = new Database(DB_PATH);
-db.pragma('journal_mode = WAL');
+const getDb = () => {
+  if (!sqliteDb) {
+    fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+    sqliteDb = new Database(DB_PATH);
+    sqliteDb.pragma('journal_mode = WAL');
+  }
+  return sqliteDb;
+};
+
+const db = new Proxy(
+  {},
+  {
+    get(_target, property) {
+      const value = getDb()[property];
+      return typeof value === 'function' ? value.bind(getDb()) : value;
+    },
+  },
+);
 
 const parseJsonArray = (value) => {
   if (!value) return [];
@@ -41,6 +58,8 @@ module.exports = {
   DB_PATH,
   db,
   ensureColumn,
+  getDb,
+  isPostgresEnabled,
   parseJsonArray,
   parseJsonObject,
 };

@@ -108,7 +108,7 @@ const handleInterviewRoutes = async ({ req, res, url, corsHeaders }) => {
         requireAuth: true,
       });
       const limit = parseNumberOrFallback(url.searchParams.get('limit') || 20, 20);
-      json(res, 200, { user_id: context.userId, items: listInterviewSessions({ userId: context.userId, limit }) });
+      json(res, 200, { user_id: context.userId, items: await listInterviewSessions({ userId: context.userId, limit }) });
     } catch (error) {
       jsonError(res, error);
     }
@@ -134,7 +134,7 @@ const handleInterviewRoutes = async ({ req, res, url, corsHeaders }) => {
   ) {
     try {
       const { session } = await ensureSessionOwner({ req, pathname: url.pathname });
-      deleteInterviewSession(session.id);
+      await deleteInterviewSession(session.id);
       json(res, 200, { deleted: true });
     } catch (error) {
       jsonError(res, error);
@@ -154,14 +154,14 @@ const handleInterviewRoutes = async ({ req, res, url, corsHeaders }) => {
       let jobDescription = String(body.job_description || body.jd_text || '').trim();
       const targetLevel = String(body.target_level || 'mid').trim();
       const useExperienceQuestions = body.use_experience_questions === true;
-      const user = ensureLocalUserProfile({ userId, authUser: context.authUser });
+      const user = await ensureLocalUserProfile({ userId, authUser: context.authUser });
       const experienceQuery = String(body.experience_query || '').trim();
       if (!jobDescription && user.active_jd_file) {
         const activeJdDoc = readJdDoc({ userId, fileName: user.active_jd_file });
         jobDescription = String(activeJdDoc?.content || '').trim();
       }
       if (!jobDescription) return json(res, 400, { error: 'job_description is required' });
-      const todayUsedCount = countSessionsStartedOnUtcDate({ userId });
+      const todayUsedCount = await countSessionsStartedOnUtcDate({ userId });
       const hasUserSessionKey = Boolean(getSessionLlmConfig({ userId, token: context.token })?.apiKey);
       if (todayUsedCount >= 1 && !hasUserSessionKey) {
         return json(res, 403, {
@@ -174,7 +174,7 @@ const handleInterviewRoutes = async ({ req, res, url, corsHeaders }) => {
       }
 
       const sessionId = randomUUID();
-      const session = createInterviewSession({ id: sessionId, userId });
+      const session = await createInterviewSession({ id: sessionId, userId });
 
       if (USE_KEYWORD_QUEUE) {
         // --- Keyword queue driven flow ---
@@ -198,7 +198,7 @@ const handleInterviewRoutes = async ({ req, res, url, corsHeaders }) => {
           max_turns_per_keyword: 3,
           entries: keywordEntries,
         });
-        updateSessionKeywordQueue({ sessionId, keywordQueueJson });
+        await updateSessionKeywordQueue({ sessionId, keywordQueueJson });
 
         // Self-intro question (fixed template)
         const selfIntroQuestion = {
@@ -260,7 +260,7 @@ const handleInterviewRoutes = async ({ req, res, url, corsHeaders }) => {
         }
 
         const queueItems = [selfIntroQuestion, firstKeywordQuestion].filter(Boolean);
-        saveInterviewQuestions({ sessionId, items: queueItems });
+        await saveInterviewQuestions({ sessionId, items: queueItems });
         const currentQuestion = selfIntroQuestion;
 
         json(res, 200, {
@@ -315,8 +315,8 @@ const handleInterviewRoutes = async ({ req, res, url, corsHeaders }) => {
           }
         }
         queueItems = mergeExperienceQuestionsIntoQueue({ queueItems, experienceQuestions });
-        saveInterviewQuestions({ sessionId, items: queueItems });
-        const currentQuestion = getNextInterviewQuestion(sessionId);
+        await saveInterviewQuestions({ sessionId, items: queueItems });
+        const currentQuestion = await getNextInterviewQuestion(sessionId);
         json(res, 200, {
           ...session,
           interview_mode: 'resume_jd',
@@ -348,7 +348,7 @@ const handleInterviewRoutes = async ({ req, res, url, corsHeaders }) => {
   ) {
     try {
       const { sessionId } = await ensureSessionOwner({ req, pathname: url.pathname });
-      const items = listInterviewQuestions(sessionId);
+      const items = await listInterviewQuestions(sessionId);
       const currentQuestion = items.find((item) => item.status !== 'answered') || null;
       json(res, 200, {
         session_id: sessionId,
@@ -491,7 +491,7 @@ const handleInterviewRoutes = async ({ req, res, url, corsHeaders }) => {
       const { sessionId } = await ensureSessionOwner({ req, pathname: url.pathname });
       json(res, 200, {
         session_id: sessionId,
-        items: listInterviewTurns(sessionId),
+        items: await listInterviewTurns(sessionId),
       });
     } catch (error) {
       jsonError(res, error);
@@ -536,7 +536,7 @@ const handleInterviewRoutes = async ({ req, res, url, corsHeaders }) => {
         pathname: url.pathname,
         bodyUserId: String(body.user_id || '').trim(),
       });
-      json(res, 200, finishInterviewSession({ sessionId, summary }));
+      json(res, 200, await finishInterviewSession({ sessionId, summary }));
     } catch (error) {
       jsonError(res, error);
     }
@@ -549,13 +549,13 @@ const handleInterviewRoutes = async ({ req, res, url, corsHeaders }) => {
   ) {
     try {
       const { sessionId, context } = await ensureSessionOwner({ req, pathname: url.pathname });
-      const session = getInterviewSession(sessionId);
-      const keywordQueue = getSessionKeywordQueue(sessionId);
+      const session = await getInterviewSession(sessionId);
+      const keywordQueue = await getSessionKeywordQueue(sessionId);
       if (!keywordQueue) {
         return json(res, 400, { error: 'session has no keyword queue (legacy mode)' });
       }
-      const turns = listInterviewTurns(sessionId);
-      const user = getUserById(session.user_id);
+      const turns = await listInterviewTurns(sessionId);
+      const user = await getUserById(session.user_id);
       const activeJd = user?.active_jd_file
         ? readJdDoc({ userId: session.user_id, fileName: user.active_jd_file })
         : null;
@@ -587,9 +587,9 @@ const handleInterviewRoutes = async ({ req, res, url, corsHeaders }) => {
         pathname: url.pathname,
         bodyUserId: String(body.user_id || '').trim(),
       });
-      const turns = listInterviewTurns(sessionId);
+      const turns = await listInterviewTurns(sessionId);
       if (turns.length === 0) return json(res, 400, { error: 'no interview turns found' });
-      const questionItems = listInterviewQuestions(sessionId);
+      const questionItems = await listInterviewQuestions(sessionId);
       const questionMap = new Map(questionItems.map((item) => [item.id, item]));
 
       const avgScore = Math.round(turns.reduce((sum, turn) => sum + (turn.score || 0), 0) / turns.length);
@@ -603,7 +603,7 @@ const handleInterviewRoutes = async ({ req, res, url, corsHeaders }) => {
       const weaknesses = Array.from(weaknessMap.entries()).sort((a, b) => b[1] - a[1]).map(([key]) => key).slice(0, 5);
 
       const nextReviewAt = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
-      const promoteResult = promoteInterviewRetrospectQuestions({
+      const promoteResult = await promoteInterviewRetrospectQuestions({
         session,
         sessionId,
         chapter,
@@ -611,7 +611,7 @@ const handleInterviewRoutes = async ({ req, res, url, corsHeaders }) => {
         questionMap,
         nextReviewAt,
       });
-      const user = getUserById(session.user_id);
+      const user = await getUserById(session.user_id);
       const memorySummary = await summarizeLongTermMemory({
         resumeSummary: user?.resume_summary || '',
         strengths,

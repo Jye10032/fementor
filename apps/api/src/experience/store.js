@@ -1,6 +1,21 @@
-const sqliteStore = require('../db/experience');
-const postgresStore = require('../postgres/experience-store');
 const { isPostgresEnabled } = require('../postgres');
+
+let sqliteStore = null;
+let postgresStore = null;
+
+function getSqliteStore() {
+  if (!sqliteStore) {
+    sqliteStore = require('../db/experience');
+  }
+  return sqliteStore;
+}
+
+function getPostgresStore() {
+  if (!postgresStore) {
+    postgresStore = require('../postgres/experience-store');
+  }
+  return postgresStore;
+}
 
 function getExperienceStorageDriver() {
   const configuredDriver = String(process.env.EXPERIENCE_STORAGE_DRIVER || 'auto').trim().toLowerCase();
@@ -17,7 +32,7 @@ function getExperienceStorageTarget() {
 }
 
 function getExperienceStore() {
-  return getExperienceStorageDriver() === 'postgres' ? postgresStore : sqliteStore;
+  return getExperienceStorageDriver() === 'postgres' ? getPostgresStore() : getSqliteStore();
 }
 
 module.exports = {

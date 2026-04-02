@@ -2,7 +2,7 @@ const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '../.env'), quiet: true });
 const http = require('http');
 const { URL } = require('url');
-const { initPostgres } = require('./postgres');
+const { initPostgres, isPostgresEnabled } = require('./postgres');
 const { init } = require('./db');
 const { getCorsHeaders, json } = require('./http');
 const { handleSystemRoutes } = require('./routes/system-routes');
@@ -15,11 +15,6 @@ const { handlePublicQuestionSourceRoutes } = require('./routes/public-question-s
 
 const PORT = process.env.PORT || 3300;
 
-init();
-void initPostgres().catch((error) => {
-  console.error('[postgres.init.failed]', error);
-});
-
 const routeHandlers = [
   handleSystemRoutes,
   handleChatRoutes,
@@ -30,29 +25,41 @@ const routeHandlers = [
   handlePublicQuestionSourceRoutes,
 ];
 
-const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url, `http://${req.headers.host}`);
-  const corsHeaders = getCorsHeaders(req);
-  Object.entries(corsHeaders).forEach(([key, value]) => {
-    res.setHeader(key, value);
-  });
-
-  if (req.method === 'OPTIONS') {
-    res.writeHead(204);
-    res.end();
-    return;
+async function bootstrap() {
+  if (isPostgresEnabled()) {
+    await initPostgres();
+  } else {
+    init();
   }
 
-  for (const handleRoute of routeHandlers) {
-    if (await handleRoute({ req, res, url, corsHeaders })) {
+  const server = http.createServer(async (req, res) => {
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    const corsHeaders = getCorsHeaders(req);
+    Object.entries(corsHeaders).forEach(([key, value]) => {
+      res.setHeader(key, value);
+    });
+
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204);
+      res.end();
       return;
     }
-  }
 
-  json(res, 404, { error: 'not found' });
-});
+    for (const handleRoute of routeHandlers) {
+      if (await handleRoute({ req, res, url, corsHeaders })) {
+        return;
+      }
+    }
 
-server.listen(PORT, () => {
-  // eslint-disable-next-line no-console
-  console.log(`[fementor-api] listening on :${PORT}`);
+    json(res, 404, { error: 'not found' });
+  });
+
+  server.listen(PORT, () => {
+    console.log(`[fementor-api] listening on :${PORT}`);
+  });
+}
+
+bootstrap().catch((error) => {
+  console.error('[api.bootstrap.failed]', error);
+  process.exit(1);
 });

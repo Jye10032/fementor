@@ -3,6 +3,65 @@ const fs = require('fs');
 
 const SKELETON_PATH = path.resolve(__dirname, '../../data/knowledge-graph-skeleton.json');
 
+// ── Text normalization: handle formatting variants only ──
+
+function normalizeText(kp) {
+  return String(kp || '').trim()
+    .replace(/\s+/g, '')           // 去空格: "虚拟 DOM" → "虚拟DOM"
+    .replace(/[-_]/g, '')          // 去连字符: "Tree-Shaking" → "TreeShaking"
+    .toLowerCase();
+}
+
+// ── Fuzzy matching: skeleton vocabulary substring lookup ──
+
+let skeletonVocab = null;
+let normalizedVocabMap = null; // normalizeText(name) → original name
+
+function getSkeletonVocab() {
+  if (skeletonVocab) return skeletonVocab;
+  const skeleton = loadSkeleton();
+  const names = new Set();
+  for (const [name, node] of Object.entries(skeleton)) {
+    names.add(name);
+    for (const child of node.children || []) names.add(child);
+  }
+  // Sort by length desc: longest match first to avoid "CSS" eating "CSRF"
+  skeletonVocab = [...names].filter((n) => n.length >= 2).sort((a, b) => b.length - a.length);
+  // Build normalized text → original name lookup
+  normalizedVocabMap = new Map();
+  for (const name of skeletonVocab) {
+    const key = normalizeText(name);
+    if (!normalizedVocabMap.has(key)) normalizedVocabMap.set(key, name);
+  }
+  return skeletonVocab;
+}
+
+function fuzzyMatchSkeleton(kp) {
+  const vocab = getSkeletonVocab();
+  for (const term of vocab) {
+    if (kp.length >= term.length && kp.includes(term)) return term;
+  }
+  return null;
+}
+
+function normalizeKnowledgePoint(kp) {
+  const trimmed = String(kp || '').trim();
+  // 1. Exact match against skeleton vocab
+  getSkeletonVocab();
+  if (normalizedVocabMap.has(normalizeText(trimmed))) {
+    return normalizedVocabMap.get(normalizeText(trimmed));
+  }
+  // 2. Substring fuzzy match
+  const fuzzy = fuzzyMatchSkeleton(trimmed);
+  if (fuzzy && fuzzy !== trimmed) return fuzzy;
+  // 3. Keep as-is
+  return trimmed;
+}
+
+function normalizeKnowledgePoints(kps) {
+  return [...new Set(kps.map(normalizeKnowledgePoint).filter(Boolean))];
+}
+
 let globalGraph = {};
 
 function loadSkeleton() {
@@ -25,12 +84,12 @@ async function buildCooccurrenceFromStore(store) {
     const groups = detail.groups || [];
 
     for (const group of groups) {
-      const kps = [...new Set(
+      const kps = normalizeKnowledgePoints(
         (group.items || []).flatMap((item) => {
           const raw = item.knowledge_points_json || item.knowledge_points || '[]';
           return Array.isArray(raw) ? raw : JSON.parse(raw);
         }).filter(Boolean),
-      )];
+      );
 
       for (let i = 0; i < kps.length; i++) {
         const a = kps[i];
@@ -79,8 +138,37 @@ function mergeSkeletonWithCooccurrence(skeleton, cooccurrence) {
 }
 
 function inferOrphanParents(graph) {
+  // Build a reverse lookup: child name → parent name from skeleton entries
+  const childToParent = {};
+  for (const [name, node] of Object.entries(graph)) {
+    for (const child of node.children || []) {
+      if (!childToParent[child]) {
+        childToParent[child] = name;
+      }
+    }
+  }
+
   for (const [name, node] of Object.entries(graph)) {
     if (node.parent) continue;
+
+    // 1. Direct match in skeleton children
+    if (childToParent[name]) {
+      node.parent = childToParent[name];
+      const parentNode = graph[node.parent];
+      if (parentNode && !parentNode.children.includes(name)) {
+        parentNode.children.push(name);
+      }
+      continue;
+    }
+
+    // 2. Synonym-mapped match
+    const normalized = normalizeKnowledgePoint(name);
+    if (normalized !== name && childToParent[normalized]) {
+      node.parent = childToParent[normalized];
+      continue;
+    }
+
+    // 3. Fallback: infer from highest-weight related node's parent
     if (Object.keys(node.related).length === 0) continue;
     const topRelated = Object.entries(node.related).sort((a, b) => b[1] - a[1]);
     for (const [relatedName] of topRelated) {
@@ -116,12 +204,12 @@ async function buildKnowledgeGraph(store) {
 
 function updateGraphIncremental(groups) {
   for (const group of groups) {
-    const kps = [...new Set(
+    const kps = normalizeKnowledgePoints(
       (group.items || []).flatMap((item) => {
         const raw = item.knowledge_points || item.knowledge_points_json || [];
         return Array.isArray(raw) ? raw : [];
       }).filter(Boolean),
-    )];
+    );
 
     for (let i = 0; i < kps.length; i++) {
       const a = kps[i];
@@ -196,4 +284,7 @@ module.exports = {
   expandWithGraph,
   getGraph,
   getLevel2Vocabulary,
+  getSkeletonVocab,
+  normalizeKnowledgePoint,
+  normalizeKnowledgePoints,
 };

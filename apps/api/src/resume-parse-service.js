@@ -167,13 +167,23 @@ const parseResumeRequest = async ({ req, parsedMultipart = null }) => {
         summary: cached.summary,
         originalFilename: filename,
       });
-      ensureLocalUserProfile({
+      await ensureLocalUserProfile({
         userId: context.userId,
         authUser: context.authUser,
         name,
         resumeSummary: cached.summary,
         activeResumeFile: path.basename(savedPath),
       });
+      if (context.authUser?.clerkUserId) {
+        await upsertAppUserByClerk({
+          clerkUserId: context.authUser.clerkUserId,
+          email: context.authUser.email,
+          name: context.authUser.name,
+          avatarUrl: context.authUser.avatarUrl,
+          resumeSummary: cached.summary,
+          activeResumeFile: path.basename(savedPath),
+        });
+      }
 
       return {
         statusCode: 200,
@@ -238,7 +248,7 @@ const parseResumeRequest = async ({ req, parsedMultipart = null }) => {
     saved_path: savedPath,
     elapsed_ms: Date.now() - saveStartedAt,
   });
-  ensureLocalUserProfile({
+  await ensureLocalUserProfile({
     userId: context.userId,
     authUser: context.authUser,
     name,
@@ -246,6 +256,17 @@ const parseResumeRequest = async ({ req, parsedMultipart = null }) => {
     resumeStructuredJson: JSON.stringify(resumeStructured),
     activeResumeFile: path.basename(savedPath),
   });
+  if (context.authUser?.clerkUserId) {
+    await upsertAppUserByClerk({
+      clerkUserId: context.authUser.clerkUserId,
+      email: context.authUser.email,
+      name: context.authUser.name,
+      avatarUrl: context.authUser.avatarUrl,
+      resumeSummary: summary,
+      resumeStructuredJson: JSON.stringify(resumeStructured),
+      activeResumeFile: path.basename(savedPath),
+    });
+  }
 
   if (isPostgresEnabled()) {
     await saveResumeParseCache({

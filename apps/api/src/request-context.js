@@ -138,7 +138,7 @@ const assertCanManagePublicSources = (context) => {
   }
 };
 
-const ensureLocalUserProfile = ({
+const ensureLocalUserProfile = async ({
   userId,
   authUser = null,
   name = undefined,
@@ -147,7 +147,7 @@ const ensureLocalUserProfile = ({
   activeResumeFile = undefined,
   activeJdFile = undefined,
 }) => {
-  upsertUser({
+  await upsertUser({
     id: userId,
     name: name !== undefined ? name : authUser?.name || authUser?.email || '',
     resume_summary: resumeSummary,
@@ -160,7 +160,7 @@ const ensureLocalUserProfile = ({
 };
 
 const buildViewerPayload = async ({ userId, authUser }) => {
-  const user = ensureLocalUserProfile({ userId, authUser });
+  const user = await ensureLocalUserProfile({ userId, authUser });
   const appUser = authUser?.clerkUserId
     ? await upsertAppUserByClerk({
       clerkUserId: authUser.clerkUserId,
@@ -177,7 +177,7 @@ const buildViewerPayload = async ({ userId, authUser }) => {
     ? dailyLimit
     : Math.max(0, dailyLimit - todayUsageCount);
   const dailyInterviewLimit = 1;
-  const todayInterviewCount = countSessionsStartedOnUtcDate({ userId });
+  const todayInterviewCount = await countSessionsStartedOnUtcDate({ userId });
   const remainingInterviewCount = Math.max(0, dailyInterviewLimit - todayInterviewCount);
   const runtimeMode = getAppRuntimeMode();
   const role = resolveViewerRole({ authUser, appUser });
@@ -219,7 +219,7 @@ const ensureSessionOwner = async ({ req, pathname, sessionId, bodyUserId = '', r
     bodyUserId: String(bodyUserId || '').trim(),
     requireAuth: true,
   });
-  const session = getInterviewSession(normalizedSessionId);
+  const session = await getInterviewSession(normalizedSessionId);
   if (!session) {
     throw createHttpError(404, 'session not found');
   }

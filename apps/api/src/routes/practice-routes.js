@@ -13,7 +13,7 @@ const {
 
 const ALLOWED_QUESTION_ATTEMPT_SESSION_TYPES = ['interview'];
 
-const getWeaknessesResponse = ({ pathname, searchParams }) => {
+const getWeaknessesResponse = async ({ pathname, searchParams }) => {
   const userId = requirePathSegment(pathname, 3, 'user_id');
   if (!userId) {
     return { statusCode: 400, payload: { error: 'user_id is required' } };
@@ -21,11 +21,11 @@ const getWeaknessesResponse = ({ pathname, searchParams }) => {
   const limit = parseNumberOrFallback(searchParams.get('limit') || 20, 20);
   return {
     statusCode: 200,
-    payload: { user_id: userId, items: getWeaknessesByUser(userId, limit) },
+    payload: { user_id: userId, items: await getWeaknessesByUser(userId, limit) },
   };
 };
 
-const listAttemptsResponse = ({ searchParams }) => {
+const listAttemptsResponse = async ({ searchParams }) => {
   const userId = String(searchParams.get('user_id') || '').trim();
   if (!userId) {
     return { statusCode: 400, payload: { error: 'user_id is required' } };
@@ -33,7 +33,7 @@ const listAttemptsResponse = ({ searchParams }) => {
   const limit = parseNumberOrFallback(searchParams.get('limit') || 20, 20);
   return {
     statusCode: 200,
-    payload: { user_id: userId, items: listAttemptsByUser(userId, limit) },
+    payload: { user_id: userId, items: await listAttemptsByUser(userId, limit) },
   };
 };
 
@@ -45,7 +45,7 @@ const questionBankResponse = async ({ req, searchParams }) => {
   });
   const chapter = String(searchParams.get('chapter') || '').trim();
   const limit = Number(searchParams.get('limit') || 20);
-  const rows = listUnifiedQuestionBank({
+  const rows = await listUnifiedQuestionBank({
     userId: context.userId,
     chapter: chapter || undefined,
     limit: parseNumberOrFallback(limit, 20),
@@ -65,7 +65,7 @@ const nextPracticeResponse = async ({ req, searchParams }) => {
   const chapter = String(searchParams.get('chapter') || '').trim();
   const includeFuture = String(searchParams.get('include_future') || '0') === '1';
   const limit = Number(searchParams.get('limit') || 10);
-  const rows = listUnifiedPracticeQuestions({
+  const rows = await listUnifiedPracticeQuestions({
     userId: context.userId,
     chapter: chapter || undefined,
     limit: parseNumberOrFallback(limit, 10),
@@ -83,14 +83,14 @@ const nextPracticeResponse = async ({ req, searchParams }) => {
 };
 
 const reviewQuestionResponse = async ({ req, pathname, body }) => {
-  await getResolvedUserContext({ req, requireAuth: true });
+  const context = await getResolvedUserContext({ req, requireAuth: true });
   const questionId = requirePathSegment(pathname, 3, 'question_id');
   const reviewStatus = String(body.review_status || 'done').trim();
   const nextReviewAt = String(body.next_review_at || '').trim();
   if (!['pending', 'done'].includes(reviewStatus)) {
     return { statusCode: 400, payload: { error: 'review_status must be pending or done' } };
   }
-  const result = reviewUnifiedQuestion({
+  const result = await reviewUnifiedQuestion({
     userId: context.userId,
     questionId,
     reviewStatus,
@@ -117,7 +117,7 @@ const promoteQuestionSourceResponse = async ({ req, body }) => {
   if (!canonicalQuestion) return { statusCode: 400, payload: { error: 'canonical_question is required' } };
   if (!questionText) return { statusCode: 400, payload: { error: 'question_text is required' } };
 
-  const result = promoteQuestionSource({
+  const result = await promoteQuestionSource({
     sourceType,
     sourceRefId,
     canonicalQuestion,
@@ -147,7 +147,7 @@ const addUserQuestionBankResponse = async ({ req, body }) => {
     return { statusCode: 400, payload: { error: 'question_source_id is required' } };
   }
 
-  const result = addQuestionToUserBank({
+  const result = await addQuestionToUserBank({
     userId: context.userId,
     questionSourceId,
     track: String(body.track || '').trim(),
@@ -169,7 +169,7 @@ const listUserQuestionBankResponse = async ({ req, searchParams }) => {
     requireAuth: true,
   });
 
-  const result = listStructuredUserQuestionBank({
+  const result = await listStructuredUserQuestionBank({
     userId: context.userId,
     track: String(searchParams.get('track') || '').trim() || undefined,
     chapter: String(searchParams.get('chapter') || '').trim() || undefined,
@@ -212,7 +212,7 @@ const createQuestionAttemptResponse = async ({ req, body }) => {
     };
   }
 
-  const item = recordQuestionAttempt({
+  const item = await recordQuestionAttempt({
     userId: context.userId,
     userQuestionBankId,
     sessionType,
@@ -244,7 +244,7 @@ const createQuestionAttemptResponse = async ({ req, body }) => {
 
 const handlePracticeRoutes = async ({ req, res, url }) => {
   if (req.method === 'GET' && url.pathname.startsWith('/v1/users/') && url.pathname.endsWith('/weaknesses')) {
-    const result = getWeaknessesResponse({
+    const result = await getWeaknessesResponse({
       pathname: url.pathname,
       searchParams: url.searchParams,
     });
@@ -253,7 +253,7 @@ const handlePracticeRoutes = async ({ req, res, url }) => {
   }
 
   if (req.method === 'GET' && url.pathname === '/v1/attempts') {
-    const result = listAttemptsResponse({ searchParams: url.searchParams });
+    const result = await listAttemptsResponse({ searchParams: url.searchParams });
     json(res, result.statusCode, result.payload);
     return true;
   }
@@ -354,7 +354,7 @@ const handlePracticeRoutes = async ({ req, res, url }) => {
 async function registerPracticeRoutes(app) {
   app.get('/v1/users/:user_id/weaknesses', async (request, reply) => {
     const searchParams = new URLSearchParams(request.query || {});
-    const result = getWeaknessesResponse({
+    const result = await getWeaknessesResponse({
       pathname: `/v1/users/${request.params.user_id}/weaknesses`,
       searchParams,
     });
@@ -364,7 +364,7 @@ async function registerPracticeRoutes(app) {
 
   app.get('/v1/attempts', async (request, reply) => {
     const searchParams = new URLSearchParams(request.query || {});
-    const result = listAttemptsResponse({ searchParams });
+    const result = await listAttemptsResponse({ searchParams });
     reply.code(result.statusCode);
     return result.payload;
   });

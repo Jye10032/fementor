@@ -4,7 +4,7 @@ require('dotenv').config({ path: path.resolve(__dirname, '../.env'), quiet: true
 const Fastify = require('fastify');
 const cors = require('@fastify/cors');
 const multipart = require('@fastify/multipart');
-const { initPostgres } = require('./postgres');
+const { initPostgres, isPostgresEnabled } = require('./postgres');
 const { init } = require('./db');
 const { json } = require('./http');
 const { getExperienceStore } = require('./experience/store');
@@ -30,10 +30,11 @@ const routeHandlers = [
 ];
 
 async function buildApp() {
-  init();
-  void initPostgres().catch((error) => {
-    console.error('[postgres.init.failed]', error);
-  });
+  if (isPostgresEnabled()) {
+    await initPostgres();
+  } else {
+    init();
+  }
 
   setImmediate(async () => {
     try {

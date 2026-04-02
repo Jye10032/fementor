@@ -38,7 +38,7 @@ const submitInterviewTurnUnified = async ({ sessionId, body, onPhase, onToken, s
   };
 
   const questionId = String(body.question_id || '').trim();
-  const queuedQuestion = questionId ? getInterviewQuestionById(questionId) : null;
+  const queuedQuestion = questionId ? await getInterviewQuestionById(questionId) : null;
   const question = String(body.question || queuedQuestion?.stem || '').trim();
   const answer = String(body.answer || '').trim();
 
@@ -54,18 +54,18 @@ const submitInterviewTurnUnified = async ({ sessionId, body, onPhase, onToken, s
   if (queuedQuestion?.status === 'answered') throw new Error('question already answered');
   if (!answer) throw new Error('answer is required');
 
-  const session = getInterviewSession(sessionId);
+  const session = await getInterviewSession(sessionId);
   if (!session) throw createHttpError(404, 'session not found');
   if (session.status !== 'in_progress') throw new Error('session is not in progress');
 
-  const turns = listInterviewTurns(sessionId);
+  const turns = await listInterviewTurns(sessionId);
   const turnIndex = turns.length + 1;
   const interviewContext = await buildInterviewContextWindow({
     turns,
     currentQuestion: question,
     sessionContext,
   });
-  const user = getUserById(session.user_id);
+  const user = await getUserById(session.user_id);
   const activeJd = user?.active_jd_file
     ? readJdDoc({ userId: session.user_id, fileName: user.active_jd_file })
     : null;
@@ -88,7 +88,7 @@ const submitInterviewTurnUnified = async ({ sessionId, body, onPhase, onToken, s
   const candidateFollowUp = pickCandidateFollowUp(queuedQuestion);
 
   // 2.5 Load keyword queue context
-  const keywordQueue = getSessionKeywordQueue(sessionId);
+  const keywordQueue = await getSessionKeywordQueue(sessionId);
   const currentKeywordEntry = keywordQueue?.entries?.find((e) => e.status === 'active') || null;
   const keywordContext = currentKeywordEntry ? {
     keyword: currentKeywordEntry.keyword,
@@ -115,11 +115,11 @@ const submitInterviewTurnUnified = async ({ sessionId, body, onPhase, onToken, s
   // 4. Handle non-answer intents
   if (llmResult.intent !== 'answer') {
     if (llmResult.intent === 'skip' && queuedQuestion) {
-      updateInterviewQuestionStatus({ questionId: queuedQuestion.id, status: 'skipped' });
+      await updateInterviewQuestionStatus({ questionId: queuedQuestion.id, status: 'skipped' });
     }
-    let nextQuestion = getNextInterviewQuestion(sessionId);
+    let nextQuestion = await getNextInterviewQuestion(sessionId);
     if (nextQuestion && nextQuestion.status === 'pending') {
-      updateInterviewQuestionStatus({ questionId: nextQuestion.id, status: 'asked' });
+      await updateInterviewQuestionStatus({ questionId: nextQuestion.id, status: 'asked' });
       nextQuestion = { ...nextQuestion, status: 'asked' };
     }
     return {
@@ -149,7 +149,7 @@ const submitInterviewTurnUnified = async ({ sessionId, body, onPhase, onToken, s
   // 5. Persist answer turn
   await emitPhase('persist', '正在写入评分结果...');
   const turnId = randomUUID();
-  addInterviewTurn({
+  await addInterviewTurn({
     id: turnId,
     sessionId,
     questionId: queuedQuestion?.id || null,
@@ -165,8 +165,8 @@ const submitInterviewTurnUnified = async ({ sessionId, body, onPhase, onToken, s
   // 6. Follow-up and keyword handling
   let nextQuestion = null;
   if (queuedQuestion) {
-    updateInterviewQuestionStatus({ questionId: queuedQuestion.id, status: 'answered' });
-    const queueItems = listInterviewQuestions(sessionId);
+    await updateInterviewQuestionStatus({ questionId: queuedQuestion.id, status: 'answered' });
+    const queueItems = await listInterviewQuestions(sessionId);
     await emitPhase('planning', '正在判断是否需要追问...');
 
     // Update keyword turns_used
@@ -219,7 +219,7 @@ const submitInterviewTurnUnified = async ({ sessionId, body, onPhase, onToken, s
               _follow_up_chain: followUpChain,
             };
             try {
-              insertInterviewQuestionAfter({ sessionId, afterOrderNo: queuedQuestion.order_no, item: newQuestion });
+              await insertInterviewQuestionAfter({ sessionId, afterOrderNo: queuedQuestion.order_no, item: newQuestion });
               nextQuestion = { ...newQuestion, session_id: sessionId, order_no: queuedQuestion.order_no + 1 };
             } catch (err) {
               console.error('[interview.keyword.insert_failed]', err);
@@ -239,7 +239,7 @@ const submitInterviewTurnUnified = async ({ sessionId, body, onPhase, onToken, s
             generated.status = 'asked';
             const genItem = { id: generated.id || randomUUID(), ...generated };
             try {
-              insertInterviewQuestionAfter({ sessionId, afterOrderNo: queuedQuestion.order_no, item: genItem });
+              await insertInterviewQuestionAfter({ sessionId, afterOrderNo: queuedQuestion.order_no, item: genItem });
               nextQuestion = { ...genItem, session_id: sessionId, order_no: queuedQuestion.order_no + 1 };
             } catch (err) {
               console.error('[interview.keyword.generate_insert_failed]', err);
@@ -248,7 +248,7 @@ const submitInterviewTurnUnified = async ({ sessionId, body, onPhase, onToken, s
         }
         // else: all keywords exhausted, interview ends naturally
 
-        updateSessionKeywordQueue({ sessionId, keywordQueueJson: JSON.stringify(keywordQueue) });
+        await updateSessionKeywordQueue({ sessionId, keywordQueueJson: JSON.stringify(keywordQueue) });
       }
     } else {
       // --- Follow-up within current keyword ---
@@ -282,7 +282,7 @@ const submitInterviewTurnUnified = async ({ sessionId, body, onPhase, onToken, s
             keyword: currentKeywordEntry?.keyword || '',
           };
           try {
-            insertInterviewQuestionAfter({ sessionId, afterOrderNo: queuedQuestion.order_no, item: followUpItem });
+            await insertInterviewQuestionAfter({ sessionId, afterOrderNo: queuedQuestion.order_no, item: followUpItem });
             nextQuestion = { ...followUpItem, session_id: sessionId, order_no: queuedQuestion.order_no + 1 };
           } catch (err) {
             console.error('[interview.follow_up.insert_failed]', err);
@@ -297,7 +297,7 @@ const submitInterviewTurnUnified = async ({ sessionId, body, onPhase, onToken, s
           });
           const followUpItem = { id: randomUUID(), ...generated, keyword: currentKeywordEntry?.keyword || '' };
           try {
-            insertInterviewQuestionAfter({ sessionId, afterOrderNo: queuedQuestion.order_no, item: followUpItem });
+            await insertInterviewQuestionAfter({ sessionId, afterOrderNo: queuedQuestion.order_no, item: followUpItem });
             nextQuestion = { ...followUpItem, session_id: sessionId, order_no: queuedQuestion.order_no + 1 };
           } catch (err) {
             console.error('[interview.follow_up.insert_failed]', err);
@@ -307,17 +307,17 @@ const submitInterviewTurnUnified = async ({ sessionId, body, onPhase, onToken, s
 
       // Save updated turns_used
       if (keywordQueue) {
-        updateSessionKeywordQueue({ sessionId, keywordQueueJson: JSON.stringify(keywordQueue) });
+        await updateSessionKeywordQueue({ sessionId, keywordQueueJson: JSON.stringify(keywordQueue) });
       }
     }
   }
 
   await emitPhase('planning', '正在规划下一题...');
   if (!nextQuestion) {
-    nextQuestion = getNextInterviewQuestion(sessionId);
+    nextQuestion = await getNextInterviewQuestion(sessionId);
   }
   if (nextQuestion && nextQuestion.status === 'pending') {
-    updateInterviewQuestionStatus({ questionId: nextQuestion.id, status: 'asked' });
+    await updateInterviewQuestionStatus({ questionId: nextQuestion.id, status: 'asked' });
     nextQuestion = { ...nextQuestion, status: 'asked' };
   }
 
@@ -364,7 +364,7 @@ const submitInterviewTurnLegacy = async ({ sessionId, body, onPhase, onToken, se
   };
 
   const questionId = String(body.question_id || '').trim();
-  const queuedQuestion = questionId ? getInterviewQuestionById(questionId) : null;
+  const queuedQuestion = questionId ? await getInterviewQuestionById(questionId) : null;
   const question = String(body.question || queuedQuestion?.stem || '').trim();
   const answer = String(body.answer || '').trim();
   const evidenceRefs = Array.isArray(body.evidence_refs) ? body.evidence_refs : [];
@@ -381,20 +381,20 @@ const submitInterviewTurnLegacy = async ({ sessionId, body, onPhase, onToken, se
   if (queuedQuestion?.status === 'answered') throw new Error('question already answered');
   if (!answer) throw new Error('answer is required');
 
-  const session = getInterviewSession(sessionId);
+  const session = await getInterviewSession(sessionId);
   if (!session) {
     throw createHttpError(404, 'session not found');
   }
   if (session.status !== 'in_progress') throw new Error('session is not in progress');
 
-  const turns = listInterviewTurns(sessionId);
+  const turns = await listInterviewTurns(sessionId);
   const turnIndex = turns.length + 1;
   const interviewContext = await buildInterviewContextWindow({
     turns,
     currentQuestion: question,
     sessionContext,
   });
-  const user = getUserById(session.user_id);
+  const user = await getUserById(session.user_id);
   const activeJd = user?.active_jd_file
     ? readJdDoc({ userId: session.user_id, fileName: user.active_jd_file })
     : null;
@@ -413,11 +413,11 @@ const submitInterviewTurnLegacy = async ({ sessionId, body, onPhase, onToken, se
     if (intentResult.intent === 'skip') {
       await emitPhase('planning', '已跳过当前题，正在切换到下一题...');
       if (queuedQuestion) {
-        updateInterviewQuestionStatus({ questionId: queuedQuestion.id, status: 'skipped' });
+        await updateInterviewQuestionStatus({ questionId: queuedQuestion.id, status: 'skipped' });
       }
-      let nextQuestion = getNextInterviewQuestion(sessionId);
+      let nextQuestion = await getNextInterviewQuestion(sessionId);
       if (nextQuestion && nextQuestion.status === 'pending') {
-        updateInterviewQuestionStatus({ questionId: nextQuestion.id, status: 'asked' });
+        await updateInterviewQuestionStatus({ questionId: nextQuestion.id, status: 'asked' });
         nextQuestion = { ...nextQuestion, status: 'asked' };
       }
       const replyText = await generateInterviewerReply({
@@ -570,7 +570,7 @@ const submitInterviewTurnLegacy = async ({ sessionId, body, onPhase, onToken, se
 
   await emitPhase('persist', '正在写入评分结果...');
   const turnId = randomUUID();
-  addInterviewTurn({
+  await addInterviewTurn({
     id: turnId,
     sessionId,
     questionId: queuedQuestion?.id || null,
@@ -585,8 +585,8 @@ const submitInterviewTurnLegacy = async ({ sessionId, body, onPhase, onToken, se
 
   let nextQuestion = null;
   if (queuedQuestion) {
-    updateInterviewQuestionStatus({ questionId: queuedQuestion.id, status: 'answered' });
-    const queueItems = listInterviewQuestions(sessionId);
+    await updateInterviewQuestionStatus({ questionId: queuedQuestion.id, status: 'answered' });
+    const queueItems = await listInterviewQuestions(sessionId);
     await emitPhase('planning', '正在判断是否需要追问...');
     const needsFollowUp = shouldInsertFollowUp({
       queuedQuestion,
@@ -611,7 +611,7 @@ const submitInterviewTurnLegacy = async ({ sessionId, body, onPhase, onToken, se
         ...followUp,
       };
       try {
-        insertInterviewQuestionAfter({
+        await insertInterviewQuestionAfter({
           sessionId,
           afterOrderNo: queuedQuestion.order_no,
           item: followUpItem,
@@ -629,10 +629,10 @@ const submitInterviewTurnLegacy = async ({ sessionId, body, onPhase, onToken, se
 
   await emitPhase('planning', '正在规划下一题...');
   if (!nextQuestion) {
-    nextQuestion = getNextInterviewQuestion(sessionId);
+    nextQuestion = await getNextInterviewQuestion(sessionId);
   }
   if (nextQuestion && nextQuestion.status === 'pending') {
-    updateInterviewQuestionStatus({ questionId: nextQuestion.id, status: 'asked' });
+    await updateInterviewQuestionStatus({ questionId: nextQuestion.id, status: 'asked' });
     nextQuestion = { ...nextQuestion, status: 'asked' };
   }
 

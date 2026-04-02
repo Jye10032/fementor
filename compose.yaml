@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: fementor-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: fementor
+      POSTGRES_PASSWORD: fementor
+      POSTGRES_DB: fementor
+    ports:
+      - "55432:5432"
+    volumes:
+      - fementor-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fementor -d fementor"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  fementor-postgres-data:

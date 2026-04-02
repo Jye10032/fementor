@@ -118,7 +118,7 @@ const listProfileDocs = (userId, prefix = '') => {
 
 const listJdDocs = (userId) => listProfileDocs(userId, 'jd');
 
-const readUserDoc = ({ userId, fileName, prefix, category = 'knowledge' }) => {
+const resolveUserDocPaths = ({ userId, fileName, prefix, category = 'knowledge' }) => {
   const primaryDir = category === 'profile' ? ensureUserProfileDir(userId) : ensureUserKnowledgeDir(userId);
   const legacyDir = ensureUserDocDir(userId);
   const inputName = String(fileName || '').trim();
@@ -135,10 +135,15 @@ const readUserDoc = ({ userId, fileName, prefix, category = 'knowledge' }) => {
     }
   }
 
-  const fullPath = candidates
+  return candidates
     .map((name) => [path.join(primaryDir, name), path.join(legacyDir, name)])
     .flat()
-    .find((candidate) => fs.existsSync(candidate));
+    .filter((candidate, index, allCandidates) => allCandidates.indexOf(candidate) === index)
+    .filter((candidate) => fs.existsSync(candidate));
+};
+
+const readUserDoc = ({ userId, fileName, prefix, category = 'knowledge' }) => {
+  const [fullPath] = resolveUserDocPaths({ userId, fileName, prefix, category });
   if (!fullPath) return null;
 
   return {
@@ -151,9 +156,13 @@ const readUserDoc = ({ userId, fileName, prefix, category = 'knowledge' }) => {
 const readJdDoc = ({ userId, fileName }) => readUserDoc({ userId, fileName, prefix: 'jd', category: 'profile' });
 
 const deleteUserDoc = ({ userId, fileName, prefix, category = 'profile' }) => {
-  const doc = readUserDoc({ userId, fileName, prefix, category });
-  if (!doc) return false;
-  fs.unlinkSync(doc.path);
+  const matchedPaths = resolveUserDocPaths({ userId, fileName, prefix, category });
+  if (!matchedPaths.length) return false;
+
+  for (const matchedPath of matchedPaths) {
+    fs.unlinkSync(matchedPath);
+  }
+
   return true;
 };
 
@@ -177,6 +186,7 @@ module.exports = {
   listUserDocs,
   listProfileDocs,
   listJdDocs,
+  resolveUserDocPaths,
   readUserDoc,
   readJdDoc,
   deleteUserDoc,

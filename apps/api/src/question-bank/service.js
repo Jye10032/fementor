@@ -13,6 +13,7 @@ const {
   updateUserQuestionBankReviewState,
   upsertQuestionSource,
 } = require('../db');
+const { isPostgresEnabled } = require('../postgres');
 
 const inferQuestionSourceType = (sourceQuestion) => {
   if (sourceQuestion?.source === 'experience') return 'experience';
@@ -77,7 +78,7 @@ const mapUserQuestionBankItemToLegacyShape = (item) => {
   };
 };
 
-const promoteInterviewRetrospectQuestions = ({
+const promoteInterviewRetrospectQuestions = async ({
   session,
   sessionId,
   chapter,
@@ -93,7 +94,7 @@ const promoteInterviewRetrospectQuestions = ({
 
   for (const turn of turns) {
     const sourceQuestion = turn.question_id ? questionMap.get(turn.question_id) : null;
-    const sourceResult = upsertQuestionSource(buildQuestionSourcePayload({
+    const sourceResult = await upsertQuestionSource(buildQuestionSourcePayload({
       chapter,
       sessionId,
       turn,
@@ -105,7 +106,7 @@ const promoteInterviewRetrospectQuestions = ({
       sourceUpdated += 1;
     }
 
-    const bankResult = addUserQuestionBankItem({
+    const bankResult = await addUserQuestionBankItem({
       id: randomUUID(),
       userId: session.user_id,
       questionSourceId: sourceResult.item.id,
@@ -145,7 +146,9 @@ const promoteInterviewRetrospectQuestions = ({
     });
   }
 
-  const legacyStat = saveQuestionBankItems({ items: legacyItems });
+  const legacyStat = isPostgresEnabled()
+    ? { inserted: 0, updated: 0, skipped: legacyItems.length }
+    : saveQuestionBankItems({ items: legacyItems });
 
   return {
     items: legacyItems,
@@ -221,7 +224,7 @@ const listStructuredUserQuestionBank = ({
     offset,
   });
 
-const recordQuestionAttempt = ({
+const recordQuestionAttempt = async ({
   userId,
   userQuestionBankId,
   sessionType,
@@ -235,12 +238,12 @@ const recordQuestionAttempt = ({
   mastered = false,
   nextReviewAt = null,
 }) => {
-  const userQuestionBankItem = getUserQuestionBankItemById(userQuestionBankId);
+  const userQuestionBankItem = await getUserQuestionBankItemById(userQuestionBankId);
   if (!userQuestionBankItem || userQuestionBankItem.user_id !== userId) {
     return null;
   }
 
-  const item = createQuestionAttempt({
+  const item = await createQuestionAttempt({
     id: randomUUID(),
     userId,
     userQuestionBankId,
@@ -259,8 +262,8 @@ const recordQuestionAttempt = ({
   return item;
 };
 
-const listUnifiedQuestionBank = ({ userId, chapter, limit = 20 }) => {
-  const next = listUserQuestionBank({
+const listUnifiedQuestionBank = async ({ userId, chapter, limit = 20 }) => {
+  const next = await listUserQuestionBank({
     userId,
     chapter,
     limit,
@@ -270,16 +273,20 @@ const listUnifiedQuestionBank = ({ userId, chapter, limit = 20 }) => {
     return next.items.map(mapUserQuestionBankItemToLegacyShape);
   }
 
+  if (isPostgresEnabled()) {
+    return [];
+  }
+
   return listQuestionBank({ userId, chapter, limit });
 };
 
-const listUnifiedPracticeQuestions = ({
+const listUnifiedPracticeQuestions = async ({
   userId,
   chapter,
   limit = 10,
   includeFuture = false,
 }) => {
-  const nextItems = listPracticeUserQuestionBank({
+  const nextItems = await listPracticeUserQuestionBank({
     userId,
     chapter,
     limit,
@@ -290,6 +297,10 @@ const listUnifiedPracticeQuestions = ({
     return nextItems.map(mapUserQuestionBankItemToLegacyShape);
   }
 
+  if (isPostgresEnabled()) {
+    return [];
+  }
+
   return listPracticeQuestions({
     userId,
     chapter,
@@ -298,19 +309,19 @@ const listUnifiedPracticeQuestions = ({
   });
 };
 
-const reviewUnifiedQuestion = ({
+const reviewUnifiedQuestion = async ({
   userId,
   questionId,
   reviewStatus,
   nextReviewAt,
 }) => {
-  const currentUserQuestionBankItem = getUserQuestionBankItemById(questionId);
+  const currentUserQuestionBankItem = await getUserQuestionBankItemById(questionId);
   if (currentUserQuestionBankItem) {
     if (currentUserQuestionBankItem.user_id !== userId) {
       return null;
     }
 
-    const updated = updateUserQuestionBankReviewState({
+    const updated = await updateUserQuestionBankReviewState({
       id: questionId,
       reviewStatus,
       nextReviewAt,
@@ -324,6 +335,10 @@ const reviewUnifiedQuestion = ({
       next_review_at: updated.next_review_at,
       storage: 'user_question_bank',
     };
+  }
+
+  if (isPostgresEnabled()) {
+    return null;
   }
 
   const currentLegacyQuestion = getQuestionBankItemById(questionId);

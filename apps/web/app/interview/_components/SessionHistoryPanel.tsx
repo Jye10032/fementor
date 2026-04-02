@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Clock, Eye, Play, Trash2 } from "lucide-react";
+import { Eye, Play, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { InterviewSession } from "../_lib/interview-page.types";
 
@@ -43,31 +43,33 @@ export function SessionHistoryPanel({
           {sessionHistory.map((session) => {
             const date = new Date(session.started_at).toLocaleDateString("zh-CN");
             const isActive = session.status === "in_progress";
+            const itemClassName = `rounded-xl border px-3 py-2.5 text-xs transition-colors duration-200 ${
+              isActive
+                ? "border-primary/30 bg-primary/5 hover:bg-primary/10"
+                : "border-border/40 hover:bg-secondary/50"
+            }`;
             return (
-              <button
-                key={session.id}
-                type="button"
-                onClick={() => {
-                  const query = new URLSearchParams({ session_id: session.id });
-                  router.push(`/interview/session?${query.toString()}`);
-                }}
-                className={`flex w-full cursor-pointer items-center gap-2 rounded-xl px-3 py-2.5 text-left text-xs transition-colors duration-200 ${
-                  isActive
-                    ? "border border-primary/30 bg-primary/5 hover:bg-primary/10"
-                    : "border border-border/40 hover:bg-secondary/50"
-                }`}
-              >
-                {isActive ? (
-                  <Play className="h-3 w-3 shrink-0 text-primary" />
-                ) : (
-                  <Eye className="h-3 w-3 shrink-0 text-muted-foreground" />
-                )}
-                <span className="flex-1 truncate text-foreground">{date}</span>
-                <span className={`shrink-0 text-[10px] font-medium ${
-                  isActive ? "text-primary" : "text-muted-foreground"
-                }`}>
-                  {isActive ? "进行中" : "已完成"}
-                </span>
+              <div key={session.id} className={`flex items-center gap-2 ${itemClassName}`}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const query = new URLSearchParams({ session_id: session.id });
+                    router.push(`/interview/session?${query.toString()}`);
+                  }}
+                  className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left"
+                >
+                  {isActive ? (
+                    <Play className="h-3 w-3 shrink-0 text-primary" />
+                  ) : (
+                    <Eye className="h-3 w-3 shrink-0 text-muted-foreground" />
+                  )}
+                  <span className="flex-1 truncate text-foreground">{date}</span>
+                  <span className={`shrink-0 text-[10px] font-medium ${
+                    isActive ? "text-primary" : "text-muted-foreground"
+                  }`}>
+                    {isActive ? "进行中" : "已完成"}
+                  </span>
+                </button>
                 {onDeleteSession && (
                   <button
                     type="button"
@@ -79,7 +81,7 @@ export function SessionHistoryPanel({
                     <Trash2 className="h-3 w-3" />
                   </button>
                 )}
-              </button>
+              </div>
             );
           })}
         </div>

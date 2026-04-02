@@ -75,8 +75,8 @@ const findExistingJdExample = (userId) => {
   ) || null;
 };
 
-const ensureExampleProfileDocs = ({ userId, authUser = null }) => {
-  ensureLocalUserProfile({ userId, authUser });
+const ensureExampleProfileDocs = async ({ userId, authUser = null }) => {
+  await ensureLocalUserProfile({ userId, authUser });
 
   const existingResume = findExistingResumeExample(userId);
   const existingJd = findExistingJdExample(userId);
@@ -96,12 +96,12 @@ const ensureExampleProfileDocs = ({ userId, authUser = null }) => {
 
   const resumeName = path.basename(resumePath);
   const jdName = path.basename(jdPath);
-  const user = getUserById(userId);
+  const user = await getUserById(userId);
   const resumeDocs = listResumeDocs(userId);
   const jdDocs = listJdDocs(userId);
 
   if (user && !user.active_resume_file && resumeDocs.length === 1) {
-    setActiveResumeFile({
+    await setActiveResumeFile({
       userId,
       fileName: resumeName,
       resumeSummary: resumeExampleSummary,
@@ -109,7 +109,7 @@ const ensureExampleProfileDocs = ({ userId, authUser = null }) => {
   }
 
   if (user && !user.active_jd_file && jdDocs.length === 1) {
-    setActiveJdFile({
+    await setActiveJdFile({
       userId,
       fileName: jdName,
     });

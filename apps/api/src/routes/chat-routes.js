@@ -3,20 +3,21 @@ const { createChatSession, getChatSession, addChatMessage, listChatMessages } = 
 const { chatCompletion, getLlmConfig, streamCompletion } = require('../llm');
 const { getErrorMessage, json, jsonError, parseNumberOrFallback, readBody, requirePathSegment, writeSse } = require('../http');
 
-const buildChatMessages = ({ sessionId, content, systemPrompt = '' }) => {
-  addChatMessage({ id: randomUUID(), sessionId, role: 'user', content });
-  const history = listChatMessages(sessionId, 100).map((message) => ({
+const buildChatMessages = async ({ sessionId, content, systemPrompt = '' }) => {
+  await addChatMessage({ id: randomUUID(), sessionId, role: 'user', content });
+  const history = await listChatMessages(sessionId, 100);
+  const serializedHistory = history.map((message) => ({
     role: message.role,
     content: message.content,
   }));
 
   return [
     ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
-    ...history,
+    ...serializedHistory,
   ];
 };
 
-const startChatSessionResponse = ({ body }) => {
+const startChatSessionResponse = async ({ body }) => {
   const userId = String(body.user_id || '').trim();
   const title = String(body.title || '').trim();
   if (!userId) {
@@ -25,19 +26,19 @@ const startChatSessionResponse = ({ body }) => {
 
   return {
     statusCode: 200,
-    payload: createChatSession({ id: randomUUID(), userId, title }),
+    payload: await createChatSession({ id: randomUUID(), userId, title }),
   };
 };
 
-const listChatMessagesResponse = ({ sessionId, limit }) => {
-  const session = getChatSession(sessionId);
+const listChatMessagesResponse = async ({ sessionId, limit }) => {
+  const session = await getChatSession(sessionId);
   if (!session) {
     return { statusCode: 404, payload: { error: 'session not found' } };
   }
 
   return {
     statusCode: 200,
-    payload: { session, items: listChatMessages(sessionId, limit) },
+    payload: { session, items: await listChatMessages(sessionId, limit) },
   };
 };
 
@@ -49,14 +50,14 @@ const createChatMessageResponse = async ({ sessionId, body }) => {
     return { statusCode: 400, payload: { error: 'content is required' } };
   }
 
-  const session = getChatSession(sessionId);
+  const session = await getChatSession(sessionId);
   if (!session) {
     return { statusCode: 404, payload: { error: 'session not found' } };
   }
 
-  const messages = buildChatMessages({ sessionId, content, systemPrompt });
+  const messages = await buildChatMessages({ sessionId, content, systemPrompt });
   const assistantContent = await chatCompletion({ messages, model });
-  const assistantMsg = addChatMessage({
+  const assistantMsg = await addChatMessage({
     id: randomUUID(),
     sessionId,
     role: 'assistant',
@@ -73,7 +74,7 @@ const handleChatRoutes = async ({ req, res, url, corsHeaders }) => {
   if (req.method === 'POST' && url.pathname === '/v1/chat/sessions/start') {
     try {
       const body = await readBody(req);
-      const result = startChatSessionResponse({ body });
+      const result = await startChatSessionResponse({ body });
       json(res, result.statusCode, result.payload);
     } catch (error) {
       jsonError(res, error);
@@ -87,7 +88,7 @@ const handleChatRoutes = async ({ req, res, url, corsHeaders }) => {
   ) {
     const sessionId = requirePathSegment(url.pathname, 4, 'session_id');
     const limit = parseNumberOrFallback(url.searchParams.get('limit') || 100, 100);
-    const result = listChatMessagesResponse({ sessionId, limit });
+    const result = await listChatMessagesResponse({ sessionId, limit });
     json(res, result.statusCode, result.payload);
     return true;
   }
@@ -118,10 +119,10 @@ const handleChatRoutes = async ({ req, res, url, corsHeaders }) => {
       const systemPrompt = String(body.system_prompt || '').trim();
       const model = String(body.model || '').trim() || undefined;
       if (!content) return json(res, 400, { error: 'content is required' });
-      const session = getChatSession(sessionId);
+      const session = await getChatSession(sessionId);
       if (!session) return json(res, 404, { error: 'session not found' });
 
-      const messages = buildChatMessages({ sessionId, content, systemPrompt });
+      const messages = await buildChatMessages({ sessionId, content, systemPrompt });
       const llmConfig = getLlmConfig();
 
       res.writeHead(200, {
@@ -142,7 +143,7 @@ const handleChatRoutes = async ({ req, res, url, corsHeaders }) => {
         writeSse(res, 'token', { delta });
       }
 
-      const assistantMsg = addChatMessage({
+      const assistantMsg = await addChatMessage({
         id: randomUUID(),
         sessionId,
         role: 'assistant',
@@ -166,14 +167,14 @@ const handleChatRoutes = async ({ req, res, url, corsHeaders }) => {
 
 async function registerChatRoutes(app) {
   app.post('/v1/chat/sessions/start', async (request, reply) => {
-    const result = startChatSessionResponse({ body: request.body || {} });
+    const result = await startChatSessionResponse({ body: request.body || {} });
     reply.code(result.statusCode);
     return result.payload;
   });
 
   app.get('/v1/chat/sessions/:session_id/messages', async (request, reply) => {
     const limit = parseNumberOrFallback(request.query?.limit || 100, 100);
-    const result = listChatMessagesResponse({
+    const result = await listChatMessagesResponse({
       sessionId: request.params.session_id,
       limit,
     });

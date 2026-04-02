@@ -57,9 +57,9 @@ const fetchRemoteJson = async ({ baseUrl, apiKey, timeoutMs, pathname, searchPar
   }
 };
 
-const buildLocalPublicSourceStatus = () => {
-  const state = getPublicSourceSyncStateBySourceName(LOCAL_PUBLIC_SOURCE_NAME);
-  const localItemCount = countQuestionSources();
+const buildLocalPublicSourceStatus = async () => {
+  const state = await getPublicSourceSyncStateBySourceName(LOCAL_PUBLIC_SOURCE_NAME);
+  const localItemCount = await countQuestionSources();
   const remote = getRemoteSyncConfig();
 
   return {
@@ -75,14 +75,14 @@ const buildLocalPublicSourceStatus = () => {
   };
 };
 
-const refreshLocalPublicSourceState = ({
+const refreshLocalPublicSourceState = async ({
   status = 'success',
   errorMessage = '',
   lastServerTime,
   lastSyncedAt,
 } = {}) => {
-  const current = getPublicSourceSyncStateBySourceName(LOCAL_PUBLIC_SOURCE_NAME);
-  const localItemCount = countQuestionSources();
+  const current = await getPublicSourceSyncStateBySourceName(LOCAL_PUBLIC_SOURCE_NAME);
+  const localItemCount = await countQuestionSources();
   const now = new Date().toISOString();
 
   return upsertPublicSourceSyncState({
@@ -127,25 +127,25 @@ const isValidRemoteSyncItem = (item) =>
     && item.questionText,
   );
 
-const upsertRemoteQuestionSources = (items = []) => {
+const upsertRemoteQuestionSources = async (items = []) => {
   let syncedCount = 0;
   for (const rawItem of items) {
     const item = normalizeRemoteSyncItem(rawItem);
     if (!isValidRemoteSyncItem(item)) {
       continue;
     }
-    upsertQuestionSource(item);
+    await upsertQuestionSource(item);
     syncedCount += 1;
   }
   return syncedCount;
 };
 
 const checkLocalPublicSourceUpdate = async () => {
-  const current = refreshLocalPublicSourceState({ status: 'checking', errorMessage: '' });
+  const current = await refreshLocalPublicSourceState({ status: 'checking', errorMessage: '' });
   const remote = getRemoteSyncConfig();
 
   if (!remote.remoteConfigured) {
-    const result = refreshLocalPublicSourceState({ status: 'idle', errorMessage: '' });
+    const result = await refreshLocalPublicSourceState({ status: 'idle', errorMessage: '' });
     return {
       source_name: LOCAL_PUBLIC_SOURCE_NAME,
       has_local_data: Number(result?.local_item_count || 0) > 0,
@@ -175,7 +175,7 @@ const checkLocalPublicSourceUpdate = async () => {
       latestRemoteUpdatedAt
       && (!lastServerTime || new Date(latestRemoteUpdatedAt).getTime() > new Date(lastServerTime).getTime()),
     );
-    const result = refreshLocalPublicSourceState({
+    const result = await refreshLocalPublicSourceState({
       status: 'idle',
       errorMessage: '',
       lastServerTime: serverTime || lastServerTime,
@@ -196,7 +196,7 @@ const checkLocalPublicSourceUpdate = async () => {
       message: hasRemoteUpdate ? 'remote_update_available' : 'already_up_to_date',
     };
   } catch (error) {
-    const result = refreshLocalPublicSourceState({
+    const result = await refreshLocalPublicSourceState({
       status: 'failed',
       errorMessage: error.message,
     });
@@ -220,11 +220,11 @@ const checkLocalPublicSourceUpdate = async () => {
 
 const syncLocalPublicQuestionSources = async () => {
   const remote = getRemoteSyncConfig();
-  const current = refreshLocalPublicSourceState({ status: 'syncing', errorMessage: '' });
+  const current = await refreshLocalPublicSourceState({ status: 'syncing', errorMessage: '' });
   const localItemCount = Number(current?.local_item_count || 0);
 
   if (!remote.remoteConfigured) {
-    const result = refreshLocalPublicSourceState({
+    const result = await refreshLocalPublicSourceState({
       status: 'success',
       errorMessage: '',
     });
@@ -259,13 +259,13 @@ const syncLocalPublicQuestionSources = async () => {
       });
 
       const items = Array.isArray(remotePayload.items) ? remotePayload.items : [];
-      syncedCount += upsertRemoteQuestionSources(items);
+      syncedCount += await upsertRemoteQuestionSources(items);
       hasMore = remotePayload.has_more === true;
       nextSince = String(remotePayload.next_since || '').trim() || nextSince;
       lastServerTime = String(remotePayload.server_time || '').trim() || lastServerTime;
     } while (hasMore);
 
-    const result = refreshLocalPublicSourceState({
+    const result = await refreshLocalPublicSourceState({
       status: 'success',
       errorMessage: '',
       lastServerTime,
@@ -283,7 +283,7 @@ const syncLocalPublicQuestionSources = async () => {
       message: 'remote_sync_completed',
     };
   } catch (error) {
-    const result = refreshLocalPublicSourceState({
+    const result = await refreshLocalPublicSourceState({
       status: 'failed',
       errorMessage: error.message,
     });

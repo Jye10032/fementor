@@ -1,5 +1,6 @@
 const { createHash, randomUUID } = require('crypto');
 const { hasRealLLM, jsonCompletion } = require('../llm');
+const { normalizeKnowledgePoints, getSkeletonVocab } = require('./knowledge-graph');
 
 const PIPELINE_MAX_RETRIES = 2;
 const PIPELINE_RETRY_DELAY_MS = 500;
@@ -440,23 +441,28 @@ const buildGroupingPrompt = ({ questions }) => ({
 
 // ── Pipeline Step 4: Annotation ──
 
-const buildAnnotationPrompt = ({ questions }) => ({
-  messages: [
-    {
-      role: 'system',
-      content: [
-        '为每道面试问题标注知识点和评分要点。只输出 JSON，不要解释。',
-        '输出：{“annotations”:[{“index”:0,”knowledge_points”:[“短词标签”],”expected_points”:[“句子粒度的评分要点”]}]}',
-        'knowledge_points：该题考察的知识领域标签，短词粒度，用于检索（如 [“闭包”, “垃圾回收”]）。',
-        'expected_points：候选人回答应覆盖的要点，句子粒度，用于评分（如 [“闭包的定义和形成条件”]）。',
-      ].join('\n'),
-    },
-    {
-      role: 'user',
-      content: JSON.stringify(questions.map((q, i) => ({ index: i, question: q.normalized || q.raw, category: q.category }))),
-    },
-  ],
-});
+const buildAnnotationPrompt = ({ questions }) => {
+  const vocab = getSkeletonVocab().join(', ');
+  return {
+    messages: [
+      {
+        role: 'system',
+        content: [
+          '为每道面试问题标注知识点和评分要点。只输出 JSON，不要解释。',
+          '输出：{“annotations”:[{“index”:0,”knowledge_points”:[“短词标签”],”expected_points”:[“句子粒度的评分要点”]}]}',
+          'knowledge_points：该题考察的知识领域标签，短词粒度，用于检索。',
+          `必须从以下标签列表中选取：${vocab}`,
+          '仅当列表中确实没有匹配项时，才可新建标签。新建标签必须是通用技术术语，不得包含项目名、产品名或公司名。',
+          'expected_points：候选人回答应覆盖的要点，句子粒度，用于评分（如 [“闭包的定义和形成条件”]）。',
+        ].join('\n'),
+      },
+      {
+        role: 'user',
+        content: JSON.stringify(questions.map((q, i) => ({ index: i, question: q.normalized || q.raw, category: q.category }))),
+      },
+    ],
+  };
+};
 
 // ── Pipeline orchestration ──
 
@@ -484,7 +490,7 @@ const assemblePipelineResult = ({ metadata, questions, grouping, annotations, cl
         difficulty: q.difficulty || 'medium',
         follow_up_intent: ref.follow_up_intent || 'clarify',
         chain_anchor: ref.chain_anchor || 'generic',
-        knowledge_points: Array.isArray(ann.knowledge_points) ? ann.knowledge_points : [],
+        knowledge_points: normalizeKnowledgePoints(Array.isArray(ann.knowledge_points) ? ann.knowledge_points : []),
         expected_points: Array.isArray(ann.expected_points) ? ann.expected_points : [],
       };
     }).filter(Boolean),

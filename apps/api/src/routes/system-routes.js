@@ -216,7 +216,7 @@ const upsertUserResponse = async ({ body }) => {
     return { statusCode: 400, payload: { error: 'id is required' } };
   }
 
-  const result = upsertUser({ id, name, resume_summary: resumeSummary });
+  const result = await upsertUser({ id, name, resume_summary: resumeSummary });
   return {
     statusCode: 200,
     payload: {
@@ -234,7 +234,7 @@ const buildQueryPlanResponse = async ({ body }) => {
     return { statusCode: 400, payload: { error: 'question is required' } };
   }
 
-  const user = userId ? getUserById(userId) : null;
+  const user = userId ? await getUserById(userId) : null;
   return {
     statusCode: 200,
     payload: buildQueryPlan({
@@ -256,7 +256,7 @@ const retrievalSearchResponse = async ({ body }) => {
     return { statusCode: 400, payload: { error: 'question is required' } };
   }
 
-  const user = getUserById(userId);
+  const user = await getUserById(userId);
   const result = await retrieveEvidence({
     userId,
     question,
@@ -311,7 +311,7 @@ const scoringEvaluateResponse = async ({ req, body }) => {
     return { statusCode: 400, payload: { error: 'answer is required' } };
   }
 
-  const user = ensureLocalUserProfile({ userId, authUser: context.authUser });
+  const user = await ensureLocalUserProfile({ userId, authUser: context.authUser });
   const questionTypeResult = await classifyQuestionType({
     question,
     answer,
@@ -380,7 +380,7 @@ const scoringEvaluateResponse = async ({ req, body }) => {
   }));
   const weaknessRows = weaknesses.map((tag) => ({ id: randomUUID(), tag }));
 
-  saveScoringResult({
+  await saveScoringResult({
     attemptId,
     scoreReportId,
     userId,
