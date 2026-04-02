@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { apiRequest } from "../../../lib/api";
 import { ExperienceListResponse } from "../_lib/experience.types";
 
@@ -15,16 +15,19 @@ export function useExperienceList({ apiBase, enabled, query }: UseExperienceList
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const hasFetched = useRef(false);
 
   const refresh = async () => {
     if (!enabled) {
-      setItems([]);
-      setTotal(0);
+      if (!hasFetched.current) {
+        setItems([]);
+        setTotal(0);
+      }
       return;
     }
 
     try {
-      setLoading(true);
+      if (!hasFetched.current) setLoading(true);
       setError(null);
       const path = `/v1/experiences?only_valid=1&page=1&page_size=200${query ? `&query=${encodeURIComponent(query)}` : ""}`;
       const response = await apiRequest<ExperienceListResponse>(apiBase, path, {
@@ -32,9 +35,12 @@ export function useExperienceList({ apiBase, enabled, query }: UseExperienceList
       });
       setItems(response.items || []);
       setTotal(response.total || 0);
+      hasFetched.current = true;
     } catch (requestError) {
-      setItems([]);
-      setTotal(0);
+      if (!hasFetched.current) {
+        setItems([]);
+        setTotal(0);
+      }
       setError(requestError instanceof Error ? requestError.message : "加载面经失败");
     } finally {
       setLoading(false);

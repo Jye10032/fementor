@@ -1,7 +1,7 @@
 "use client";
 
 import { useDeferredValue, useState } from "react";
-import { BookOpen, Database, LogIn, User } from "lucide-react";
+import { BookOpen, Database, Loader2, LogIn, User } from "lucide-react";
 import { SignInButton } from "@clerk/nextjs";
 import { useAuthState } from "../../components/auth-provider";
 import { PageShell } from "../../components/page-shell";
@@ -39,20 +39,22 @@ export default function ExperiencePage() {
           <span className="hidden text-sm text-muted-foreground sm:inline">·</span>
           <p className="hidden text-sm text-muted-foreground sm:inline">抓取牛客近 7 日面经，结构化清洗后供搜索和练习</p>
         </div>
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <div className="flex min-w-[4.5rem] items-center gap-1.5 text-xs text-muted-foreground">
           <Database className="h-3 w-3" />
           <span className="font-semibold text-foreground">{experienceList.total}</span>条
           <span className="mx-1 text-border">|</span>
           <User className="h-3 w-3" />
-          <span className="font-semibold text-foreground">
-            {isSignedIn ? viewer?.name || viewer?.email || "已登录" : "未登录"}
-          </span>
+          {!isLoaded ? (
+            <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+          ) : (
+            <span className="font-semibold text-foreground">
+              {isSignedIn ? viewer?.name || viewer?.email || "已登录" : "未登录"}
+            </span>
+          )}
         </div>
       </div>
 
-      {!isLoaded ? (
-        <p className="text-sm text-muted-foreground">正在同步登录态...</p>
-      ) : !isSignedIn ? (
+      {isLoaded && !isSignedIn ? (
         <div className="flex items-center justify-between gap-4 rounded-xl border border-amber-200/80 bg-amber-50/50 px-5 py-3 backdrop-blur">
           <div className="flex items-center gap-3">
             <LogIn className="h-4 w-4 shrink-0 text-amber-600" />

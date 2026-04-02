@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { apiRequest } from "../../../lib/api";
 import { ResumeLibraryResponse } from "../_lib/interview-page.types";
 
@@ -14,6 +14,7 @@ export function useResumePanel({ apiBase, enabled }: UseResumePanelParams) {
   const [loading, setLoading] = useState(false);
   const [switchingResume, setSwitchingResume] = useState("");
   const [resumePickerOpen, setResumePickerOpen] = useState(false);
+  const hasFetched = useRef(false);
 
   const activeResume = useMemo(
     () =>
@@ -23,15 +24,16 @@ export function useResumePanel({ apiBase, enabled }: UseResumePanelParams) {
 
   const refreshResumeLibrary = async () => {
     if (!enabled) {
-      setResumeLibrary(null);
+      if (!hasFetched.current) setResumeLibrary(null);
       return;
     }
-    setLoading(true);
+    if (!hasFetched.current) setLoading(true);
     try {
       const resumeData = await apiRequest<ResumeLibraryResponse>(apiBase, "/v1/resume/library", {
         auth: "required",
       });
       setResumeLibrary(resumeData);
+      hasFetched.current = true;
     } catch {
       // ignore
     } finally {
