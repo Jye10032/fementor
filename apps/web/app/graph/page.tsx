@@ -335,11 +335,63 @@ function renderGraph(
     return null;
   }
 
-  // 10. 缩放行为
+  // 10. 缩放行为 + 拖拽行为（合并处理，避免事件冲突）
+  let dragNode: SimNode | null = null;
+
   const zoomBehavior = d3.zoom<HTMLCanvasElement, unknown>()
     .scaleExtent([0.2, 4])
+    .filter((e) => {
+      // 鼠标按下时，如果命中节点则交给拖拽处理，不触发 zoom 平移
+      if (e.type === "mousedown" || e.type === "touchstart") {
+        const rect = canvas.getBoundingClientRect();
+        const mx = (e as MouseEvent).clientX - rect.left;
+        const my = (e as MouseEvent).clientY - rect.top;
+        if (hitTest(mx, my)) return false;
+      }
+      return true;
+    })
     .on("zoom", (e) => { transform = e.transform; draw(); });
   d3.select(canvas).call(zoomBehavior);
+
+  // 拖拽节点：mousedown 命中节点时启动
+  let dragStartX = 0;
+  let dragStartY = 0;
+
+  canvas.addEventListener("mousedown", (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const hit = hitTest(mx, my);
+    if (!hit) return;
+
+    dragNode = hit;
+    dragStartX = e.clientX;
+    dragStartY = e.clientY;
+    simulation.alphaTarget(0.3).restart();
+    hit.fx = hit.x;
+    hit.fy = hit.y;
+
+    const onMouseMove = (ev: MouseEvent) => {
+      if (!dragNode) return;
+      const [sx, sy] = transform.invert([ev.clientX - rect.left, ev.clientY - rect.top]);
+      dragNode.fx = sx;
+      dragNode.fy = sy;
+    };
+
+    const onMouseUp = () => {
+      if (dragNode) {
+        simulation.alphaTarget(0);
+        dragNode.fx = null;
+        dragNode.fy = null;
+        dragNode = null;
+      }
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+  });
 
   // 11. hover 交互
   canvas.addEventListener("mousemove", (e) => {
@@ -377,8 +429,11 @@ function renderGraph(
     draw();
   });
 
-  // 12. 点击高亮
+  // 12. 点击高亮（过滤掉拖拽产生的 click）
   canvas.addEventListener("click", (e) => {
+    // 如果鼠标移动超过 5px，视为拖拽而非点击
+    if (Math.abs(e.clientX - dragStartX) > 5 || Math.abs(e.clientY - dragStartY) > 5) return;
+
     const rect = canvas.getBoundingClientRect();
     const hit = hitTest(e.clientX - rect.left, e.clientY - rect.top);
 
@@ -399,37 +454,4 @@ function renderGraph(
     }
     draw();
   });
-
-  // 13. 拖拽行为
-  let dragNode: SimNode | null = null;
-
-  d3.select(canvas).call(
-    d3.drag<HTMLCanvasElement, unknown>()
-      .subject((e) => {
-        const hit = hitTest(e.x, e.y);
-        if (hit) return { x: transform.applyX(hit.x!), y: transform.applyY(hit.y!) };
-        return null;
-      })
-      .on("start", (e) => {
-        const hit = hitTest(e.x, e.y);
-        if (!hit) return;
-        dragNode = hit;
-        if (!e.active) simulation.alphaTarget(0.3).restart();
-        hit.fx = hit.x;
-        hit.fy = hit.y;
-      })
-      .on("drag", (e) => {
-        if (!dragNode) return;
-        const [sx, sy] = transform.invert([e.x, e.y]);
-        dragNode.fx = sx;
-        dragNode.fy = sy;
-      })
-      .on("end", (e) => {
-        if (!dragNode) return;
-        if (!e.active) simulation.alphaTarget(0);
-        dragNode.fx = null;
-        dragNode.fy = null;
-        dragNode = null;
-      }),
-  );
 }
