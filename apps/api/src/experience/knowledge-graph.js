@@ -112,36 +112,57 @@ async function buildCooccurrenceFromStore(store) {
 function mergeSkeletonWithCooccurrence(skeleton, cooccurrence) {
   const graph = {};
 
-  for (const [name, node] of Object.entries(skeleton)) {
-    graph[name] = {
-      parent: node.parent || null,
-      children: Array.isArray(node.children) ? [...node.children] : [],
-      related: {},
-    };
-    for (const r of Array.isArray(node.related) ? node.related : []) {
-      graph[name].related[r] = 1;
-    }
-  }
-
-  // Ensure children referenced in skeleton also exist as graph nodes
+  // Build skeleton lookup: child → parent, and name → node definition
+  const skeletonChildToParent = {};
   for (const [name, node] of Object.entries(skeleton)) {
     for (const child of node.children || []) {
-      if (!graph[child]) {
-        graph[child] = { parent: name, children: [], related: {} };
-      }
+      skeletonChildToParent[child] = name;
     }
   }
 
+  // Only create nodes for tags that actually appear in cooccurrence (from real data)
   for (const [name, data] of Object.entries(cooccurrence)) {
-    if (!graph[name]) {
-      graph[name] = { parent: null, children: [], related: {} };
+    const skeletonNode = skeleton[name];
+    graph[name] = {
+      parent: skeletonNode?.parent || skeletonChildToParent[name] || null,
+      children: skeletonNode?.children ? [...skeletonNode.children] : [],
+      related: {},
+      source: skeletonNode || skeletonChildToParent[name] ? 'both' : 'cooccurrence',
+    };
+    // Seed related from skeleton
+    if (skeletonNode) {
+      for (const r of Array.isArray(skeletonNode.related) ? skeletonNode.related : []) {
+        graph[name].related[r] = 1;
+      }
     }
+    // Merge cooccurrence weights
     for (const [rel, weight] of Object.entries(data.related)) {
       if (weight >= 1) {
         graph[name].related[rel] = (graph[name].related[rel] || 0) + weight;
       }
     }
   }
+
+  // For nodes in the graph, ensure their skeleton-defined parent also exists
+  // (a parent category should appear even if it has no direct cooccurrence data)
+  const toAdd = {};
+  for (const [name, node] of Object.entries(graph)) {
+    if (node.parent && !graph[node.parent] && !toAdd[node.parent]) {
+      const parentSkeleton = skeleton[node.parent];
+      toAdd[node.parent] = {
+        parent: parentSkeleton?.parent || null,
+        children: parentSkeleton?.children ? [...parentSkeleton.children] : [name],
+        related: {},
+        source: 'skeleton',
+      };
+      if (parentSkeleton) {
+        for (const r of Array.isArray(parentSkeleton.related) ? parentSkeleton.related : []) {
+          toAdd[node.parent].related[r] = 1;
+        }
+      }
+    }
+  }
+  Object.assign(graph, toAdd);
 
   return graph;
 }
@@ -222,10 +243,12 @@ function updateGraphIncremental(groups) {
 
     for (let i = 0; i < kps.length; i++) {
       const a = kps[i];
-      if (!globalGraph[a]) globalGraph[a] = { parent: null, children: [], related: {} };
+      if (!globalGraph[a]) globalGraph[a] = { parent: null, children: [], related: {}, source: 'cooccurrence' };
+      else if (globalGraph[a].source === 'skeleton') globalGraph[a].source = 'both';
       for (let j = i + 1; j < kps.length; j++) {
         const b = kps[j];
-        if (!globalGraph[b]) globalGraph[b] = { parent: null, children: [], related: {} };
+        if (!globalGraph[b]) globalGraph[b] = { parent: null, children: [], related: {}, source: 'cooccurrence' };
+        else if (globalGraph[b].source === 'skeleton') globalGraph[b].source = 'both';
         globalGraph[a].related[b] = (globalGraph[a].related[b] || 0) + 1;
         globalGraph[b].related[a] = (globalGraph[b].related[a] || 0) + 1;
       }

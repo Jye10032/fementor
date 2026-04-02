@@ -207,6 +207,7 @@ function renderGraph(
   //    - center: 将整体图形锚定到画布中心
   //    - collision: 碰撞检测，防止节点重叠
   const simulation = d3.forceSimulation<SimNode>(nodes)
+    .alphaDecay(0.05)
     .force("link", d3.forceLink<SimNode, SimLink>(links).id((d) => d.id).distance((d) => d.type === "parent" ? 60 : 100).strength((d) => d.type === "parent" ? 0.8 : 0.15))
     .force("charge", d3.forceManyBody<SimNode>().strength((d) => d.level === 0 ? -600 : d.level === 1 ? -200 : -80))
     .force("center", d3.forceCenter(width / 2, height / 2))
