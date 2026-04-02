@@ -7,6 +7,9 @@ node_modules
 .agents/skills/
 skills-lock.json
 data/
+!apps/api/data/
+apps/api/data/*
+!apps/api/data/knowledge-graph-skeleton.json
 !data/user_docs/
 !data/user_docs/.gitkeep
 !data/memory/

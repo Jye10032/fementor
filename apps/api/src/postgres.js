@@ -51,6 +51,35 @@ function isPostgresEnabled() {
   return Boolean(DATABASE_URL);
 }
 
+function shouldDisableSslForDatabaseUrl(databaseUrl) {
+  if (!databaseUrl) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(databaseUrl);
+    const hostname = String(parsed.hostname || '').trim().toLowerCase();
+    return hostname === 'localhost'
+      || hostname === '127.0.0.1'
+      || hostname === '0.0.0.0'
+      || hostname === 'postgres';
+  } catch {
+    return false;
+  }
+}
+
+function getPostgresSslConfig() {
+  if (process.env.PGSSL_DISABLE === '1') {
+    return false;
+  }
+
+  if (shouldDisableSslForDatabaseUrl(DATABASE_URL)) {
+    return false;
+  }
+
+  return { rejectUnauthorized: false };
+}
+
 function getPool() {
   if (!isPostgresEnabled()) {
     return null;
@@ -59,7 +88,7 @@ function getPool() {
   if (!pool) {
     pool = new Pool({
       connectionString: DATABASE_URL,
-      ssl: process.env.PGSSL_DISABLE === '1' ? false : { rejectUnauthorized: false },
+      ssl: getPostgresSslConfig(),
     });
   }
 

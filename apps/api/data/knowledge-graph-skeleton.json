@@ -1,0 +1,167 @@
+{
+  "JavaScript": {
+    "parent": null,
+    "children": ["闭包", "原型链", "事件循环", "Promise", "this指向", "作用域", "类型判断", "ES6+语法", "模块化", "深拷贝", "防抖节流", "变量声明", "数据类型"],
+    "related": ["TypeScript", "Node.js"]
+  },
+  "闭包": {
+    "parent": "JavaScript",
+    "children": ["词法作用域", "内存泄漏", "柯里化", "IIFE"],
+    "related": ["作用域", "垃圾回收", "this指向"]
+  },
+  "原型链": {
+    "parent": "JavaScript",
+    "children": ["原型继承", "构造函数", "class语法"],
+    "related": ["this指向", "new操作符"]
+  },
+  "事件循环": {
+    "parent": "JavaScript",
+    "children": ["宏任务", "微任务", "requestAnimationFrame"],
+    "related": ["Promise", "async/await", "浏览器渲染"]
+  },
+  "Promise": {
+    "parent": "JavaScript",
+    "children": ["Promise.all", "Promise.race", "async/await"],
+    "related": ["事件循环", "微任务", "错误处理"]
+  },
+  "React": {
+    "parent": null,
+    "children": ["Hooks原理", "Fiber架构", "虚拟DOM", "Diff算法", "状态管理", "React Router", "性能优化", "生命周期", "Context", "Suspense", "并发模式"],
+    "related": ["Vue", "TypeScript", "Next.js"]
+  },
+  "Hooks原理": {
+    "parent": "React",
+    "children": ["useState", "useEffect", "useRef", "useMemo", "useCallback", "自定义Hook"],
+    "related": ["Fiber架构", "闭包", "性能优化"]
+  },
+  "Fiber架构": {
+    "parent": "React",
+    "children": ["时间切片", "优先级调度", "双缓冲"],
+    "related": ["虚拟DOM", "Diff算法", "并发模式"]
+  },
+  "虚拟DOM": {
+    "parent": "React",
+    "children": ["Diff算法", "key的作用", "批量更新"],
+    "related": ["Fiber架构", "性能优化"]
+  },
+  "Vue": {
+    "parent": null,
+    "children": ["响应式原理", "Composition API", "Pinia/Vuex", "Vue Router", "生命周期", "编译优化", "keep-alive", "nextTick", "Vue3", "组件通信", "路由守卫"],
+    "related": ["React", "TypeScript"]
+  },
+  "响应式原理": {
+    "parent": "Vue",
+    "children": ["Proxy", "依赖收集", "派发更新", "computed原理", "watch原理"],
+    "related": ["虚拟DOM", "Diff算法"]
+  },
+  "CSS": {
+    "parent": null,
+    "children": ["BFC", "Flex布局", "Grid布局", "居中方案", "响应式设计", "CSS变量", "动画/过渡", "选择器优先级", "移动端适配", "元素居中"],
+    "related": ["HTML", "浏览器渲染"]
+  },
+  "浏览器": {
+    "parent": null,
+    "children": ["HTTPS", "跨域方案", "浏览器渲染", "重排重绘", "Web安全", "Cookie/Session", "浏览器存储", "性能指标", "IndexedDB", "虚拟列表"],
+    "related": ["网络", "CSS"]
+  },
+  "浏览器渲染": {
+    "parent": "浏览器",
+    "children": ["DOM树构建", "CSSOM", "渲染树", "合成层", "GPU加速"],
+    "related": ["重排重绘", "性能指标", "事件循环"]
+  },
+  "性能指标": {
+    "parent": "浏览器",
+    "children": ["LCP", "FCP", "CLS", "TTFB", "INP", "FID"],
+    "related": ["性能优化", "浏览器渲染", "首屏优化"]
+  },
+  "工程化": {
+    "parent": null,
+    "children": ["Webpack", "Vite", "Babel", "Tree Shaking", "代码分割", "CI/CD", "Monorepo", "微前端", "包管理", "ESLint", "Git"],
+    "related": ["性能优化", "Node.js"]
+  },
+  "Webpack": {
+    "parent": "工程化",
+    "children": ["Loader", "Plugin", "HMR", "Module Federation", "构建优化"],
+    "related": ["Vite", "Babel", "Tree Shaking"]
+  },
+  "Vite": {
+    "parent": "工程化",
+    "children": ["ESM", "预构建", "HMR", "Rollup"],
+    "related": ["Webpack", "ESM"]
+  },
+  "微前端": {
+    "parent": "工程化",
+    "children": ["qiankun", "Module Federation", "iframe方案", "Web Components"],
+    "related": ["Monorepo", "路由管理"]
+  },
+  "性能优化": {
+    "parent": null,
+    "children": ["首屏优化", "懒加载", "缓存策略", "代码分割", "图片优化", "SSR/SSG", "CDN"],
+    "related": ["性能指标", "浏览器渲染", "Webpack"]
+  },
+  "首屏优化": {
+    "parent": "性能优化",
+    "children": ["关键渲染路径", "预加载", "骨架屏", "SSR"],
+    "related": ["LCP", "FCP", "代码分割"]
+  },
+  "SSR/SSG": {
+    "parent": "性能优化",
+    "children": ["Next.js", "Nuxt", "Hydration", "数据注水", "流式渲染"],
+    "related": ["首屏优化", "SEO"]
+  },
+  "算法": {
+    "parent": null,
+    "children": ["排序", "链表", "二叉树", "动态规划", "DFS/BFS", "双指针", "滑动窗口", "栈/队列", "哈希表", "贪心"],
+    "related": []
+  },
+  "Node.js": {
+    "parent": null,
+    "children": ["Express/Koa", "中间件", "进程管理", "Stream", "RESTful", "鉴权"],
+    "related": ["JavaScript", "工程化", "数据库"]
+  },
+  "TypeScript": {
+    "parent": null,
+    "children": ["类型系统", "泛型", "类型推断", "装饰器", "类型体操", "工具类型"],
+    "related": ["JavaScript", "React", "Vue"]
+  },
+  "网络": {
+    "parent": null,
+    "children": ["HTTP", "TCP", "UDP", "DNS解析", "WebSocket", "网络状态码", "HTTP缓存", "CDN", "同源策略"],
+    "related": ["浏览器", "安全", "Node.js"]
+  },
+  "HTTP缓存": {
+    "parent": "网络",
+    "children": ["强缓存", "协商缓存", "Cache-Control", "ETag"],
+    "related": ["CDN", "性能优化"]
+  },
+  "安全": {
+    "parent": null,
+    "children": ["XSS", "CSRF", "JWT", "HTTPS", "密码加密", "权限设计", "点击劫持"],
+    "related": ["网络", "浏览器", "Node.js"]
+  },
+  "数据库": {
+    "parent": null,
+    "children": ["MySQL", "MongoDB", "Redis", "索引", "数据结构设计"],
+    "related": ["Node.js", "性能优化"]
+  },
+  "Redis": {
+    "parent": "数据库",
+    "children": ["数据结构", "持久化", "集群", "缓存淘汰", "分布式锁"],
+    "related": ["缓存策略", "性能优化"]
+  },
+  "行为面": {
+    "parent": null,
+    "children": ["自我介绍", "职业规划", "项目管理", "团队协作", "问题解决", "学习能力", "实习经验"],
+    "related": ["项目"]
+  },
+  "项目": {
+    "parent": null,
+    "children": ["项目背景", "技术选型", "项目亮点", "难点攻克", "项目重构", "项目部署", "项目监控", "数据处理", "数据同步"],
+    "related": ["行为面", "性能优化"]
+  },
+  "AI": {
+    "parent": null,
+    "children": ["AI Agent", "大模型应用", "Prompt工程"],
+    "related": ["JavaScript", "Node.js"]
+  }
+}
