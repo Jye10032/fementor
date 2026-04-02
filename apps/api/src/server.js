@@ -12,6 +12,9 @@ const { handleInterviewRoutes } = require('./routes/interview-routes');
 const { handlePracticeRoutes } = require('./routes/practice-routes');
 const { handleExperienceRoutes } = require('./routes/experience-routes');
 const { handlePublicQuestionSourceRoutes } = require('./routes/public-question-source-routes');
+const { getExperienceStore } = require('./experience/store');
+const { loadEmbeddingsFromStore } = require('./experience/embedding-cache');
+const { buildKnowledgeGraph } = require('./experience/knowledge-graph');
 
 const PORT = process.env.PORT || 3300;
 
@@ -30,6 +33,14 @@ async function bootstrap() {
     await initPostgres();
   } else {
     init();
+  }
+
+  try {
+    const store = getExperienceStore();
+    await loadEmbeddingsFromStore(store);
+    await buildKnowledgeGraph(store);
+  } catch (error) {
+    console.warn('[experience.init.failed]', error.message);
   }
 
   const server = http.createServer(async (req, res) => {
