@@ -190,6 +190,67 @@ async function registerChatRoutes(app) {
     reply.code(result.statusCode);
     return result.payload;
   });
+
+  // SSE stream
+  app.post('/v1/chat/sessions/:session_id/messages/stream', async (request, reply) => {
+    reply.hijack();
+    const res = reply.raw;
+    const corsHeaders = {
+      'Access-Control-Allow-Origin': request.headers.origin || '*',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      'Access-Control-Allow-Credentials': 'true',
+    };
+    try {
+      const sessionId = request.params.session_id;
+      const body = request.body || {};
+      const content = String(body.content || '').trim();
+      const systemPrompt = String(body.system_prompt || '').trim();
+      const model = String(body.model || '').trim() || undefined;
+      if (!content) {
+        res.writeHead(400, { 'Content-Type': 'application/json', ...corsHeaders });
+        res.end(JSON.stringify({ error: 'content is required' }));
+        return;
+      }
+      const session = await getChatSession(sessionId);
+      if (!session) {
+        res.writeHead(404, { 'Content-Type': 'application/json', ...corsHeaders });
+        res.end(JSON.stringify({ error: 'session not found' }));
+        return;
+      }
+
+      const messages = await buildChatMessages({ sessionId, content, systemPrompt });
+      const llmConfig = getLlmConfig();
+
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+        ...corsHeaders,
+      });
+
+      writeSse(res, 'meta', { session_id: sessionId, model: model || llmConfig.model });
+
+      let full = '';
+      for await (const delta of streamCompletion({ messages, model })) {
+        full += delta;
+        writeSse(res, 'token', { delta });
+      }
+
+      const assistantMsg = await addChatMessage({
+        id: randomUUID(), sessionId, role: 'assistant', content: full,
+      });
+      writeSse(res, 'done', { message_id: assistantMsg.id, content: full });
+      res.end();
+    } catch (error) {
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json', ...corsHeaders });
+        res.end(JSON.stringify({ error: getErrorMessage(error, 'stream failed') }));
+      } else {
+        writeSse(res, 'error', { error: getErrorMessage(error, 'stream failed') });
+        res.end();
+      }
+    }
+  });
 }
 
 module.exports = {

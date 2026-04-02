@@ -1,6 +1,6 @@
 # 后端 Fastify 改造实施清单
 
-> **当前状态：进行中，约完成 50%。** Phase 0-1 已完成（Fastify 骨架 `app.js` + `start.js` 已建立），Phase 2-3 部分完成（error-handler 插件、简单路由已迁移），但 `server.js` 仍保留原生 `http.createServer` 入口，`formidable` 仍在 `package.json` 中，SSE 流式接口仍使用原生 `res.write()`，Phase 5-9（复杂业务路由、SSE 迁移、schema 补充、旧入口清理）尚未开始。
+> **当前状态：基本完成，约 90%。** 所有路由已迁移到 Fastify（含 interview 11 个端点和 2 个 SSE 流式端点），默认入口已切换为 `start.js`，`app.js` 中的 catch-all fallback 已删除。剩余：Phase 7（schema 补充）、Phase 9（清理 server.js 和 formidable）。
 
 - 版本：v0.1
 - 日期：2026-03-27
@@ -236,15 +236,15 @@
 ### TODO
 
 - [x] 迁移 chat session 创建与普通消息接口
-- [ ] 迁移 interview session 启动、题单、完成、复盘接口
-- [ ] 保持 service 层调用方式基本不变
-- [ ] 清理 route 层里的原生 HTTP 兼容代码
+- [x] 迁移 interview session 启动、题单、完成、复盘接口
+- [x] 保持 service 层调用方式基本不变
+- [x] 清理 route 层里的原生 HTTP 兼容代码
 
 ### 验收
 
 - [x] chat 非流式接口可用
-- [ ] interview 非流式接口可用
-- [ ] service 层无需大面积重写
+- [x] interview 非流式接口可用
+- [x] service 层无需大面积重写
 
 ## 10. Phase 6：迁移 SSE 与流式接口
 
@@ -259,15 +259,15 @@
 
 ### TODO
 
-- [ ] 在 Fastify route 中设置 `text/event-stream`
-- [ ] 用 `reply.raw.write(...)` 输出 SSE 帧
-- [ ] 保留首帧、增量帧、完成帧、错误帧行为
-- [ ] 正确处理客户端断开连接
+- [x] 在 Fastify route 中设置 `text/event-stream`
+- [x] 用 `reply.raw.write(...)` 输出 SSE 帧
+- [x] 保留首帧、增量帧、完成帧、错误帧行为
+- [x] 正确处理客户端断开连接
 - [ ] 验证上游 LLM 流中断时的收尾逻辑
 
 ### 验收
 
-- [ ] 前端能持续收到 token/event
+- [x] 前端能持续收到 token/event
 - [ ] 中途报错时连接能正确结束
 - [ ] 断开连接不会留下悬挂任务
 

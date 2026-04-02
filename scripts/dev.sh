@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 set -e
 cd "$(dirname "$0")/../apps/api"
-node src/server.js
+node src/start.js
