@@ -130,6 +130,7 @@ export default function GraphPage() {
 
   useEffect(() => {
     let cancelled = false;
+    let cleanupResize: (() => void) | undefined;
 
     async function load() {
       try {
@@ -139,7 +140,7 @@ export default function GraphPage() {
         const { nodes, links, categoryColors } = buildD3Data(data.graph);
         setStats({ nodes: nodes.length, edges: links.length });
         setLegend(categoryColors);
-        renderGraph(containerRef.current, nodes, links, simulationRef);
+        cleanupResize = renderGraph(containerRef.current, nodes, links, simulationRef);
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : "加载失败");
       } finally {
@@ -148,7 +149,7 @@ export default function GraphPage() {
     }
 
     void load();
-    return () => { cancelled = true; simulationRef.current?.stop(); };
+    return () => { cancelled = true; simulationRef.current?.stop(); cleanupResize?.(); };
   }, [apiBase]);
 
   return (
@@ -187,11 +188,11 @@ function renderGraph(
   nodes: SimNode[],
   links: SimLink[],
   simulationRef: React.MutableRefObject<d3.Simulation<SimNode, SimLink> | null>,
-) {
+): (() => void) {
   // 1. 清空容器，获取画布尺寸，创建 Canvas（2x DPR 保证清晰度）
   container.innerHTML = "";
-  const width = container.clientWidth;
-  const height = container.clientHeight;
+  let width = container.clientWidth;
+  let height = container.clientHeight;
   const dpr = window.devicePixelRatio || 1;
 
   const canvas = document.createElement("canvas");
@@ -454,4 +455,23 @@ function renderGraph(
     }
     draw();
   });
+
+  // 11. 监听容器尺寸变化，自动 resize canvas
+  const resizeObserver = new ResizeObserver(() => {
+    const newWidth = container.clientWidth;
+    const newHeight = container.clientHeight;
+    if (newWidth === width && newHeight === height) return;
+    width = newWidth;
+    height = newHeight;
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    simulation.force("center", d3.forceCenter(width / 2, height / 2));
+    simulation.alpha(0.1).restart();
+  });
+  resizeObserver.observe(container);
+
+  return () => resizeObserver.disconnect();
 }
