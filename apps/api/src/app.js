@@ -36,15 +36,13 @@ async function buildApp() {
     init();
   }
 
-  setImmediate(async () => {
-    try {
-      const store = getExperienceStore();
-      await loadEmbeddingsFromStore(store);
-      await buildKnowledgeGraph(store);
-    } catch (error) {
-      console.warn('[experience.init.failed]', error.message);
-    }
-  });
+  try {
+    const store = getExperienceStore();
+    await loadEmbeddingsFromStore(store);
+    await buildKnowledgeGraph(store);
+  } catch (error) {
+    console.warn('[experience.init.failed]', error.message);
+  }
 
   const app = Fastify({
     logger: false,
