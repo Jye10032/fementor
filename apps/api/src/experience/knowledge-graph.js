@@ -123,6 +123,15 @@ function mergeSkeletonWithCooccurrence(skeleton, cooccurrence) {
     }
   }
 
+  // Ensure children referenced in skeleton also exist as graph nodes
+  for (const [name, node] of Object.entries(skeleton)) {
+    for (const child of node.children || []) {
+      if (!graph[child]) {
+        graph[child] = { parent: name, children: [], related: {} };
+      }
+    }
+  }
+
   for (const [name, data] of Object.entries(cooccurrence)) {
     if (!graph[name]) {
       graph[name] = { parent: null, children: [], related: {} };
