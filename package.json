@@ -17,8 +17,7 @@
     "start": "npm --prefix apps/api run start",
     "start:api": "npm --prefix apps/api run start",
     "start:web": "npm --prefix apps/web run start",
-    "build:web": "npm --prefix apps/web run build",
-    "eval:sirchmunk": "node scripts/eval-sirchmunk.js"
+    "build:web": "npm --prefix apps/web run build"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"

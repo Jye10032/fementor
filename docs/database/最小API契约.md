@@ -136,22 +136,13 @@
   - 新实现优先按登录态取用户。
   - `user_id` 参数后续将逐步废弃。
 
-## POST /v1/retrieval/query-plan
-
-- 用途：根据 `question + resume_summary` 生成检索关键词分组。
-
-## POST /v1/retrieval/search
-
-- 用途：统一检索入口（默认直走 sirchmunk；仅在显式 `strategy=local` 时才走本地 rg；证据不足触发 fallback 信息）。
-
 ## POST /v1/scoring/evaluate
 
 - 用途：单题评分并落库到 `attempt/evidence/score/weakness`，同时写 memory。
 - 当前链路：
   - `intent` 不参与单题练习
   - 服务端会先做 `question_type` 识别
-  - 再按题型规划证据路径并走统一检索
-  - 评分阶段固定使用 evidence-based rubric
+  - 评分阶段使用基于题型与上下文的 rubric
 - 响应新增字段：
   - `resolved_question_type`
   - `question_type_reason`

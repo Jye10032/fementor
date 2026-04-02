@@ -131,7 +131,7 @@
 1. 新增《模拟面试会话页优化 Spec》，明确 `/interview/session` 的页面重构方向。
 2. 优化目标从“功能可用”转向“主流程聚焦 + 状态可解释 + 复盘分层展示”。
 3. 明确会话页默认隐藏调试输出，避免开发信息干扰普通用户作答。
-4. 明确后续优先以纯前端重构推进，再评估补充 `follow_up_reason`、`retrieval_strategy_label` 等产品化字段。
+4. 明确后续优先以纯前端重构推进，再评估补充 `follow_up_reason` 等产品化字段。
 
 ### 这样做的原因
 
@@ -142,7 +142,7 @@
 ## 2026-03-09 v0.1 ~ v0.4
 
 1. 建立 API 骨架、SQLite 持久化、简历解析、本地检索、memory 写入。
-2. 新增统一检索入口与 sirchmunk 自动降级。
+2. 新增统一评分入口与资料证据引用流程。
 
 ## 2026-03-09 v0.5
 
@@ -222,8 +222,8 @@
 
 ### 本次调整
 
-1. 修复 `sirchmunk` CLI 输出解析，过滤模型下载、缓存加载等运行日志。
-2. `sirchmunk` 结果现在只接受结构化 JSON，不再把原始 stdout 文本块兜底当证据。
+1. 修复资料证据输出解析，过滤无关运行日志。
+2. 证据结果只接受结构化 JSON，不再把原始 stdout 文本块兜底当证据。
 3. 避免下载日志、cache 日志被错误写入 `evidence_refs`，降低评分污染。
 
 ## 2026-03-10 v0.11
@@ -335,12 +335,12 @@
 
 1. 新增 `question_type router`，在 `intent=answer` 后继续识别 `basic/project/knowledge/scenario/follow_up`。
 2. 面试评估链路的 Sirchmunk 检索改为显式走 `DEEP`，配合业务层先做题型路由和路径裁剪，优先提升项目题、场景题的证据召回质量。
-3. 检索入口不再默认传整目录，而是按题型规划证据路径：
+3. 资料证据入口不再默认传整目录，而是按题型规划证据路径：
    - `basic`：活跃 JD
    - `project/scenario`：活跃 JD + 相关知识文档
    - `knowledge`：相关知识文档优先，必要时补充 JD
-4. `resume` 不再作为检索源文件参与 Sirchmunk / 本地检索，只保留 `resume_summary` 作为评分和标准答案生成的背景信息。
-5. rubric 评分 prompt 新增 `question_type` 和 `retrieval_plan`，要求 LLM 区分项目题、知识题、场景题的判分重点。
+4. `resume` 不再作为证据源文件直接参与资料匹配，只保留 `resume_summary` 作为评分和标准答案生成的背景信息。
+5. rubric 评分 prompt 新增 `question_type`，要求 LLM 区分项目题、知识题、场景题的判分重点。
 6. 单题练习与模拟面试两条评分链路统一复用这套“题型路由 + 证据规划 + rubric”流程。
 7. 用户文档目录物理拆分为 `profile` 与 `knowledge` 两层：
    - `profile`：仅存 `resume/jd`
@@ -352,13 +352,13 @@
 1. `intent router`
 2. `question_type router`
 3. `evidence planner`
-4. `sirchmunk/local/web evidence`
+4. `evidence collection`
 5. `LLM rubric scoring`
 6. `自然语言评价生成`
 
 ### 这样做的原因
 
-1. 之前 `sirchmunk` 在 `DEEP` 模式下会先做 `DocQA` 意图分流，自我介绍类问题容易被误判为整份资料 review。
+1. 之前资料检索链路在意图分流阶段会把自我介绍类问题误判为整份资料 review。
 2. 项目题不能只对齐简历，还要结合知识库判断方案是否合理，因此必须先做题型路由再规划证据源。
 3. 评分应以“回答质量 + 证据支撑 + 项目/知识场景匹配”为主，而不是目录级总结或关键词命中。
 

@@ -136,7 +136,6 @@
 ### 4.1 字段产品化
 
 - [ ] 后端补充 `follow_up_reason` 后接入原因映射。
-- [ ] 后端补充 `retrieval_strategy_label` 后去掉前端硬编码映射。
 - [ ] 后端补充 `session_stage_label` 后统一替换本地阶段映射。
 
 ### 4.2 复盘体验增强

@@ -7,7 +7,7 @@ const { PDFParse } = require('pdf-parse');
 
 const ROOT_DIR = path.resolve(__dirname, '../../../..');
 const RESUME_PDF_PARSER = String(process.env.RESUME_PDF_PARSER || 'legacy').trim().toLowerCase();
-const DEFAULT_PYTHON_BIN = path.join(ROOT_DIR, 'apps/api/.venv-sirchmunk/bin/python');
+const DEFAULT_PYTHON_BIN = path.join(ROOT_DIR, 'apps/api/.venv-resume/bin/python');
 const DEFAULT_RUNTIME_PYTHON_BIN = process.env.RESUME_PARSE_PYTHON_BIN
   || (fs.existsSync(DEFAULT_PYTHON_BIN) ? DEFAULT_PYTHON_BIN : 'python3');
 const VOLCENGINE_PYTHON_BIN = process.env.VOLCENGINE_PYTHON_BIN

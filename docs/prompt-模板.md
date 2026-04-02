@@ -181,14 +181,13 @@
 3. `resume_summary`
 4. `job_description`
 5. `interview_context`
-6. `focus_terms`
-7. `evidence_refs`
+6. `evidence_refs`
 
 ### 约束
 
 1. `strengths`、`weaknesses` 各 1-3 条。
 2. `feedback` 只保留一句最优先建议。
-3. `standard_answer` 必须优先参考检索证据，再用通用表达补齐。
+3. `standard_answer` 必须优先参考已知资料与回答上下文，再用通用表达补齐。
 4. 不允许把“命中多少关键词”直接等同于高分。
 
 ## 5) Final Review Feedback

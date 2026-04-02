@@ -41,7 +41,6 @@
 10. `生成复盘` 必须手动点击触发。
 11. 调试信息默认隐藏，仅开发模式可见。
 12. 如果追问原因缺失且仍在生成中，前端仅显示 `正在生成`。
-13. `retrieval_strategy` 本期由前端映射中文文案。
 
 ## 3. 现有代码基线
 
@@ -306,12 +305,11 @@
 2. 当前会话平均分
 3. 最近一轮资料佐证数
 4. 当前状态文案
-5. 当前检索策略中文映射
+5. 当前状态提示
 
 字段映射建议：
 
 1. `证据命中` -> `资料佐证`
-2. `retrieval_strategy` -> 前端中文说明
 
 ### 10.3 `题目` tab
 
@@ -378,9 +376,8 @@
 2. `currentQuestion`
 3. `turns`
 4. `latestTurn.evidence_refs_count`
-5. `latestTurn.retrieval_strategy`
-6. `retrospect.avg_score`
-7. `retrospect.long_term_memory`
+5. `retrospect.avg_score`
+6. `retrospect.long_term_memory`
 
 ### 12.2 前端文案映射
 
@@ -398,8 +395,7 @@
 本期不新增后端字段，但保留后续扩展位：
 
 1. `follow_up_reason`
-2. `retrieval_strategy_label`
-3. `session_stage_label`
+2. `session_stage_label`
 
 ## 13. 实施顺序
 
@@ -470,7 +466,6 @@
 
 1. 接入后端补充字段：
    - `follow_up_reason`
-   - `retrieval_strategy_label`
    - `session_stage_label`
 2. 将追问解释从通用状态升级为明确原因说明。
 3. 让完成态总结页与复盘结果更自然衔接，减少“先完成，再点复盘，再看结果”的割裂感。

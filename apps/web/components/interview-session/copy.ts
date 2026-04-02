@@ -51,9 +51,6 @@ export function buildEvaluationNarration(turn: TurnRecord) {
     turn.strengths?.length ? `做得较好的点：${turn.strengths.map(s => s.replace(/[。，；、,;.]+$/, "")).join("，")}。` : "",
     turn.weaknesses?.length ? `接下来优先补强：${turn.weaknesses.map(s => s.replace(/[。，；、,;.]+$/, "")).join("，")}。` : "",
     turn.standard_answer ? `参考标准答案：${turn.standard_answer}` : "",
-    typeof turn.evidence_refs_count === "number"
-      ? `本轮命中 ${turn.evidence_refs_count} 条资料佐证${turn.retrieval_strategy ? `，检索策略为 ${getRetrievalStrategyLabel(turn.retrieval_strategy)}` : ""}。`
-      : "",
   ]
     .filter(Boolean)
     .join("\n");
@@ -70,7 +67,6 @@ export function normalizeTurnRecord(data: TurnResponse, question: string, answer
     ...data,
     strengths: data.strengths || [],
     weaknesses: data.weaknesses || [],
-    evidence_refs_count: data.evidence_refs_count ?? 0,
     question,
     answer,
   };
@@ -86,7 +82,6 @@ export function normalizePersistedTurnRecord(item: InterviewTurnHistoryItem): Tu
     score: item.score,
     strengths: item.strengths || [],
     weaknesses: item.weaknesses || [],
-    evidence_refs_count: item.evidence_refs_count ?? 0,
     question: item.question,
     answer: item.answer,
   };
@@ -140,17 +135,6 @@ export function reconcileQueueItems(
   return [...nextItems].sort((a, b) => a.order_no - b.order_no);
 }
 
-export function getRetrievalStrategyLabel(strategy?: string | null) {
-  if (!strategy) return "等待系统判断";
-
-  const normalized = strategy.toLowerCase();
-  if (normalized.includes("resume")) return "优先参考简历内容";
-  if (normalized.includes("doc")) return "优先参考资料内容";
-  if (normalized.includes("hybrid")) return "简历与资料联合检索";
-  if (normalized.includes("llm")) return "系统生成";
-  return strategy;
-}
-
 export function getStageDisplay(event: Partial<InterviewTurnStageEvent> | null): {
   step: StageStep;
   label: string;
@@ -159,41 +143,32 @@ export function getStageDisplay(event: Partial<InterviewTurnStageEvent> | null):
   const message = event?.message?.trim();
 
   if (step === "saving") {
-    return { step: "receiving", label: "正在接收回答" };
+    return { step: "receiving", label: "接收回答" };
   }
   if (step === "intent") {
-    return { step: "deciding", label: "正在判断输入类型" };
+    return { step: "receiving", label: "接收回答" };
   }
   if (step === "question_type") {
-    return { step: "deciding", label: "正在识别题型与证据来源" };
-  }
-  if (step === "retrieval") {
-    return { step: "retrieving", label: "正在检索相关资料" };
+    return { step: "evaluating", label: "评估回答" };
   }
   if (step === "evaluation") {
-    return { step: "evaluating", label: "正在生成评分反馈" };
+    return { step: "evaluating", label: "评估回答" };
   }
   if (step === "feedback") {
-    return { step: "evaluating", label: "正在整理最终评价" };
+    return { step: "evaluating", label: "评估回答" };
   }
   if (step === "persist") {
-    return { step: "evaluating", label: "正在写入评分结果" };
+    return { step: "completed", label: "数据整理入库" };
   }
   if (step === "reply") {
-    if (message?.includes("追问")) {
-      return { step: "generating_followup", label: message };
-    }
-    return { step: "deciding", label: message || "正在生成面试官回复" };
+    return { step: "transition", label: "准备下一题" };
   }
   if (step === "planning") {
-    if (message?.includes("切换到下一题")) {
-      return { step: "transition", label: "正在切换到下一题" };
-    }
-    return { step: "deciding", label: "正在规划下一步" };
+    return { step: "transition", label: "准备下一题" };
   }
 
   return {
     step: "evaluating",
-    label: message || "系统正在处理你的回答",
+    label: message || "评估回答",
   };
 }

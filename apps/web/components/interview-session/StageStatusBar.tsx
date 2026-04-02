@@ -3,9 +3,9 @@ import { StageStep } from "./types";
 
 const stageItems = [
   { id: "receiving", label: "接收回答" },
-  { id: "deciding", label: "识别题型" },
-  { id: "retrieving", label: "检索资料" },
-  { id: "evaluating", label: "生成反馈" },
+  { id: "evaluating", label: "评估回答" },
+  { id: "transition", label: "准备下一题" },
+  { id: "completed", label: "数据整理入库" },
 ] as const;
 
 function getStageTone(step: StageStep) {
@@ -14,7 +14,7 @@ function getStageTone(step: StageStep) {
       icon: Waypoints,
       textClassName: "text-sky-600",
       badgeClassName: "bg-sky-100 text-sky-700",
-      badgeLabel: step === "completed" ? "已完成" : "准备切题",
+      badgeLabel: step === "completed" ? "已完成" : "处理中",
     };
   }
 
@@ -37,10 +37,9 @@ function getStageTone(step: StageStep) {
 
 function getActiveStageIndex(step: StageStep) {
   if (step === "receiving") return 0;
-  if (step === "deciding") return 1;
-  if (step === "retrieving") return 2;
-  if (step === "evaluating" || step === "generating_followup") return 3;
-  if (step === "transition" || step === "completed") return stageItems.length;
+  if (step === "evaluating" || step === "deciding" || step === "retrieving" || step === "generating_followup") return 1;
+  if (step === "transition") return 2;
+  if (step === "completed") return 3;
   return -1;
 }
 
@@ -57,7 +56,7 @@ export function StageStatusBar({ stageLabel, stageStep }: StageStatusBarProps) {
   return (
     <div className="pt-2">
       <div className={`flex items-center gap-2 text-xs ${tone.textClassName}`}>
-        <Icon className={`h-3.5 w-3.5 shrink-0 ${stageStep === "idle" ? "" : "animate-spin"}`} />
+        <Icon className={`h-3.5 w-3.5 shrink-0 ${stageStep === "idle" || stageStep === "completed" ? "" : "animate-spin"}`} />
         <span className="font-medium">{stageLabel}</span>
         <span className={`ml-auto rounded-full px-2.5 py-0.5 text-xs font-medium ${tone.badgeClassName}`}>
           {tone.badgeLabel}

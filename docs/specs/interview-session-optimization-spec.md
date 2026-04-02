@@ -301,10 +301,6 @@
 说明：
 
 1. `证据命中` 重命名为 `资料佐证`
-2. `retrieval_strategy` 不直接展示英文内部值，改成中文说明，例如：
-   - `优先查看简历/JD`
-   - `优先查看知识库资料`
-   - `等待评分完成`
 
 补充规则：
 
@@ -511,9 +507,8 @@
 2. `currentQuestion`
 3. `turns`
 4. `latestTurn.evidence_refs_count`
-5. `latestTurn.retrieval_strategy`
-6. `retrospect.avg_score`
-7. `retrospect.long_term_memory`
+5. `retrospect.avg_score`
+6. `retrospect.long_term_memory`
 
 补充说明：
 
@@ -549,21 +544,6 @@
 用途：
 
 1. 给“为什么插入追问”提供更强解释
-
-#### C. 产品化检索策略字段
-
-建议新增：
-
-1. `retrieval_strategy_label`
-
-示例：
-
-1. `优先查看简历/JD`
-2. `优先查看知识库资料`
-
-用途：
-
-1. 避免前端自行硬编码英文枚举到中文
 
 ## 10. 埋点建议
 
@@ -909,7 +889,7 @@
 
 1. 先做纯前端重构，不改接口契约。
 2. 上线后观察完成率、复盘生成率、追问后继续作答率。
-3. 再决定是否补 `follow_up_reason` 和 `retrieval_strategy_label` 等后端字段。
+3. 再决定是否补 `follow_up_reason` 等后端字段。
 
 ## 17. 结论
 

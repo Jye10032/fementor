@@ -1,7 +1,7 @@
 const { randomUUID } = require('crypto');
 const { getUserById, getInterviewSession, listInterviewTurns, getInterviewQuestionById, updateInterviewQuestionStatus, getNextInterviewQuestion, addInterviewTurn, listInterviewQuestions, insertInterviewQuestionAfter, getSessionKeywordQueue, updateSessionKeywordQueue } = require('../db');
 const { readJdDoc } = require('../doc');
-const { buildEvidenceBundle, classifyQuestionType, planRetrievalWithLLM } = require('../evidence-service');
+const { classifyQuestionType } = require('../evidence-service');
 const { buildInterviewContextWindow } = require('./context-service');
 const {
   classifyInterviewTurnIntent,
@@ -72,17 +72,7 @@ const submitInterviewTurnUnified = async ({ sessionId, body, onPhase, onToken, s
   const resumeSummary = String(user?.resume_summary || '').trim();
   const jobDescription = String(activeJd?.content || '').trim();
 
-  // 1. Evidence retrieval (non-LLM)
-  await emitPhase('retrieval', '正在检索候选人资料与知识证据...');
-  const evidenceBundle = await buildEvidenceBundle({
-    userId: session.user_id,
-    question,
-    answer,
-    user,
-    questionType: queuedQuestion?.question_type || 'project',
-    retrievalPlanner: null,
-  });
-  const evidenceRefs = evidenceBundle.evidenceRefs;
+  const evidenceRefs = [];
 
   // 2. Search candidate follow-up from experience bank (non-LLM)
   const candidateFollowUp = pickCandidateFollowUp(queuedQuestion);
@@ -97,7 +87,7 @@ const submitInterviewTurnUnified = async ({ sessionId, body, onPhase, onToken, s
   } : null;
 
   // 3. Unified LLM call
-  await emitPhase('evaluation', '正在生成评分与反馈...');
+  await emitPhase('evaluation', '评估回答');
   const llmResult = await processInterviewTurnWithLLM({
     question,
     answer,
@@ -147,7 +137,6 @@ const submitInterviewTurnUnified = async ({ sessionId, body, onPhase, onToken, s
   }
 
   // 5. Persist answer turn
-  await emitPhase('persist', '正在写入评分结果...');
   const turnId = randomUUID();
   await addInterviewTurn({
     id: turnId,
@@ -167,7 +156,7 @@ const submitInterviewTurnUnified = async ({ sessionId, body, onPhase, onToken, s
   if (queuedQuestion) {
     await updateInterviewQuestionStatus({ questionId: queuedQuestion.id, status: 'answered' });
     const queueItems = await listInterviewQuestions(sessionId);
-    await emitPhase('planning', '正在判断是否需要追问...');
+    await emitPhase('planning', '准备下一题');
 
     // Update keyword turns_used
     if (currentKeywordEntry) {
@@ -312,7 +301,7 @@ const submitInterviewTurnUnified = async ({ sessionId, body, onPhase, onToken, s
     }
   }
 
-  await emitPhase('planning', '正在规划下一题...');
+  await emitPhase('planning', '准备下一题');
   if (!nextQuestion) {
     nextQuestion = await getNextInterviewQuestion(sessionId);
   }
@@ -320,6 +309,7 @@ const submitInterviewTurnUnified = async ({ sessionId, body, onPhase, onToken, s
     await updateInterviewQuestionStatus({ questionId: nextQuestion.id, status: 'asked' });
     nextQuestion = { ...nextQuestion, status: 'asked' };
   }
+  await emitPhase('persist', '数据整理入库');
 
   return {
     session_id: sessionId,
@@ -340,8 +330,6 @@ const submitInterviewTurnUnified = async ({ sessionId, body, onPhase, onToken, s
     feedback: llmResult.feedback,
     standard_answer: llmResult.standard_answer,
     evaluation_text: llmResult.content,
-    evidence_refs_count: evidenceRefs.length,
-    evidence_refs: evidenceRefs,
     next_question: nextQuestion ? {
       id: nextQuestion.id,
       order_no: nextQuestion.order_no,
@@ -367,7 +355,6 @@ const submitInterviewTurnLegacy = async ({ sessionId, body, onPhase, onToken, se
   const queuedQuestion = questionId ? await getInterviewQuestionById(questionId) : null;
   const question = String(body.question || queuedQuestion?.stem || '').trim();
   const answer = String(body.answer || '').trim();
-  const evidenceRefs = Array.isArray(body.evidence_refs) ? body.evidence_refs : [];
 
   console.log('[interview.turn.timing.start]', {
     session_id: sessionId,
@@ -401,7 +388,7 @@ const submitInterviewTurnLegacy = async ({ sessionId, body, onPhase, onToken, se
   const resumeSummary = String(user?.resume_summary || '').trim();
   const jobDescription = String(activeJd?.content || '').trim();
 
-  await emitPhase('intent', '正在判断这轮输入属于回答还是其他意图...');
+  await emitPhase('intent', '接收回答');
   const intentResult = await classifyInterviewTurnIntent({
     question,
     input: answer,
@@ -411,7 +398,7 @@ const submitInterviewTurnLegacy = async ({ sessionId, body, onPhase, onToken, se
 
   if (intentResult.intent !== 'answer') {
     if (intentResult.intent === 'skip') {
-      await emitPhase('planning', '已跳过当前题，正在切换到下一题...');
+      await emitPhase('planning', '准备下一题');
       if (queuedQuestion) {
         await updateInterviewQuestionStatus({ questionId: queuedQuestion.id, status: 'skipped' });
       }
@@ -452,7 +439,7 @@ const submitInterviewTurnLegacy = async ({ sessionId, body, onPhase, onToken, se
       };
     }
 
-    await emitPhase('reply', '当前输入不作为评分回答，正在生成面试官回复...');
+    await emitPhase('reply', '接收回答');
     const replyText = await generateInterviewerReply({
       intent: intentResult.intent,
       queuedQuestion,
@@ -486,7 +473,7 @@ const submitInterviewTurnLegacy = async ({ sessionId, body, onPhase, onToken, se
     };
   }
 
-  await emitPhase('question_type', '正在识别当前题型并规划证据来源...');
+  await emitPhase('question_type', '评估回答');
   const questionTypeResult = await classifyQuestionType({
     question,
     answer,
@@ -495,37 +482,9 @@ const submitInterviewTurnLegacy = async ({ sessionId, body, onPhase, onToken, se
     sessionContext,
   });
 
-  const retrievalPlanner = await planRetrievalWithLLM({
-    question,
-    answer,
-    questionType: questionTypeResult.question_type,
-    intent: intentResult.intent,
-    interviewContext: interviewContext.contextText,
-    sessionContext,
-  });
-  console.log('[retrieval.planner]', {
-    session_id: sessionId,
-    question_type: questionTypeResult.question_type,
-    planner: retrievalPlanner,
-  });
+  const rawEvidenceRefs = [];
 
-  await emitPhase('retrieval', '正在检索候选人资料与知识证据...');
-  const evidenceBundle = await buildEvidenceBundle({
-    userId: session.user_id,
-    question,
-    answer,
-    user,
-    questionType: questionTypeResult.question_type,
-    retrievalPlanner,
-  });
-  const rawEvidenceRefs = evidenceRefs.length > 0 ? evidenceRefs : evidenceBundle.evidenceRefs;
-  const focusTerms = [
-    ...(evidenceBundle.queryPlan?.keyword_groups?.entity_terms || []),
-    ...(evidenceBundle.queryPlan?.keyword_groups?.intent_terms || []),
-    ...(evidenceBundle.queryPlan?.keyword_groups?.evidence_terms || []),
-  ];
-
-  await emitPhase('evaluation', '正在生成评分与反馈...');
+  await emitPhase('evaluation', '评估回答');
   const {
     score,
     dimension_scores,
@@ -539,20 +498,17 @@ const submitInterviewTurnLegacy = async ({ sessionId, body, onPhase, onToken, se
     answer,
     evidenceRefs: rawEvidenceRefs,
     interviewContext: interviewContext.contextText,
-    focusTerms,
     resumeSummary,
     jobDescription,
     questionType: questionTypeResult.question_type,
-    retrievalPlan: evidenceBundle.retrievalPlan,
     sessionContext,
   });
 
-  await emitPhase('feedback', '正在整理最终评价...');
+  await emitPhase('feedback', '评估回答');
   console.log('[interview.turn.timing.before_narration]', {
     session_id: sessionId,
     elapsed_ms: Date.now() - turnStartedAt,
     score,
-    evidence_refs_count: rawEvidenceRefs.length,
   });
   const evaluationText = await generateEvaluationNarration({
     question,
@@ -568,7 +524,6 @@ const submitInterviewTurnLegacy = async ({ sessionId, body, onPhase, onToken, se
     sessionContext,
   });
 
-  await emitPhase('persist', '正在写入评分结果...');
   const turnId = randomUUID();
   await addInterviewTurn({
     id: turnId,
@@ -587,7 +542,7 @@ const submitInterviewTurnLegacy = async ({ sessionId, body, onPhase, onToken, se
   if (queuedQuestion) {
     await updateInterviewQuestionStatus({ questionId: queuedQuestion.id, status: 'answered' });
     const queueItems = await listInterviewQuestions(sessionId);
-    await emitPhase('planning', '正在判断是否需要追问...');
+    await emitPhase('planning', '准备下一题');
     const needsFollowUp = shouldInsertFollowUp({
       queuedQuestion,
       score,
@@ -596,7 +551,7 @@ const submitInterviewTurnLegacy = async ({ sessionId, body, onPhase, onToken, se
     });
 
     if (needsFollowUp) {
-      await emitPhase('reply', '正在生成追问题目...');
+      await emitPhase('reply', '准备下一题');
       const followUp = await selectOrGenerateFollowUp({
         queuedQuestion,
         answer,
@@ -627,7 +582,7 @@ const submitInterviewTurnLegacy = async ({ sessionId, body, onPhase, onToken, se
     }
   }
 
-  await emitPhase('planning', '正在规划下一题...');
+  await emitPhase('planning', '准备下一题');
   if (!nextQuestion) {
     nextQuestion = await getNextInterviewQuestion(sessionId);
   }
@@ -635,6 +590,7 @@ const submitInterviewTurnLegacy = async ({ sessionId, body, onPhase, onToken, se
     await updateInterviewQuestionStatus({ questionId: nextQuestion.id, status: 'asked' });
     nextQuestion = { ...nextQuestion, status: 'asked' };
   }
+  await emitPhase('persist', '数据整理入库');
 
   return {
     session_id: sessionId,
@@ -647,9 +603,7 @@ const submitInterviewTurnLegacy = async ({ sessionId, body, onPhase, onToken, se
     handled_as: 'answer',
     resolved_question_type: questionTypeResult.question_type,
     question_type_reason: questionTypeResult.reason,
-    retrieval_planner: retrievalPlanner,
     current_question_status: 'answered',
-    retrieval_strategy: evidenceBundle.strategy,
     score,
     dimension_scores,
     strengths,
@@ -657,8 +611,6 @@ const submitInterviewTurnLegacy = async ({ sessionId, body, onPhase, onToken, se
     feedback,
     standard_answer,
     evaluation_text: evaluationText,
-    evidence_refs_count: rawEvidenceRefs.length,
-    evidence_refs: rawEvidenceRefs,
     next_question: nextQuestion ? {
       id: nextQuestion.id,
       order_no: nextQuestion.order_no,

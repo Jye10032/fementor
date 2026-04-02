@@ -1,5 +1,4 @@
-import { FileSearch, RefreshCw, Timer, Trophy } from "lucide-react";
-import { getRetrievalStrategyLabel } from "./copy";
+import { RefreshCw, Timer, Trophy, Waypoints } from "lucide-react";
 import { TurnRecord } from "./types";
 
 type InterviewProgressTabProps = {
@@ -45,10 +44,10 @@ export function InterviewProgressTab({
       hint: "根据已完成轮次计算",
     },
     {
-      icon: FileSearch,
-      label: "资料佐证",
-      value: latestTurn ? String(latestTurn.evidence_refs_count) : "0",
-      hint: getRetrievalStrategyLabel(latestTurn?.retrieval_strategy),
+      icon: Waypoints,
+      label: "最近一轮状态",
+      value: latestTurn ? "已完成" : "-",
+      hint: latestTurn ? "最近一轮回答已完成评分" : "等待首轮回答提交",
     },
   ];
 

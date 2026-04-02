@@ -377,6 +377,7 @@ const validateLlmRuntimeConfig = async ({ baseUrl, apiKey, model } = {}) => {
 module.exports = {
   OPENAI_BASE_URL: DEFAULT_OPENAI_BASE_URL,
   OPENAI_MODEL: DEFAULT_OPENAI_MODEL,
+  extractJsonObject,
   getLlmConfig,
   getResolvedLlmConfig,
   hasRealLLM,

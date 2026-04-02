@@ -1,4 +1,3 @@
-const path = require('path');
 const { randomUUID } = require('crypto');
 const { jsonCompletion, streamCompletion } = require('../llm');
 const { createContentStreamSplitter } = require('./content-stream-splitter');
@@ -75,11 +74,9 @@ const scoreAnswerWithRubricLLM = async ({
   answer,
   evidenceRefs,
   interviewContext,
-  focusTerms,
   resumeSummary,
   jobDescription,
   questionType = 'project',
-  retrievalPlan = null,
   sessionContext,
 }) => {
   const result = await jsonCompletion({
@@ -107,14 +104,6 @@ const scoreAnswerWithRubricLLM = async ({
           resume_summary: String(resumeSummary || '').slice(0, 800),
           job_description: String(jobDescription || '').slice(0, 1800),
           interview_context: String(interviewContext || '').slice(0, 1800),
-          retrieval_plan: retrievalPlan ? {
-            question_type: retrievalPlan.question_type,
-            paths: (retrievalPlan.paths || []).map((item) => path.basename(String(item || ''))).slice(0, 6),
-            active_resume: retrievalPlan.active_resume_path ? path.basename(retrievalPlan.active_resume_path) : null,
-            active_jd: retrievalPlan.active_jd_path ? path.basename(retrievalPlan.active_jd_path) : null,
-            knowledge_docs: (retrievalPlan.selected_knowledge_paths || []).map((item) => path.basename(String(item || ''))).slice(0, 4),
-          } : null,
-          focus_terms: (focusTerms || []).slice(0, 12),
           evidence_refs: (evidenceRefs || []).slice(0, 6).map((item) => ({
             source_type: item.source_type,
             source_uri: item.source_uri,
@@ -360,22 +349,18 @@ const enhanceEvaluationWithLLM = async ({
   answer,
   evidenceRefs,
   interviewContext,
-  focusTerms = [],
   resumeSummary = '',
   jobDescription = '',
   questionType = 'project',
-  retrievalPlan = null,
   sessionContext,
 }) => scoreAnswerWithRubricLLM({
   question,
   answer,
   evidenceRefs,
   interviewContext,
-  focusTerms,
   resumeSummary,
   jobDescription,
   questionType,
-  retrievalPlan,
   sessionContext,
 });
 

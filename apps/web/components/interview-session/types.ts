@@ -26,8 +26,6 @@ export type TurnResponse = {
   standard_answer?: string;
   evaluation_text?: string;
   reply_text?: string;
-  retrieval_strategy?: string;
-  evidence_refs_count?: number;
   next_question?: InterviewQuestion | null;
 };
 
@@ -46,7 +44,6 @@ export type InterviewTurnHistoryItem = {
   score: number;
   strengths: string[];
   weaknesses: string[];
-  evidence_refs_count: number;
   created_at: string;
 };
 

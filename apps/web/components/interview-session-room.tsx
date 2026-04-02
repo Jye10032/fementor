@@ -360,7 +360,6 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
       score: turn.score ?? 0,
       strengths: turn.strengths || [],
       weaknesses: turn.weaknesses || [],
-      evidence_refs_count: turn.evidence_refs_count ?? 0,
       created_at: "",
     }));
 
@@ -420,7 +419,6 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
         question_id: currentQuestion.id,
         question: currentQuestion.stem,
         answer: submittedAnswer,
-        evidence_refs: [],
       };
       const evaluationId = `evaluation-pending-${Date.now()}`;
 

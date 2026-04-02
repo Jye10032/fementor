@@ -741,7 +741,6 @@ const handleInterviewRoutes = async ({ req, res, url, corsHeaders }) => {
         session_id: sessionId,
         turn_id: result.turn_id,
         score: result.score,
-        evidence_refs_count: result.evidence_refs_count,
         next_question_id: result.next_question?.id || null,
         elapsed_ms: Date.now() - streamRequestStartedAt,
         first_token_latency_ms: firstTokenSentAt === null ? null : firstTokenSentAt - streamRequestStartedAt,

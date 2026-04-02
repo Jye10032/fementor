@@ -1,5 +1,4 @@
-import { CheckCircle2, FileStack, Sparkles, Trophy } from "lucide-react";
-import { getRetrievalStrategyLabel } from "./copy";
+import { CheckCircle2, Sparkles, Trophy, Waypoints } from "lucide-react";
 import { RetrospectSummary } from "./RetrospectSummary";
 import { RetrospectResponse, TurnRecord } from "./types";
 
@@ -53,12 +52,12 @@ export function InterviewCompletionReport({
           </article>
           <article className="rounded-2xl border border-border/70 bg-background/80 p-4">
             <div className="flex items-center justify-between">
-              <p className="text-xs text-muted-foreground">最近一轮资料佐证</p>
-              <FileStack className="h-4 w-4 text-primary" />
+              <p className="text-xs text-muted-foreground">最近一轮状态</p>
+              <Waypoints className="h-4 w-4 text-primary" />
             </div>
-            <p className="mt-3 text-3xl font-semibold text-foreground">{latestTurn?.evidence_refs_count ?? 0}</p>
+            <p className="mt-3 text-3xl font-semibold text-foreground">{latestTurn ? "已完成" : "-"}</p>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              {getRetrievalStrategyLabel(latestTurn?.retrieval_strategy)}
+              最近一轮回答已完成评分
             </p>
           </article>
           <article className="rounded-2xl border border-border/70 bg-background/80 p-4">

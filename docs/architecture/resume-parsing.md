@@ -114,7 +114,7 @@
 RESUME_PDF_PARSER=volcengine
 VOLC_ACCESSKEY=
 VOLC_SECRETKEY=
-VOLCENGINE_PYTHON_BIN=apps/api/.venv-sirchmunk/bin/python
+VOLCENGINE_PYTHON_BIN=apps/api/.venv-resume/bin/python
 VOLCENGINE_SCRIPT_PATH=scripts/parse_resume_volcengine.py
 VOLCENGINE_TIMEOUT_MS=120000
 VOLCENGINE_OCR_PAGE_NUM=16

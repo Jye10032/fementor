@@ -36,12 +36,11 @@
 4. [后端 Fastify 改造实施清单](/Users/user/vscode/fementor/docs/architecture/todolists/backend-fastify-migration-todolist.md)
 5. [简历解析架构](/Users/user/vscode/fementor/docs/architecture/resume-parsing.md)
 6. [面试编排架构](/Users/user/vscode/fementor/docs/architecture/interview-orchestrator.md)
-7. [检索与 Sirchmunk 架构](/Users/user/vscode/fementor/docs/architecture/retrieval-and-sirchmunk.md)
-8. [上下文与长期记忆架构](/Users/user/vscode/fementor/docs/architecture/context-and-memory.md)
-9. [简历解析页](/Users/user/vscode/fementor/docs/pages/resume-page.md)
-10. [模拟面试页](/Users/user/vscode/fementor/docs/pages/interview-page.md)
-11. [模拟面试会话页优化 Spec](/Users/user/vscode/fementor/docs/pages/interview-session-optimization-spec.md)
-12. [最小API契约](/Users/user/vscode/fementor/docs/最小API契约.md)
+7. [上下文与长期记忆架构](/Users/user/vscode/fementor/docs/architecture/context-and-memory.md)
+8. [简历解析页](/Users/user/vscode/fementor/docs/pages/resume-page.md)
+9. [模拟面试页](/Users/user/vscode/fementor/docs/pages/interview-page.md)
+10. [模拟面试会话页优化 Spec](/Users/user/vscode/fementor/docs/pages/interview-session-optimization-spec.md)
+11. [最小API契约](/Users/user/vscode/fementor/docs/最小API契约.md)
 
 ## 现有根目录文档说明
 

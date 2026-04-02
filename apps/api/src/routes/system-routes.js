@@ -1,8 +1,7 @@
 const { DB_PATH, getUserById, upsertUser } = require('../db');
 const { DATABASE_URL, isPostgresEnabled } = require('../postgres');
-const { getSirchmunkStatus, buildQueryPlan, retrieveEvidence } = require('../retrieval');
 const { hasRealLLM, getLlmConfig, setRuntimeLlmConfig, validateLlmRuntimeConfig } = require('../llm');
-const { json, jsonError, parseNumberOrFallback, readBody } = require('../http');
+const { json, jsonError, readBody } = require('../http');
 const {
   buildViewerPayload,
   ensureLocalUserProfile,
@@ -13,7 +12,7 @@ const {
   getResolvedUserContext,
   getRuntimeStorageTarget,
 } = require('../request-context');
-const { buildEvidenceBundle, classifyQuestionType, planRetrievalWithLLM } = require('../evidence-service');
+const { classifyQuestionType } = require('../evidence-service');
 const { enhanceEvaluationWithLLM, generateEvaluationNarration } = require('../interview/llm-service');
 const { appendMemoryEntry } = require('../memory');
 const { readJdDoc } = require('../doc');
@@ -178,7 +177,6 @@ const getHealthPayload = () => {
       experience_storage_driver: getExperienceStorageDriver(),
       experience_storage_target: getExperienceStorageTarget(),
     },
-    sirchmunk: getSirchmunkStatus(),
   };
 };
 
@@ -227,72 +225,6 @@ const upsertUserResponse = async ({ body }) => {
   };
 };
 
-const buildQueryPlanResponse = async ({ body }) => {
-  const userId = String(body.user_id || '').trim();
-  const question = String(body.question || '').trim();
-  if (!question) {
-    return { statusCode: 400, payload: { error: 'question is required' } };
-  }
-
-  const user = userId ? await getUserById(userId) : null;
-  return {
-    statusCode: 200,
-    payload: buildQueryPlan({
-      question,
-      resumeSummary: user?.resume_summary || '',
-    }),
-  };
-};
-
-const retrievalSearchResponse = async ({ body }) => {
-  const userId = String(body.user_id || '').trim();
-  const question = String(body.question || '').trim();
-  const limit = Number(body.limit || 20);
-  const strategy = String(body.strategy || 'auto').trim();
-  if (!userId) {
-    return { statusCode: 400, payload: { error: 'user_id is required' } };
-  }
-  if (!question) {
-    return { statusCode: 400, payload: { error: 'question is required' } };
-  }
-
-  const user = await getUserById(userId);
-  const result = await retrieveEvidence({
-    userId,
-    question,
-    resumeSummary: user?.resume_summary || '',
-    limit: parseNumberOrFallback(limit, 20),
-    strategy,
-  });
-
-  return {
-    statusCode: 200,
-    payload: {
-      strategy: result.strategy,
-      query_plan: result.plan,
-      local_hits: result.local.items,
-      evidence_refs: result.evidence_refs,
-      sirchmunk: result.sirchmunk,
-    },
-  };
-};
-
-const localSearchResponse = async ({ body }) => {
-  const userId = String(body.user_id || '').trim();
-  if (!userId) {
-    return { statusCode: 400, payload: { error: 'user_id is required' } };
-  }
-
-  return {
-    statusCode: 200,
-    payload: {
-      user_id: userId,
-      items: [],
-      message: 'retrieval_disabled',
-    },
-  };
-};
-
 const scoringEvaluateResponse = async ({ req, body }) => {
   const context = await getResolvedUserContext({
     req,
@@ -303,7 +235,6 @@ const scoringEvaluateResponse = async ({ req, body }) => {
   const question = String(body.question || '').trim();
   const answer = String(body.answer || '').trim();
   const mode = String(body.mode || 'practice').trim();
-  const evidenceRefs = Array.isArray(body.evidence_refs) ? body.evidence_refs : [];
   if (!question) {
     return { statusCode: 400, payload: { error: 'question is required' } };
   }
@@ -317,32 +248,7 @@ const scoringEvaluateResponse = async ({ req, body }) => {
     answer,
     interviewContext: '',
   });
-  const retrievalPlanner = await planRetrievalWithLLM({
-    question,
-    answer,
-    questionType: questionTypeResult.question_type,
-    intent: 'answer',
-    interviewContext: '',
-  });
-  console.log('[retrieval.planner]', {
-    user_id: userId,
-    question_type: questionTypeResult.question_type,
-    planner: retrievalPlanner,
-  });
-  const evidenceBundle = await buildEvidenceBundle({
-    userId,
-    question,
-    answer,
-    user,
-    questionType: questionTypeResult.question_type,
-    retrievalPlanner,
-  });
-  const rawEvidenceRefs = evidenceRefs.length > 0 ? evidenceRefs : evidenceBundle.evidenceRefs;
-  const focusTerms = [
-    ...(evidenceBundle.queryPlan?.keyword_groups?.entity_terms || []),
-    ...(evidenceBundle.queryPlan?.keyword_groups?.intent_terms || []),
-    ...(evidenceBundle.queryPlan?.keyword_groups?.evidence_terms || []),
-  ];
+  const rawEvidenceRefs = [];
   const activeJd = user?.active_jd_file
     ? await readJdDoc({ userId, fileName: user.active_jd_file })
     : null;
@@ -351,11 +257,9 @@ const scoringEvaluateResponse = async ({ req, body }) => {
     answer,
     evidenceRefs: rawEvidenceRefs,
     interviewContext: '',
-    focusTerms,
     resumeSummary: user?.resume_summary || '',
     jobDescription: activeJd?.content || '',
     questionType: questionTypeResult.question_type,
-    retrievalPlan: evidenceBundle.retrievalPlan,
   });
   const evaluationText = await generateEvaluationNarration({
     question,
@@ -408,10 +312,8 @@ const scoringEvaluateResponse = async ({ req, body }) => {
     statusCode: 200,
     payload: {
       attempt_id: attemptId,
-      retrieval_strategy: evidenceBundle.strategy,
       resolved_question_type: questionTypeResult.question_type,
       question_type_reason: questionTypeResult.reason,
-      retrieval_planner: retrievalPlanner,
       score,
       dimension_scores,
       strengths,
@@ -421,9 +323,6 @@ const scoringEvaluateResponse = async ({ req, body }) => {
       evaluation_text: evaluationText,
       evidence_refs_count: normalizedEvidenceRefs.length,
       evidence_refs: normalizedEvidenceRefs.map(({ id, ...rest }) => rest),
-      query_plan: evidenceBundle.queryPlan,
-      local_hits: evidenceBundle.localHits,
-      sirchmunk: evidenceBundle.sirchmunk,
       memory_path: memoryPath,
     },
   };
@@ -518,39 +417,6 @@ const handleSystemRoutes = async ({ req, res, url }) => {
     return true;
   }
 
-  if (req.method === 'POST' && url.pathname === '/v1/retrieval/query-plan') {
-    try {
-      const body = await readBody(req);
-      const result = await buildQueryPlanResponse({ body });
-      json(res, result.statusCode, result.payload);
-    } catch (error) {
-      jsonError(res, error);
-    }
-    return true;
-  }
-
-  if (req.method === 'POST' && url.pathname === '/v1/retrieval/search') {
-    try {
-      const body = await readBody(req);
-      const result = await retrievalSearchResponse({ body });
-      json(res, result.statusCode, result.payload);
-    } catch (error) {
-      jsonError(res, error);
-    }
-    return true;
-  }
-
-  if (req.method === 'POST' && url.pathname === '/v1/retrieval/local-search') {
-    try {
-      const body = await readBody(req);
-      const result = await localSearchResponse({ body });
-      json(res, result.statusCode, result.payload);
-    } catch (error) {
-      jsonError(res, error);
-    }
-    return true;
-  }
-
   if (req.method === 'POST' && url.pathname === '/v1/scoring/evaluate') {
     try {
       const body = await readBody(req);
@@ -630,24 +496,6 @@ async function registerSystemRoutes(app) {
 
   app.post('/v1/users/upsert', async (request, reply) => {
     const result = await upsertUserResponse({ body: request.body || {} });
-    reply.code(result.statusCode);
-    return result.payload;
-  });
-
-  app.post('/v1/retrieval/query-plan', async (request, reply) => {
-    const result = await buildQueryPlanResponse({ body: request.body || {} });
-    reply.code(result.statusCode);
-    return result.payload;
-  });
-
-  app.post('/v1/retrieval/search', async (request, reply) => {
-    const result = await retrievalSearchResponse({ body: request.body || {} });
-    reply.code(result.statusCode);
-    return result.payload;
-  });
-
-  app.post('/v1/retrieval/local-search', async (request, reply) => {
-    const result = await localSearchResponse({ body: request.body || {} });
     reply.code(result.statusCode);
     return result.payload;
   });
