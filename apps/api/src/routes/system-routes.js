@@ -563,7 +563,11 @@ const handleSystemRoutes = async ({ req, res, url }) => {
   }
 
   if (req.method === 'GET' && url.pathname === '/v1/knowledge-graph') {
-    json(res, 200, { graph: getGraph() });
+    const graph = getGraph();
+    const nodeCount = Object.keys(graph).length;
+    const sources = { skeleton: 0, cooccurrence: 0, both: 0 };
+    for (const node of Object.values(graph)) sources[node.source || 'unknown']++;
+    json(res, 200, { graph, _debug: { nodeCount, sources, build: getBuildStatus() } });
     return true;
   }
 
