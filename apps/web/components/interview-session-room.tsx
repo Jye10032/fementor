@@ -102,6 +102,8 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
   const [retrospecting, setRetrospecting] = useState(false);
   const [startedAt] = useState(() => Date.now());
   const [now, setNow] = useState(() => Date.now());
+  const pausedMsRef = useRef(0);
+  const hiddenAtRef = useRef<number | null>(null);
   const questionViewportRef = useRef<HTMLDivElement>(null);
   const transcriptScrollRef = useRef<HTMLDivElement>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
@@ -142,7 +144,7 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
       }
     }
 
-    return now - startedAt;
+    return now - startedAt - pausedMsRef.current;
   }, [now, sessionClosed, sessionDetail?.ended_at, sessionDetail?.started_at, startedAt]);
 
   const clearAutoAdvanceTimer = useCallback(() => {
@@ -270,8 +272,33 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
 
   useEffect(() => {
     if (sessionClosed) return;
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
+    let timer: number | undefined;
+    const tick = () => setNow(Date.now());
+    const startTimer = () => {
+      if (!timer) timer = window.setInterval(tick, 1000);
+    };
+    const stopTimer = () => {
+      if (timer) { window.clearInterval(timer); timer = undefined; }
+    };
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        hiddenAtRef.current = Date.now();
+        stopTimer();
+      } else {
+        if (hiddenAtRef.current !== null) {
+          pausedMsRef.current += Date.now() - hiddenAtRef.current;
+          hiddenAtRef.current = null;
+        }
+        tick();
+        startTimer();
+      }
+    };
+    startTimer();
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      stopTimer();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, [sessionClosed]);
 
   useEffect(() => {
