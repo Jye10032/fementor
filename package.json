@@ -13,6 +13,7 @@
     "db:migrate": "npm --prefix apps/api run db:migrate",
     "db:migrate:status": "npm --prefix apps/api run db:migrate:status",
     "db:seed:dev": "npm --prefix apps/api run db:seed:dev",
+    "storage:test": "npm --prefix apps/api run storage:test",
     "start": "npm --prefix apps/api run start",
     "start:api": "npm --prefix apps/api run start",
     "start:web": "npm --prefix apps/web run start",

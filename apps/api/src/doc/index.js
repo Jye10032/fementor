@@ -1,5 +1,15 @@
 const fs = require('fs');
 const path = require('path');
+const {
+  deleteObject,
+  downloadTextObject,
+  getBucketName,
+  getObjectPath,
+  getPublicPath,
+  isStorageEnabled,
+  listObjects,
+  uploadTextObject,
+} = require('../storage');
 
 const DATA_ROOT = path.resolve(__dirname, '../../../../data');
 const USER_DOC_ROOT = path.join(DATA_ROOT, 'user_docs');
@@ -77,8 +87,26 @@ const saveUserDoc = ({ userId, content, filename, prefix, category = 'knowledge'
   return target;
 };
 
-const saveJdDoc = ({ userId, jdText, filename }) =>
-  saveUserDoc({ userId, content: jdText, filename, prefix: 'jd', category: 'profile' });
+const saveJdDoc = async ({ userId, jdText, filename }) => {
+  if (!isStorageEnabled()) {
+    return saveUserDoc({ userId, content: jdText, filename, prefix: 'jd', category: 'profile' });
+  }
+
+  const rawName = String(filename || '').trim() || `jd-${Date.now()}.md`;
+  const parsed = path.parse(rawName);
+  const normalizedName = `${normalizeFileStem(parsed.name, `jd-${Date.now()}`)}${parsed.ext || ''}`;
+  const targetName = normalizedName.startsWith('jd-') ? normalizedName : `jd-${normalizedName}`;
+  const bucket = getBucketName('jd');
+  const objectPath = getObjectPath({ userId, fileName: targetName });
+  const uploaded = await uploadTextObject({
+    bucket,
+    objectPath,
+    content: jdText,
+    contentType: 'text/markdown; charset=utf-8',
+    upsert: true,
+  });
+  return uploaded.path;
+};
 
 const collectDocEntries = (dir, prefix = '') => {
   if (!fs.existsSync(dir)) return [];
@@ -107,7 +135,7 @@ const listUserDocs = (userId, options = {}) => {
   ].sort((a, b) => b.updated_at.localeCompare(a.updated_at));
 };
 
-const listProfileDocs = (userId, prefix = '') => {
+const listProfileDocsLocal = (userId, prefix = '') => {
   const profileDir = ensureUserProfileDir(userId);
   const legacyDir = ensureUserDocDir(userId);
   return [
@@ -116,7 +144,27 @@ const listProfileDocs = (userId, prefix = '') => {
   ].sort((a, b) => b.updated_at.localeCompare(a.updated_at));
 };
 
-const listJdDocs = (userId) => listProfileDocs(userId, 'jd');
+const listProfileDocs = async (userId, prefix = '') => {
+  if (!isStorageEnabled()) {
+    return listProfileDocsLocal(userId, prefix);
+  }
+
+  const bucket = getBucketName(prefix === 'jd' ? 'jd' : 'resume');
+  const objectPrefix = `${sanitizeUserId(userId)}/`;
+  const items = await listObjects({ bucket, prefix: objectPrefix });
+  return items
+    .filter((item) => item?.name)
+    .filter((item) => !prefix || item.name.startsWith(`${prefix}-`))
+    .map((item) => ({
+      name: item.name,
+      path: getPublicPath({ bucket, objectPath: `${objectPrefix}${item.name}` }),
+      size: Number(item.metadata?.size || item.size || 0),
+      updated_at: String(item.updated_at || item.created_at || ''),
+    }))
+    .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+};
+
+const listJdDocs = async (userId) => listProfileDocs(userId, 'jd');
 
 const resolveUserDocPaths = ({ userId, fileName, prefix, category = 'knowledge' }) => {
   const primaryDir = category === 'profile' ? ensureUserProfileDir(userId) : ensureUserKnowledgeDir(userId);
@@ -153,7 +201,18 @@ const readUserDoc = ({ userId, fileName, prefix, category = 'knowledge' }) => {
   };
 };
 
-const readJdDoc = ({ userId, fileName }) => readUserDoc({ userId, fileName, prefix: 'jd', category: 'profile' });
+const readJdDoc = async ({ userId, fileName }) => {
+  if (!isStorageEnabled()) {
+    return readUserDoc({ userId, fileName, prefix: 'jd', category: 'profile' });
+  }
+
+  const bucket = getBucketName('jd');
+  const objectPath = getObjectPath({
+    userId,
+    fileName: String(fileName || '').startsWith('jd-') ? fileName : `jd-${fileName}`,
+  });
+  return downloadTextObject({ bucket, objectPath });
+};
 
 const deleteUserDoc = ({ userId, fileName, prefix, category = 'profile' }) => {
   const matchedPaths = resolveUserDocPaths({ userId, fileName, prefix, category });
@@ -166,7 +225,18 @@ const deleteUserDoc = ({ userId, fileName, prefix, category = 'profile' }) => {
   return true;
 };
 
-const deleteJdDoc = ({ userId, fileName }) => deleteUserDoc({ userId, fileName, prefix: 'jd', category: 'profile' });
+const deleteJdDoc = async ({ userId, fileName }) => {
+  if (!isStorageEnabled()) {
+    return deleteUserDoc({ userId, fileName, prefix: 'jd', category: 'profile' });
+  }
+
+  const bucket = getBucketName('jd');
+  const objectPath = getObjectPath({
+    userId,
+    fileName: String(fileName || '').startsWith('jd-') ? fileName : `jd-${fileName}`,
+  });
+  return deleteObject({ bucket, objectPath });
+};
 
 module.exports = {
   DATA_ROOT,

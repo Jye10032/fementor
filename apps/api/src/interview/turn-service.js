@@ -67,7 +67,7 @@ const submitInterviewTurnUnified = async ({ sessionId, body, onPhase, onToken, s
   });
   const user = await getUserById(session.user_id);
   const activeJd = user?.active_jd_file
-    ? readJdDoc({ userId: session.user_id, fileName: user.active_jd_file })
+    ? await readJdDoc({ userId: session.user_id, fileName: user.active_jd_file })
     : null;
   const resumeSummary = String(user?.resume_summary || '').trim();
   const jobDescription = String(activeJd?.content || '').trim();
@@ -396,7 +396,7 @@ const submitInterviewTurnLegacy = async ({ sessionId, body, onPhase, onToken, se
   });
   const user = await getUserById(session.user_id);
   const activeJd = user?.active_jd_file
-    ? readJdDoc({ userId: session.user_id, fileName: user.active_jd_file })
+    ? await readJdDoc({ userId: session.user_id, fileName: user.active_jd_file })
     : null;
   const resumeSummary = String(user?.resume_summary || '').trim();
   const jobDescription = String(activeJd?.content || '').trim();

@@ -244,6 +244,9 @@ npm run db:migrate
 
 # 写入开发示例数据
 npm run db:seed:dev
+
+# 测试 Supabase Storage bucket
+npm run storage:test
 ```
 
 ### `migration` / `seed` / `init` 分工
@@ -262,6 +265,26 @@ npm run db:seed:dev
 1. 本地和部署前先跑 `migration`
 2. 开发环境需要样例题时再跑 `seed`
 3. `init` 只保留为过渡期兜底，不作为长期 schema 管理方案
+
+### Supabase Storage 测试
+
+如果你已经在 Supabase 里创建了私有 bucket（比如 `resumes`），可以先配置：
+
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_STORAGE_BUCKET=resumes`
+
+然后执行：
+
+```bash
+npm run storage:test
+```
+
+当前脚本位于 [`apps/api/scripts/test-storage.js`](/Users/user/vscode/fementor/apps/api/scripts/test-storage.js)，会对 bucket 做一次：
+
+1. 上传测试文件
+2. 下载并校验内容
+3. 删除测试文件
 
 ### 环境要求
 

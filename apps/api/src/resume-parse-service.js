@@ -160,7 +160,7 @@ const parseResumeRequest = async ({ req, parsedMultipart = null }) => {
         });
       }
 
-      const savedPath = saveResumeDoc({
+      const savedPath = await saveResumeDoc({
         userId: context.userId,
         resumeText: cached.parsed_text,
         filename,
@@ -237,7 +237,7 @@ const parseResumeRequest = async ({ req, parsedMultipart = null }) => {
     elapsed_ms: Date.now() - summaryStartedAt,
   });
   const saveStartedAt = Date.now();
-  const savedPath = saveResumeDoc({
+  const savedPath = await saveResumeDoc({
     userId: context.userId,
     resumeText,
     filename,

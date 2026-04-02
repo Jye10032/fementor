@@ -59,8 +59,8 @@ const jdExampleText = [
   '- 有测试体系建设、工程化治理或稳定性优化实践。',
 ].join('\n');
 
-const findExistingResumeExample = (userId) => {
-  const resumeDocs = listResumeDocs(userId);
+const findExistingResumeExample = async (userId) => {
+  const resumeDocs = await listResumeDocs(userId);
   return resumeDocs.find((item) =>
     item.name === `resume-${RESUME_EXAMPLE_FILENAME}`
     || item.original_filename === RESUME_EXAMPLE_FILENAME
@@ -68,8 +68,8 @@ const findExistingResumeExample = (userId) => {
   ) || null;
 };
 
-const findExistingJdExample = (userId) => {
-  const jdDocs = listJdDocs(userId);
+const findExistingJdExample = async (userId) => {
+  const jdDocs = await listJdDocs(userId);
   return jdDocs.find((item) =>
     item.name === `jd-${JD_EXAMPLE_FILENAME}` || item.name.startsWith('jd-通用前端JD示例')
   ) || null;
@@ -78,17 +78,17 @@ const findExistingJdExample = (userId) => {
 const ensureExampleProfileDocs = async ({ userId, authUser = null }) => {
   await ensureLocalUserProfile({ userId, authUser });
 
-  const existingResume = findExistingResumeExample(userId);
-  const existingJd = findExistingJdExample(userId);
+  const existingResume = await findExistingResumeExample(userId);
+  const existingJd = await findExistingJdExample(userId);
 
-  const resumePath = existingResume?.path || saveResumeDoc({
+  const resumePath = existingResume?.path || await saveResumeDoc({
     userId,
     resumeText: resumeExampleText,
     filename: RESUME_EXAMPLE_FILENAME,
     summary: resumeExampleSummary,
     originalFilename: RESUME_EXAMPLE_FILENAME,
   });
-  const jdPath = existingJd?.path || saveJdDoc({
+  const jdPath = existingJd?.path || await saveJdDoc({
     userId,
     jdText: jdExampleText,
     filename: JD_EXAMPLE_FILENAME,
@@ -97,8 +97,8 @@ const ensureExampleProfileDocs = async ({ userId, authUser = null }) => {
   const resumeName = path.basename(resumePath);
   const jdName = path.basename(jdPath);
   const user = await getUserById(userId);
-  const resumeDocs = listResumeDocs(userId);
-  const jdDocs = listJdDocs(userId);
+  const resumeDocs = await listResumeDocs(userId);
+  const jdDocs = await listJdDocs(userId);
 
   if (user && !user.active_resume_file && resumeDocs.length === 1) {
     await setActiveResumeFile({

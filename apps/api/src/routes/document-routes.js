@@ -82,7 +82,7 @@ const getResumeLibraryResponse = async ({ req, queryUserId }) => {
   const sqliteUser = await getUserById(userId);
   const postgresUser = await syncPostgresProfile({ authUser: context.authUser });
   const user = mergeProfileUsers(sqliteUser, postgresUser);
-  const files = listResumeDocs(userId);
+  const files = await listResumeDocs(userId);
   const activeFile = files.find((item) => item.name === user?.active_resume_file) || null;
   const activeSummary = String(activeFile?.summary || user?.resume_summary || '').trim();
 
@@ -121,7 +121,7 @@ const selectResumeResponse = async ({ req, body }) => {
     return { statusCode: 404, payload: { error: 'user not found' } };
   }
 
-  const doc = readResumeDoc({ userId, fileName });
+  const doc = await readResumeDoc({ userId, fileName });
   if (!doc) {
     return { statusCode: 404, payload: { error: 'resume file not found' } };
   }
@@ -132,7 +132,7 @@ const selectResumeResponse = async ({ req, body }) => {
     const structured = await summarizeResumeWithLLM(doc.content);
     summary = structured.summary;
     resumeStructuredJson = JSON.stringify(structured);
-    updateResumeDocMeta({
+    await updateResumeDocMeta({
       userId,
       fileName: doc.name,
       summary,
@@ -175,7 +175,7 @@ const readResumeResponse = async ({ req, queryUserId, fileName }) => {
   if (!fileName) {
     return { statusCode: 400, payload: { error: 'file_name is required' } };
   }
-  const doc = readResumeDoc({ userId, fileName });
+  const doc = await readResumeDoc({ userId, fileName });
   if (!doc) {
     return { statusCode: 404, payload: { error: 'resume not found' } };
   }
@@ -204,7 +204,7 @@ const readJdResponse = async ({ req, queryUserId, fileName }) => {
   if (!fileName) {
     return { statusCode: 400, payload: { error: 'file_name is required' } };
   }
-  const doc = readJdDoc({ userId, fileName });
+  const doc = await readJdDoc({ userId, fileName });
   if (!doc) {
     return { statusCode: 404, payload: { error: 'jd not found' } };
   }
@@ -232,7 +232,7 @@ const uploadJdResponse = async ({ req, body }) => {
     return { statusCode: 400, payload: { error: 'jd_text is required' } };
   }
 
-  const savedPath = saveJdDoc({ userId, jdText, filename });
+  const savedPath = await saveJdDoc({ userId, jdText, filename });
   await ensureLocalUserProfile({
     userId,
     authUser: context.authUser,
@@ -266,7 +266,7 @@ const jdLibraryResponse = async ({ req, queryUserId }) => {
   const sqliteUser = await getUserById(userId);
   const postgresUser = await syncPostgresProfile({ authUser: context.authUser });
   const user = mergeProfileUsers(sqliteUser, postgresUser);
-  const files = listJdDocs(userId);
+  const files = await listJdDocs(userId);
 
   return {
     statusCode: 200,
@@ -301,7 +301,7 @@ const selectJdResponse = async ({ req, body }) => {
     return { statusCode: 404, payload: { error: 'user not found' } };
   }
 
-  const doc = readJdDoc({ userId, fileName });
+  const doc = await readJdDoc({ userId, fileName });
   if (!doc) {
     return { statusCode: 404, payload: { error: 'jd file not found' } };
   }
@@ -334,7 +334,7 @@ const deleteResumeResponse = async ({ req, body }) => {
   if (!fileName) {
     return { statusCode: 400, payload: { error: 'file_name is required' } };
   }
-  const deleted = deleteResumeDoc({ userId, fileName });
+  const deleted = await deleteResumeDoc({ userId, fileName });
   if (!deleted) {
     return { statusCode: 404, payload: { error: 'resume file not found' } };
   }
@@ -364,7 +364,7 @@ const deleteJdResponse = async ({ req, body }) => {
   if (!fileName) {
     return { statusCode: 400, payload: { error: 'file_name is required' } };
   }
-  const deleted = deleteJdDoc({ userId, fileName });
+  const deleted = await deleteJdDoc({ userId, fileName });
   if (!deleted) {
     return { statusCode: 404, payload: { error: 'jd file not found' } };
   }

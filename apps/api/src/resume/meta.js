@@ -10,6 +10,17 @@ const {
   readUserDoc,
   deleteUserDoc,
 } = require('../doc');
+const {
+  deleteObject,
+  downloadTextObject,
+  getBucketName,
+  getObjectPath,
+  getPublicPath,
+  isStorageEnabled,
+  listObjects,
+  sanitizeUserId,
+  uploadTextObject,
+} = require('../storage');
 
 const normalizeStoredTextFilename = ({ filename, prefix }) => {
   const rawName = String(filename || '').trim() || `${prefix || 'doc'}.md`;
@@ -98,20 +109,38 @@ const collectResumeEntries = (dir) => {
     });
 };
 
-const saveResumeDoc = ({ userId, resumeText, filename, summary = '', originalFilename = '' }) =>
-  saveUserDoc({
-    userId,
-    content: buildResumeMarkdown({
-      resumeText,
-      summary,
-      originalFilename: originalFilename || filename,
-    }),
-    filename: normalizeStoredTextFilename({ filename, prefix: 'resume' }),
-    prefix: 'resume',
-    category: 'profile',
+const saveResumeDoc = async ({ userId, resumeText, filename, summary = '', originalFilename = '' }) => {
+  const content = buildResumeMarkdown({
+    resumeText,
+    summary,
+    originalFilename: originalFilename || filename,
   });
+  const baseFilename = normalizeStoredTextFilename({ filename, prefix: 'resume' });
+  const normalizedFilename = baseFilename.startsWith('resume-') ? baseFilename : `resume-${baseFilename}`;
 
-const listResumeDocs = (userId) => {
+  if (!isStorageEnabled()) {
+    return saveUserDoc({
+      userId,
+      content,
+      filename: normalizedFilename,
+      prefix: 'resume',
+      category: 'profile',
+    });
+  }
+
+  const bucket = getBucketName('resume');
+  const objectPath = getObjectPath({ userId, fileName: normalizedFilename });
+  const uploaded = await uploadTextObject({
+    bucket,
+    objectPath,
+    content,
+    contentType: 'text/markdown; charset=utf-8',
+    upsert: true,
+  });
+  return uploaded.path;
+};
+
+const listResumeDocsLocal = (userId) => {
   const profileDir = ensureUserProfileDir(userId);
   const legacyDir = ensureUserDocDir(userId);
   return [
@@ -120,8 +149,51 @@ const listResumeDocs = (userId) => {
   ].sort((a, b) => b.updated_at.localeCompare(a.updated_at));
 };
 
-const readResumeDoc = ({ userId, fileName }) => {
-  const doc = readUserDoc({ userId, fileName, prefix: 'resume', category: 'profile' });
+const listResumeDocs = async (userId) => {
+  if (!isStorageEnabled()) {
+    return listResumeDocsLocal(userId);
+  }
+
+  const bucket = getBucketName('resume');
+  const prefix = `${sanitizeUserId(userId)}/`;
+  const items = await listObjects({ bucket, prefix });
+  const results = [];
+
+  for (const item of items) {
+    if (!item?.name || !item.name.startsWith('resume-')) {
+      continue;
+    }
+
+    const objectPath = `${prefix}${item.name}`;
+    const downloaded = await downloadTextObject({ bucket, objectPath });
+    if (!downloaded) {
+      continue;
+    }
+
+    const parsed = parseResumeMetaBlock(downloaded.content);
+    results.push({
+      name: item.name,
+      path: getPublicPath({ bucket, objectPath }),
+      size: Number(item.metadata?.size || item.size || downloaded.content.length || 0),
+      updated_at: String(item.updated_at || item.created_at || ''),
+      summary: normalizeResumeDocMeta(parsed.meta).summary,
+      original_filename: normalizeResumeDocMeta(parsed.meta).original_filename,
+    });
+  }
+
+  return results.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+};
+
+const readResumeDoc = async ({ userId, fileName }) => {
+  const doc = !isStorageEnabled()
+    ? readUserDoc({ userId, fileName, prefix: 'resume', category: 'profile' })
+    : await downloadTextObject({
+      bucket: getBucketName('resume'),
+      objectPath: getObjectPath({
+        userId,
+        fileName: String(fileName || '').startsWith('resume-') ? fileName : `resume-${fileName}`,
+      }),
+    });
   if (!doc) return null;
   const parsed = parseResumeMetaBlock(doc.content);
   return {
@@ -133,8 +205,29 @@ const readResumeDoc = ({ userId, fileName }) => {
   };
 };
 
-const updateResumeDocMeta = ({ userId, fileName, summary = '', originalFilename = '' }) => {
-  const doc = readResumeDoc({ userId, fileName });
+const updateResumeDocMeta = async ({ userId, fileName, summary = '', originalFilename = '' }) => {
+  if (!isStorageEnabled()) {
+    const doc = await readResumeDoc({ userId, fileName });
+    if (!doc) return null;
+
+    const nextMeta = {
+      ...doc.meta,
+      summary: String(summary || doc.meta?.summary || '').trim(),
+      original_filename: String(originalFilename || doc.meta?.original_filename || '').trim(),
+      updated_at: new Date().toISOString(),
+    };
+
+    fs.writeFileSync(doc.path, buildResumeMarkdown({
+      resumeText: doc.content,
+      summary: nextMeta.summary,
+      originalFilename: nextMeta.original_filename,
+      updatedAt: nextMeta.updated_at,
+    }), 'utf8');
+
+    return readResumeDoc({ userId, fileName: doc.name });
+  }
+
+  const doc = await readResumeDoc({ userId, fileName });
   if (!doc) return null;
 
   const nextMeta = {
@@ -144,18 +237,35 @@ const updateResumeDocMeta = ({ userId, fileName, summary = '', originalFilename 
     updated_at: new Date().toISOString(),
   };
 
-  fs.writeFileSync(doc.path, buildResumeMarkdown({
-    resumeText: doc.content,
-    summary: nextMeta.summary,
-    originalFilename: nextMeta.original_filename,
-    updatedAt: nextMeta.updated_at,
-  }), 'utf8');
+  await uploadTextObject({
+    bucket: getBucketName('resume'),
+    objectPath: getObjectPath({ userId, fileName: doc.name }),
+    content: buildResumeMarkdown({
+      resumeText: doc.content,
+      summary: nextMeta.summary,
+      originalFilename: nextMeta.original_filename,
+      updatedAt: nextMeta.updated_at,
+    }),
+    contentType: 'text/markdown; charset=utf-8',
+    upsert: true,
+  });
 
   return readResumeDoc({ userId, fileName: doc.name });
 };
 
-const deleteResumeDoc = ({ userId, fileName }) =>
-  deleteUserDoc({ userId, fileName, prefix: 'resume', category: 'profile' });
+const deleteResumeDoc = async ({ userId, fileName }) => {
+  if (!isStorageEnabled()) {
+    return deleteUserDoc({ userId, fileName, prefix: 'resume', category: 'profile' });
+  }
+
+  return deleteObject({
+    bucket: getBucketName('resume'),
+    objectPath: getObjectPath({
+      userId,
+      fileName: String(fileName || '').startsWith('resume-') ? fileName : `resume-${fileName}`,
+    }),
+  });
+};
 
 module.exports = {
   normalizeStoredTextFilename,

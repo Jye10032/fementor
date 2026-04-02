@@ -83,13 +83,13 @@ const uniqPaths = (items) => Array.from(new Set(
   (items || []).map((item) => String(item || '').trim()).filter(Boolean),
 ));
 
-const planEvidenceDocPaths = ({ userId, questionType, question, answer = '', user }) => {
+const planEvidenceDocPaths = async ({ userId, questionType, question, answer = '', user }) => {
   const allDocs = listUserDocs(userId);
   const activeResume = user?.active_resume_file
-    ? readResumeDoc({ userId, fileName: user.active_resume_file })
+    ? await readResumeDoc({ userId, fileName: user.active_resume_file })
     : allDocs.find((item) => item.name.startsWith('resume-')) || null;
   const activeJd = user?.active_jd_file
-    ? readJdDoc({ userId, fileName: user.active_jd_file })
+    ? await readJdDoc({ userId, fileName: user.active_jd_file })
     : allDocs.find((item) => item.name.startsWith('jd-')) || null;
   const knowledgeDocs = allDocs
     .filter((item) => !item.name.startsWith('resume-') && !item.name.startsWith('jd-'))
@@ -126,7 +126,7 @@ const buildEvidenceBundle = async ({
   questionType = 'project',
   retrievalPlanner = null,
 }) => {
-  const retrievalPlan = planEvidenceDocPaths({
+  const retrievalPlan = await planEvidenceDocPaths({
     userId,
     questionType,
     question,
