@@ -289,13 +289,6 @@ function expandWithGraph(techEntities, { maxDepth = 1, maxPerNode = 5, minWeight
 }
 
 function getGraph() {
-  if (Object.keys(globalGraph).length === 0) {
-    const skeleton = loadSkeleton();
-    if (Object.keys(skeleton).length > 0) {
-      globalGraph = mergeSkeletonWithCooccurrence(skeleton, {});
-      inferOrphanParents(globalGraph);
-    }
-  }
   return globalGraph;
 }
 
