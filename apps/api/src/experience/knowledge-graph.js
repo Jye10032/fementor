@@ -216,10 +216,13 @@ function inferOrphanParents(graph) {
 }
 
 async function buildKnowledgeGraph(store) {
+  console.log('[knowledge-graph] starting build...');
   const skeleton = loadSkeleton();
+  console.log('[knowledge-graph] skeleton loaded:', Object.keys(skeleton).length, 'entries');
   let cooccurrence = {};
   try {
     cooccurrence = await buildCooccurrenceFromStore(store);
+    console.log('[knowledge-graph] cooccurrence built:', Object.keys(cooccurrence).length, 'tags');
   } catch (error) {
     console.warn('[knowledge-graph.cooccurrence.failed]', error.message);
   }

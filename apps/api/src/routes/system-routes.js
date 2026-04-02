@@ -344,7 +344,7 @@ const scoringEvaluateResponse = async ({ req, body }) => {
     ...(evidenceBundle.queryPlan?.keyword_groups?.evidence_terms || []),
   ];
   const activeJd = user?.active_jd_file
-    ? readJdDoc({ userId, fileName: user.active_jd_file })
+    ? await readJdDoc({ userId, fileName: user.active_jd_file })
     : null;
   const { score, dimension_scores, strengths, weaknesses, feedback, standard_answer } = await enhanceEvaluationWithLLM({
     question,
@@ -657,7 +657,13 @@ async function registerSystemRoutes(app) {
     return result.payload;
   });
 
-  app.get('/v1/knowledge-graph', async () => ({ graph: getGraph() }));
+  app.get('/v1/knowledge-graph', async () => {
+    const graph = getGraph();
+    const nodeCount = Object.keys(graph).length;
+    const sources = { skeleton: 0, cooccurrence: 0, both: 0 };
+    for (const node of Object.values(graph)) sources[node.source || 'unknown']++;
+    return { graph, _debug: { nodeCount, sources } };
+  });
 }
 
 module.exports = {
