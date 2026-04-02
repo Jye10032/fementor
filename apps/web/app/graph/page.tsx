@@ -188,24 +188,58 @@ function renderGraph(
   links: SimLink[],
   simulationRef: React.MutableRefObject<d3.Simulation<SimNode, SimLink> | null>,
 ) {
-  // 1. 清空容器，获取画布尺寸
+  // 1. 清空容器，获取画布尺寸，创建 Canvas（2x DPR 保证清晰度）
   container.innerHTML = "";
   const width = container.clientWidth;
   const height = container.clientHeight;
+  const dpr = window.devicePixelRatio || 1;
 
-  // 2. 创建 SVG 画布，g 作为所有图形元素的容器（用于整体缩放/平移）
-  const svg = d3.select(container).append("svg").attr("width", width).attr("height", height);
-  const g = svg.append("g");
+  const canvas = document.createElement("canvas");
+  canvas.width = width * dpr;
+  canvas.height = height * dpr;
+  canvas.style.width = `${width}px`;
+  canvas.style.height = `${height}px`;
+  container.appendChild(canvas);
 
-  // 3. 绑定缩放行为：滚轮缩放范围 0.2x ~ 4x，变换应用到 g 容器
-  const zoom = d3.zoom<SVGSVGElement, unknown>().scaleExtent([0.2, 4]).on("zoom", (e) => g.attr("transform", e.transform));
-  svg.call(zoom);
+  const ctx = canvas.getContext("2d")!;
+  ctx.scale(dpr, dpr);
 
-  // 4. 初始化力导向模拟
-  //    - link: 连线弹簧力，父子边短且强，共现边长且弱
-  //    - charge: 节点间斥力，层级越高斥力越大以留出空间
-  //    - center: 将整体图形锚定到画布中心
-  //    - collision: 碰撞检测，防止节点重叠
+  // 2. 创建悬浮提示框（DOM div），初始透明
+  const tooltipEl = document.createElement("div");
+  Object.assign(tooltipEl.style, {
+    position: "absolute", background: "#ffffff", border: "1px solid #e2e8f0",
+    borderRadius: "8px", padding: "10px 14px", fontSize: "13px",
+    pointerEvents: "none", opacity: "0", zIndex: "20", maxWidth: "280px",
+    color: "#334155", transition: "opacity 0.15s", boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+  });
+  container.appendChild(tooltipEl);
+
+  // 3. 缩放/平移状态
+  let transform = d3.zoomIdentity;
+
+  // 4. 预构建邻接表，加速 hover/click 时的关联查找
+  const adjacency = new Map<string, { parents: Set<string>; related: Set<string> }>();
+  for (const n of nodes) {
+    adjacency.set(n.id, { parents: new Set(), related: new Set() });
+  }
+  for (const l of links) {
+    const sId = typeof l.source === "object" ? (l.source as SimNode).id : (l.source as string);
+    const tId = typeof l.target === "object" ? (l.target as SimNode).id : (l.target as string);
+    if (l.type === "related") {
+      adjacency.get(sId)?.related.add(tId);
+      adjacency.get(tId)?.related.add(sId);
+    } else {
+      adjacency.get(sId)?.parents.add(tId);
+      adjacency.get(tId)?.parents.add(sId);
+    }
+  }
+
+  // 5. 交互状态
+  let hoveredNode: SimNode | null = null;
+  let selectedId: string | null = null;
+  let connectedSet: Set<string> | null = null;
+
+  // 6. 初始化力导向模拟
   const simulation = d3.forceSimulation<SimNode>(nodes)
     .alphaDecay(0.05)
     .force("link", d3.forceLink<SimNode, SimLink>(links).id((d) => d.id).distance((d) => d.type === "parent" ? 60 : 100).strength((d) => d.type === "parent" ? 0.8 : 0.15))
@@ -215,109 +249,187 @@ function renderGraph(
 
   simulationRef.current = simulation;
 
-  // 5. 绘制连线：父子关系用实线，共现关联用虚线，颜色和粗细做区分
-  const link = g.append("g").selectAll("line").data(links).join("line")
-    .attr("stroke", (d) => d.type === "parent" ? "#94a3b8" : "#cbd5e1")
-    .attr("stroke-width", (d) => d.type === "parent" ? 1.5 : 0.8)
-    .attr("stroke-dasharray", (d) => d.type === "related" ? "4,3" : null)
-    .attr("opacity", 0.6);
+  // 7. Canvas 绘制函数
+  function draw() {
+    ctx.save();
+    ctx.clearRect(0, 0, width, height);
+    ctx.translate(transform.x, transform.y);
+    ctx.scale(transform.k, transform.k);
 
-  // 6. 绘制节点圆形：半径按层级递减，填充色按分类着色，透明度按层级递减
-  //    绑定拖拽行为：拖拽时固定节点位置，松开后释放回模拟
-  const node = g.append("g").selectAll<SVGCircleElement, SimNode>("circle").data(nodes).join("circle")
-    .attr("r", (d) => getRadius(d.level))
-    .attr("fill", (d) => d.color)
-    .attr("stroke", "#f1f5f9").attr("stroke-width", 1.5)
-    .attr("opacity", (d) => d.level === 0 ? 1 : d.level === 1 ? 0.85 : 0.65)
-    .attr("cursor", "pointer")
-    .call(d3.drag<SVGCircleElement, SimNode>()
-      .on("start", (e, d) => { if (!e.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
-      .on("drag", (e, d) => { d.fx = e.x; d.fy = e.y; })
-      .on("end", (e, d) => { if (!e.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; })
-    );
+    // 绘制连线
+    for (const l of links) {
+      const s = l.source as SimNode;
+      const t = l.target as SimNode;
+      // 点击高亮时淡化无关连线
+      if (connectedSet) {
+        const sConn = connectedSet.has(s.id) && connectedSet.has(t.id);
+        ctx.globalAlpha = sConn ? 0.9 : 0.03;
+      } else {
+        ctx.globalAlpha = 0.6;
+      }
+      ctx.beginPath();
+      ctx.moveTo(s.x!, s.y!);
+      if (l.type === "related") {
+        ctx.setLineDash([4, 3]);
+        ctx.strokeStyle = "#cbd5e1";
+        ctx.lineWidth = 0.8;
+      } else {
+        ctx.setLineDash([]);
+        ctx.strokeStyle = "#94a3b8";
+        ctx.lineWidth = 1.5;
+      }
+      ctx.lineTo(t.x!, t.y!);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
 
-  // 7. 绘制文字标签：显示在节点上方，字号和粗细按层级区分，禁用鼠标事件避免干扰交互
-  const label = g.append("g").selectAll("text").data(nodes).join("text")
-    .text((d) => d.id)
-    .attr("font-size", (d) => d.level === 0 ? 13 : d.level === 1 ? 10 : 8)
-    .attr("fill", (d) => d.level === 0 ? "#1e293b" : "#475569")
-    .attr("font-weight", (d) => d.level === 0 ? "600" : "400")
-    .attr("text-anchor", "middle")
-    .attr("dy", (d) => -(getRadius(d.level) + 6))
-    .attr("pointer-events", "none");
+    // 绘制节点
+    for (const n of nodes) {
+      const r = getRadius(n.level);
+      let alpha = n.level === 0 ? 1 : n.level === 1 ? 0.85 : 0.65;
+      if (connectedSet) alpha = connectedSet.has(n.id) ? 1 : 0.08;
 
-  // 8. 创建悬浮提示框（DOM div），初始透明，跟随鼠标定位
-  const tooltip = d3.select(container).append("div")
-    .style("position", "absolute").style("background", "#ffffff").style("border", "1px solid #e2e8f0")
-    .style("border-radius", "8px").style("padding", "10px 14px").style("font-size", "13px")
-    .style("pointer-events", "none").style("opacity", "0").style("z-index", "20").style("max-width", "280px")
-    .style("color", "#334155").style("transition", "opacity 0.15s").style("box-shadow", "0 2px 8px rgba(0,0,0,0.08)");
+      ctx.globalAlpha = alpha;
+      ctx.beginPath();
+      ctx.arc(n.x!, n.y!, r, 0, Math.PI * 2);
+      ctx.fillStyle = n.color;
+      ctx.fill();
+      // 描边：hover 时加粗
+      ctx.strokeStyle = hoveredNode === n ? "#334155" : "#f1f5f9";
+      ctx.lineWidth = hoveredNode === n ? 3 : 1.5;
+      ctx.stroke();
+    }
 
-  // 9. 节点 hover 交互：收集关联节点名称，构建 tooltip HTML，加粗描边高亮当前节点
-  node.on("mouseover", function (e, d) {
-    const relatedNames: string[] = [];
-    links.forEach((l) => {
-      if (l.type !== "related") return;
-      const s = typeof l.source === "object" ? (l.source as SimNode).id : (l.source as string);
-      const t = typeof l.target === "object" ? (l.target as SimNode).id : (l.target as string);
-      if (s === d.id) relatedNames.push(t);
-      if (t === d.id) relatedNames.push(s);
-    });
-    let html = `<div style="font-weight:600;color:#1e293b;margin-bottom:4px">${d.id}</div>`;
-    html += d.parent
-      ? `<div style="color:#64748b;font-size:12px">父节点: ${d.parent} | 分类: ${d.category}</div>`
-      : `<div style="color:#64748b;font-size:12px">一级分类</div>`;
-    if (relatedNames.length) html += `<div style="color:#0891b2;font-size:12px;margin-top:4px">关联: ${relatedNames.join(", ")}</div>`;
-    tooltip.html(html).style("opacity", "1").style("left", `${e.offsetX + 12}px`).style("top", `${e.offsetY - 10}px`);
-    d3.select(this).attr("stroke", "#334155").attr("stroke-width", 3);
-  }).on("mousemove", function (e) {
-    // 跟随鼠标移动更新 tooltip 位置
-    tooltip.style("left", `${e.offsetX + 12}px`).style("top", `${e.offsetY - 10}px`);
-  }).on("mouseout", function () {
-    // 鼠标移出时隐藏 tooltip，恢复节点描边
-    tooltip.style("opacity", "0");
-    d3.select(this).attr("stroke", "#f1f5f9").attr("stroke-width", 1.5);
-  });
+    // 绘制标签
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
+    for (const n of nodes) {
+      let alpha = 1;
+      if (connectedSet) alpha = connectedSet.has(n.id) ? 1 : 0;
+      ctx.globalAlpha = alpha;
+      const r = getRadius(n.level);
+      ctx.font = n.level === 0 ? "600 13px sans-serif" : n.level === 1 ? "400 10px sans-serif" : "400 8px sans-serif";
+      ctx.fillStyle = n.level === 0 ? "#1e293b" : "#475569";
+      ctx.fillText(n.id, n.x!, n.y! - r - 6);
+    }
 
-  // 10. 点击高亮：点击节点后只高亮该节点及其直接相连节点，其余淡化
-  //     再次点击同一节点或点击空白区域取消高亮
-  let selectedId: string | null = null;
-  node.on("click", function (e, d) {
-    e.stopPropagation();
-    if (selectedId === d.id) { selectedId = null; resetHighlight(); return; }
-    selectedId = d.id;
-    const connected = new Set([d.id]);
-    links.forEach((l) => {
-      const s = typeof l.source === "object" ? (l.source as SimNode).id : (l.source as string);
-      const t = typeof l.target === "object" ? (l.target as SimNode).id : (l.target as string);
-      if (s === d.id) connected.add(t);
-      if (t === d.id) connected.add(s);
-    });
-    node.attr("opacity", (n) => connected.has(n.id) ? 1 : 0.08);
-    link.attr("opacity", (l) => {
-      const s = typeof l.source === "object" ? (l.source as SimNode).id : (l.source as string);
-      const t = typeof l.target === "object" ? (l.target as SimNode).id : (l.target as string);
-      return (s === d.id || t === d.id) ? 0.9 : 0.03;
-    });
-    label.attr("opacity", (n) => connected.has(n.id) ? 1 : 0);
-  });
-  svg.on("click", () => { selectedId = null; resetHighlight(); });
-
-  // 恢复所有节点、连线、标签到默认透明度
-  function resetHighlight() {
-    node.attr("opacity", (d) => d.level === 0 ? 1 : d.level === 1 ? 0.85 : 0.65);
-    link.attr("opacity", 0.6);
-    label.attr("opacity", 1);
+    ctx.globalAlpha = 1;
+    ctx.restore();
   }
 
-  // 11. 每帧 tick 回调：根据模拟计算的坐标更新连线端点、节点位置、标签位置
-  simulation.on("tick", () => {
-    link
-      .attr("x1", (d) => (d.source as SimNode).x!)
-      .attr("y1", (d) => (d.source as SimNode).y!)
-      .attr("x2", (d) => (d.target as SimNode).x!)
-      .attr("y2", (d) => (d.target as SimNode).y!);
-    node.attr("cx", (d) => d.x!).attr("cy", (d) => d.y!);
-    label.attr("x", (d) => d.x!).attr("y", (d) => d.y!);
+  // 8. tick 回调：每帧重绘 Canvas
+  simulation.on("tick", draw);
+
+  // 9. 坐标命中检测：找到鼠标下的节点
+  function hitTest(mx: number, my: number): SimNode | null {
+    // 将屏幕坐标转换为模拟坐标
+    const [sx, sy] = transform.invert([mx, my]);
+    // 从上层节点开始检测（后绘制的在上面）
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      const n = nodes[i];
+      const dx = sx - n.x!;
+      const dy = sy - n.y!;
+      if (dx * dx + dy * dy < (getRadius(n.level) + 4) ** 2) return n;
+    }
+    return null;
+  }
+
+  // 10. 缩放行为
+  const zoomBehavior = d3.zoom<HTMLCanvasElement, unknown>()
+    .scaleExtent([0.2, 4])
+    .on("zoom", (e) => { transform = e.transform; draw(); });
+  d3.select(canvas).call(zoomBehavior);
+
+  // 11. hover 交互
+  canvas.addEventListener("mousemove", (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const hit = hitTest(mx, my);
+
+    if (hit !== hoveredNode) {
+      hoveredNode = hit;
+      canvas.style.cursor = hit ? "pointer" : "default";
+      draw();
+    }
+
+    if (hit) {
+      const adj = adjacency.get(hit.id);
+      const relatedNames = adj ? [...adj.related] : [];
+      let html = `<div style="font-weight:600;color:#1e293b;margin-bottom:4px">${hit.id}</div>`;
+      html += hit.parent
+        ? `<div style="color:#64748b;font-size:12px">父节点: ${hit.parent} | 分类: ${hit.category}</div>`
+        : `<div style="color:#64748b;font-size:12px">一级分类</div>`;
+      if (relatedNames.length) html += `<div style="color:#0891b2;font-size:12px;margin-top:4px">关联: ${relatedNames.join(", ")}</div>`;
+      tooltipEl.innerHTML = html;
+      tooltipEl.style.opacity = "1";
+      tooltipEl.style.left = `${e.offsetX + 12}px`;
+      tooltipEl.style.top = `${e.offsetY - 10}px`;
+    } else {
+      tooltipEl.style.opacity = "0";
+    }
   });
+
+  canvas.addEventListener("mouseleave", () => {
+    hoveredNode = null;
+    tooltipEl.style.opacity = "0";
+    draw();
+  });
+
+  // 12. 点击高亮
+  canvas.addEventListener("click", (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const hit = hitTest(e.clientX - rect.left, e.clientY - rect.top);
+
+    if (!hit) {
+      selectedId = null;
+      connectedSet = null;
+    } else if (selectedId === hit.id) {
+      selectedId = null;
+      connectedSet = null;
+    } else {
+      selectedId = hit.id;
+      connectedSet = new Set([hit.id]);
+      const adj = adjacency.get(hit.id);
+      if (adj) {
+        for (const id of adj.parents) connectedSet.add(id);
+        for (const id of adj.related) connectedSet.add(id);
+      }
+    }
+    draw();
+  });
+
+  // 13. 拖拽行为
+  let dragNode: SimNode | null = null;
+
+  d3.select(canvas).call(
+    d3.drag<HTMLCanvasElement, unknown>()
+      .subject((e) => {
+        const hit = hitTest(e.x, e.y);
+        if (hit) return { x: transform.applyX(hit.x!), y: transform.applyY(hit.y!) };
+        return null;
+      })
+      .on("start", (e) => {
+        const hit = hitTest(e.x, e.y);
+        if (!hit) return;
+        dragNode = hit;
+        if (!e.active) simulation.alphaTarget(0.3).restart();
+        hit.fx = hit.x;
+        hit.fy = hit.y;
+      })
+      .on("drag", (e) => {
+        if (!dragNode) return;
+        const [sx, sy] = transform.invert([e.x, e.y]);
+        dragNode.fx = sx;
+        dragNode.fy = sy;
+      })
+      .on("end", (e) => {
+        if (!dragNode) return;
+        if (!e.active) simulation.alphaTarget(0);
+        dragNode.fx = null;
+        dragNode.fy = null;
+        dragNode = null;
+      }),
+  );
 }
