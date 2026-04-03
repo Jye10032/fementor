@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { apiRequest } from "../../../lib/api";
 import { ExperienceListResponse } from "../_lib/experience.types";
 
@@ -10,37 +10,31 @@ type UseExperienceListParams = {
   query: string;
 };
 
+// Module-level cache: survives component unmount / page navigation
+let cachedItems: ExperienceListResponse["items"] = [];
+let cachedTotal = 0;
+
 export function useExperienceList({ apiBase, enabled, query }: UseExperienceListParams) {
-  const [items, setItems] = useState<ExperienceListResponse["items"]>([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(false);
+  const [items, setItems] = useState(cachedItems);
+  const [total, setTotal] = useState(cachedTotal);
+  const [loading, setLoading] = useState(cachedItems.length === 0);
   const [error, setError] = useState<string | null>(null);
-  const hasFetched = useRef(false);
 
   const refresh = async () => {
-    if (!enabled) {
-      if (!hasFetched.current) {
-        setItems([]);
-        setTotal(0);
-      }
-      return;
-    }
+    if (!enabled) return;
 
     try {
-      if (!hasFetched.current) setLoading(true);
+      if (cachedItems.length === 0) setLoading(true);
       setError(null);
       const path = `/v1/experiences?only_valid=1&page=1&page_size=200${query ? `&query=${encodeURIComponent(query)}` : ""}`;
       const response = await apiRequest<ExperienceListResponse>(apiBase, path, {
         auth: "optional",
       });
-      setItems(response.items || []);
-      setTotal(response.total || 0);
-      hasFetched.current = true;
+      cachedItems = response.items || [];
+      cachedTotal = response.total || 0;
+      setItems(cachedItems);
+      setTotal(cachedTotal);
     } catch (requestError) {
-      if (!hasFetched.current) {
-        setItems([]);
-        setTotal(0);
-      }
       setError(requestError instanceof Error ? requestError.message : "加载面经失败");
     } finally {
       setLoading(false);

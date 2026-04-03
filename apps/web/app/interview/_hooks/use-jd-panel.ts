@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { apiRequest } from "../../../lib/api";
 import { JdLibraryResponse } from "../_lib/interview-page.types";
 
@@ -9,12 +9,13 @@ type UseJdPanelParams = {
   enabled: boolean;
 };
 
+let cachedJdLibrary: JdLibraryResponse | null = null;
+
 export function useJdPanel({ apiBase, enabled }: UseJdPanelParams) {
-  const [jdLibrary, setJdLibrary] = useState<JdLibraryResponse | null>(null);
+  const [jdLibrary, setJdLibrary] = useState<JdLibraryResponse | null>(cachedJdLibrary);
   const [loading, setLoading] = useState(false);
   const [switchingJd, setSwitchingJd] = useState("");
   const [jdPickerOpen, setJdPickerOpen] = useState(false);
-  const hasFetched = useRef(false);
 
   const activeJd = useMemo(
     () =>
@@ -25,17 +26,14 @@ export function useJdPanel({ apiBase, enabled }: UseJdPanelParams) {
   );
 
   const refreshJdLibrary = async () => {
-    if (!enabled) {
-      if (!hasFetched.current) setJdLibrary(null);
-      return;
-    }
-    if (!hasFetched.current) setLoading(true);
+    if (!enabled) return;
+    if (!cachedJdLibrary) setLoading(true);
     try {
       const jdData = await apiRequest<JdLibraryResponse>(apiBase, "/v1/jd/library", {
         auth: "required",
       });
+      cachedJdLibrary = jdData;
       setJdLibrary(jdData);
-      hasFetched.current = true;
     } catch {
       // ignore
     } finally {
