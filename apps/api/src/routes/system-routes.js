@@ -443,6 +443,7 @@ const handleSystemRoutes = async ({ req, res, url }) => {
     const nodeCount = Object.keys(graph).length;
     const sources = { skeleton: 0, cooccurrence: 0, both: 0 };
     for (const node of Object.values(graph)) sources[node.source || 'unknown']++;
+    res.setHeader('Cache-Control', 'public, max-age=60, stale-while-revalidate=600');
     json(res, 200, { graph, _debug: { nodeCount, sources, build: getBuildStatus() } });
     return true;
   }
@@ -519,11 +520,12 @@ async function registerSystemRoutes(app) {
     return result.payload;
   });
 
-  app.get('/v1/knowledge-graph', async () => {
+  app.get('/v1/knowledge-graph', async (request, reply) => {
     const graph = getGraph();
     const nodeCount = Object.keys(graph).length;
     const sources = { skeleton: 0, cooccurrence: 0, both: 0 };
     for (const node of Object.values(graph)) sources[node.source || 'unknown']++;
+    reply.header('Cache-Control', 'public, max-age=60, stale-while-revalidate=600');
     return { graph, _debug: { nodeCount, sources, build: getBuildStatus() } };
   });
 }

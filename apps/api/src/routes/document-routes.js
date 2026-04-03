@@ -398,6 +398,7 @@ const handleDocumentRoutes = async ({ req, res, url }) => {
         req,
         queryUserId: String(url.searchParams.get('user_id') || '').trim(),
       });
+      res.setHeader('Cache-Control', 'private, max-age=15, stale-while-revalidate=120');
       json(res, result.statusCode, result.payload);
     } catch (error) {
       jsonError(res, error);
@@ -461,6 +462,7 @@ const handleDocumentRoutes = async ({ req, res, url }) => {
         req,
         queryUserId: String(url.searchParams.get('user_id') || '').trim(),
       });
+      res.setHeader('Cache-Control', 'private, max-age=15, stale-while-revalidate=120');
       json(res, result.statusCode, result.payload);
     } catch (error) {
       jsonError(res, error);
@@ -523,6 +525,7 @@ async function registerDocumentRoutes(app) {
       req: request.raw,
       queryUserId: String(request.query?.user_id || '').trim(),
     });
+    reply.header('Cache-Control', 'private, max-age=15, stale-while-revalidate=120');
     reply.code(result.statusCode);
     return result.payload;
   });
@@ -570,6 +573,7 @@ async function registerDocumentRoutes(app) {
       req: request.raw,
       queryUserId: String(request.query?.user_id || '').trim(),
     });
+    reply.header('Cache-Control', 'private, max-age=15, stale-while-revalidate=120');
     reply.code(result.statusCode);
     return result.payload;
   });

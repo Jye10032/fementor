@@ -206,6 +206,7 @@ const handleExperienceRoutes = async ({ req, res, url }) => {
         req,
         searchParams: url.searchParams,
       });
+      res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=300');
       json(res, result.statusCode, result.payload);
     } catch (error) {
       jsonError(res, error);
@@ -216,6 +217,7 @@ const handleExperienceRoutes = async ({ req, res, url }) => {
   if (req.method === 'GET' && /^\/v1\/experiences\/[^/]+$/.test(url.pathname)) {
     try {
       const result = await getExperienceDetailResponse({ req, pathname: url.pathname });
+      res.setHeader('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
       json(res, result.statusCode, result.payload);
     } catch (error) {
       jsonError(res, error);
@@ -289,6 +291,7 @@ async function registerExperienceRoutes(app) {
       req: request.raw,
       searchParams,
     });
+    reply.header('Cache-Control', 'public, max-age=30, stale-while-revalidate=300');
     reply.code(result.statusCode);
     return result.payload;
   });
@@ -298,6 +301,7 @@ async function registerExperienceRoutes(app) {
       req: request.raw,
       pathname: `/v1/experiences/${request.params.id}`,
     });
+    reply.header('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
     reply.code(result.statusCode);
     return result.payload;
   });
