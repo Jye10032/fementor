@@ -56,6 +56,28 @@
 2. 排查过程与实验日志写入 `reports/`。
 3. 当实现方案变化时，先更新技术文档，再补迭代记录。
 
+## 提交格式
+
+后续 commit message 统一使用以下格式：
+
+```md
+XX :xxxx
+```
+
+要求：
+
+1. 冒号前后保留空格。
+2. `XX` 表示本次提交的类型或模块。
+3. `xxxx` 简要描述本次提交内容。
+
+示例：
+
+```md
+Fix :resume storage invalid key
+Docs :update runtime and storage notes
+Feat :add local postgres health payload
+```
+
 ## 当前环境变量约定
 
 前后端认证与数据库接入当前使用以下关键变量：

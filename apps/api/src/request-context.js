@@ -1,6 +1,7 @@
 const { getRequestAuth } = require('./auth');
 const {
   getTodayResumeOcrUsageCount,
+  isPostgresEnabled,
   resolveUserRoleByEmail,
   upsertAppUserByClerk,
 } = require('./postgres');
@@ -26,11 +27,17 @@ const getPublicSourceDriver = () => {
   if (configuredDriver === 'postgres' || configuredDriver === 'sqlite') {
     return configuredDriver;
   }
-  return getAppRuntimeMode() === 'cloud' ? 'postgres' : 'sqlite';
+
+  return isPostgresEnabled() ? 'postgres' : 'sqlite';
 };
 
-const getRuntimeStorageTarget = () =>
-  getPublicSourceDriver() === 'postgres' ? 'remote_postgres' : 'local_sqlite';
+const getRuntimeStorageTarget = () => {
+  if (getPublicSourceDriver() !== 'postgres') {
+    return 'local_sqlite';
+  }
+
+  return getAppRuntimeMode() === 'cloud' ? 'remote_postgres' : 'local_postgres';
+};
 
 const isLocalRuntime = () => getAppRuntimeMode() === 'local';
 

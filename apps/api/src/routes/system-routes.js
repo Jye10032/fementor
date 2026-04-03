@@ -152,11 +152,21 @@ const deleteSessionLlmConfigResponse = async ({ req }) => {
 
 const getHealthPayload = () => {
   const llmConfig = getLlmConfig();
+  const postgresEnabled = isPostgresEnabled();
+  const runtimeStorageTarget = getRuntimeStorageTarget();
   return {
     ok: true,
     service: 'fementor-api',
     date: new Date().toISOString(),
-    db_path: DB_PATH,
+    database: {
+      driver: postgresEnabled ? 'postgres' : 'sqlite',
+      target: postgresEnabled
+        ? runtimeStorageTarget === 'remote_postgres'
+          ? 'remote_postgres'
+          : 'local_postgres'
+        : 'local_sqlite',
+      sqlite_fallback_path: DB_PATH,
+    },
     llm: {
       enabled: hasRealLLM(),
       model: llmConfig.model,
@@ -167,13 +177,13 @@ const getHealthPayload = () => {
       clerk_enabled: Boolean(process.env.CLERK_SECRET_KEY || process.env.CLERK_JWT_KEY),
     },
     postgres: {
-      enabled: isPostgresEnabled(),
+      enabled: postgresEnabled,
       database_url_present: Boolean(DATABASE_URL),
     },
     runtime: {
       mode: getAppRuntimeMode(),
       public_source_driver: getPublicSourceDriver(),
-      public_source_storage_target: getRuntimeStorageTarget(),
+      public_source_storage_target: runtimeStorageTarget,
       experience_storage_driver: getExperienceStorageDriver(),
       experience_storage_target: getExperienceStorageTarget(),
     },

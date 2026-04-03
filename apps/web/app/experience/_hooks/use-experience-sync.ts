@@ -9,10 +9,16 @@ const POLL_INTERVAL_MS = 1500;
 type UseExperienceSyncParams = {
   apiBase: string;
   enabled: boolean;
+  authRequired?: boolean;
   onCompleted?: () => void;
 };
 
-export function useExperienceSync({ apiBase, enabled, onCompleted }: UseExperienceSyncParams) {
+export function useExperienceSync({
+  apiBase,
+  enabled,
+  authRequired = true,
+  onCompleted,
+}: UseExperienceSyncParams) {
   const [keyword, setKeyword] = useState("前端 面经");
   const [limit, setLimit] = useState(5);
   const [job, setJob] = useState<ExperienceSyncJob | null>(null);
@@ -32,7 +38,7 @@ export function useExperienceSync({ apiBase, enabled, onCompleted }: UseExperien
   const pollJob = useCallback(async (jobId: string) => {
     try {
       const response = await apiRequest<ExperienceSyncStatusResponse>(apiBase, `/v1/experiences/sync/${jobId}`, {
-        auth: "required",
+        auth: authRequired ? "required" : "optional",
       });
       setJob(response.job);
 
@@ -51,7 +57,7 @@ export function useExperienceSync({ apiBase, enabled, onCompleted }: UseExperien
       setSyncing(false);
       setError(requestError instanceof Error ? requestError.message : "同步状态获取失败");
     }
-  }, [apiBase]);
+  }, [apiBase, authRequired]);
 
   // On mount, check if there's an active sync job on the server
   useEffect(() => {
@@ -61,7 +67,7 @@ export function useExperienceSync({ apiBase, enabled, onCompleted }: UseExperien
     (async () => {
       try {
         const response = await apiRequest<{ job: ExperienceSyncJob | null }>(apiBase, "/v1/experiences/sync/active", {
-          auth: "required",
+          auth: authRequired ? "required" : "optional",
         });
         if (cancelled || !response.job) return;
         setJob(response.job);
@@ -74,7 +80,7 @@ export function useExperienceSync({ apiBase, enabled, onCompleted }: UseExperien
     })();
 
     return () => { cancelled = true; };
-  }, [enabled, apiBase, pollJob]);
+  }, [enabled, apiBase, authRequired, pollJob]);
 
   const startSync = async () => {
     if (!enabled || !keyword.trim()) return;
@@ -89,7 +95,7 @@ export function useExperienceSync({ apiBase, enabled, onCompleted }: UseExperien
           keyword,
           limit,
         }),
-        auth: "required",
+        auth: authRequired ? "required" : "optional",
       });
       setJob({
         id: response.job_id,

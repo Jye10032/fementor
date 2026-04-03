@@ -12,9 +12,24 @@ import { ExperienceSyncStatus } from "./_components/ExperienceSyncStatus";
 import { useExperienceList } from "./_hooks/use-experience-list";
 import { useExperienceSync } from "./_hooks/use-experience-sync";
 
+function describePublicSourceTarget(target: string) {
+  if (target === "local_postgres") {
+    return "本地 PostgreSQL 数据库";
+  }
+  if (target === "remote_postgres") {
+    return "远程 PostgreSQL 数据库";
+  }
+  if (target === "local_sqlite") {
+    return "本地 SQLite 数据库";
+  }
+  return "当前数据库";
+}
+
 export default function ExperiencePage() {
-  const { apiBase } = useRuntimeConfig();
+  const { apiBase, runtimeMode, publicSourceStorageTarget } = useRuntimeConfig();
   const { authEnabled, authReady, isLoaded, isSignedIn, viewer } = useAuthState();
+  const syncRequiresAuth = runtimeMode !== "local";
+  const canSync = syncRequiresAuth ? authReady && isSignedIn : true;
   const [searchQuery, setSearchQuery] = useState("");
   const deferredQuery = useDeferredValue(searchQuery);
   const experienceList = useExperienceList({
@@ -24,7 +39,8 @@ export default function ExperiencePage() {
   });
   const experienceSync = useExperienceSync({
     apiBase,
-    enabled: authReady && isSignedIn,
+    enabled: canSync,
+    authRequired: syncRequiresAuth,
     onCompleted: () => {
       void experienceList.refresh();
     },
@@ -58,12 +74,18 @@ export default function ExperiencePage() {
         <div className="flex items-center justify-between gap-4 rounded-xl border border-amber-200/80 bg-amber-50/50 px-5 py-3 backdrop-blur">
           <div className="flex items-center gap-3">
             <LogIn className="h-4 w-4 shrink-0 text-amber-600" />
-            <p className="text-sm text-amber-800">未登录时可查看面经，登录管理员账号后才能同步最新内容。</p>
+            <p className="text-sm text-amber-800">
+              {runtimeMode === "local"
+                ? `当前为本地开发环境，可直接同步面经；数据写入 ${describePublicSourceTarget(publicSourceStorageTarget)}。`
+                : "未登录时可查看面经，登录管理员账号后才能同步最新内容。"}
+            </p>
           </div>
-          {authEnabled ? (
+          {authEnabled && runtimeMode !== "local" ? (
             <SignInButton mode="modal">
               <button type="button" className="cursor-pointer rounded-lg bg-amber-600 px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-amber-700">登录</button>
             </SignInButton>
+          ) : runtimeMode === "local" ? (
+            <span className="text-sm text-amber-800">本地模式已放开同步权限</span>
           ) : (
             <span className="text-sm text-amber-800">登录未启用</span>
           )}
@@ -79,7 +101,7 @@ export default function ExperiencePage() {
         onSync={() => void experienceSync.startSync()}
         searchQuery={searchQuery}
         onSearchQueryChange={setSearchQuery}
-        syncDisabled={!authReady || !isSignedIn}
+        syncDisabled={!canSync}
         searchDisabled={false}
       />
 

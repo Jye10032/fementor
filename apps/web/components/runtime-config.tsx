@@ -15,6 +15,9 @@ import { apiRequest } from "../lib/api";
 type RuntimeConfigContextValue = {
   apiBase: string;
   setApiBase: (value: string) => void;
+  runtimeMode: string;
+  publicSourceDriver: string;
+  publicSourceStorageTarget: string;
   llmBaseUrl: string;
   setLlmBaseUrl: (value: string) => void;
   llmApiKey: string;
@@ -39,6 +42,11 @@ const DEFAULT_LLM_MODEL = "gpt-4o-mini";
 
 type HealthResponse = {
   ok?: boolean;
+  runtime?: {
+    mode?: string;
+    public_source_driver?: string;
+    public_source_storage_target?: string;
+  };
   llm?: {
     base_url?: string;
     model?: string;
@@ -100,6 +108,9 @@ type ProviderProps = {
 
 export function RuntimeConfigProvider({ children }: ProviderProps) {
   const [apiBase, setApiBase] = useState(DEFAULT_API_BASE);
+  const [runtimeMode, setRuntimeMode] = useState("local");
+  const [publicSourceDriver, setPublicSourceDriver] = useState("sqlite");
+  const [publicSourceStorageTarget, setPublicSourceStorageTarget] = useState("local_sqlite");
   const [llmBaseUrl, setLlmBaseUrl] = useState(DEFAULT_LLM_BASE_URL);
   const [llmApiKey, setLlmApiKey] = useState("");
   const [llmModel, setLlmModel] = useState(DEFAULT_LLM_MODEL);
@@ -177,6 +188,13 @@ export function RuntimeConfigProvider({ children }: ProviderProps) {
         const backendBaseUrl = String(data.llm?.base_url || "").trim();
         const backendModel = String(data.llm?.model || "").trim();
         const hasBackendKey = data.llm?.has_api_key === true;
+        const nextRuntimeMode = String(data.runtime?.mode || "").trim();
+        const nextPublicSourceDriver = String(data.runtime?.public_source_driver || "").trim();
+        const nextPublicSourceStorageTarget = String(data.runtime?.public_source_storage_target || "").trim();
+
+        if (nextRuntimeMode) setRuntimeMode(nextRuntimeMode);
+        if (nextPublicSourceDriver) setPublicSourceDriver(nextPublicSourceDriver);
+        if (nextPublicSourceStorageTarget) setPublicSourceStorageTarget(nextPublicSourceStorageTarget);
 
         if (!savedLlmBaseUrl && backendBaseUrl) {
           setLlmBaseUrl(backendBaseUrl);
@@ -279,6 +297,9 @@ export function RuntimeConfigProvider({ children }: ProviderProps) {
   const value = useMemo<RuntimeConfigContextValue>(() => ({
     apiBase,
     setApiBase,
+    runtimeMode,
+    publicSourceDriver,
+    publicSourceStorageTarget,
     llmBaseUrl,
     setLlmBaseUrl,
     llmApiKey,
@@ -296,6 +317,9 @@ export function RuntimeConfigProvider({ children }: ProviderProps) {
     sessionLlmExpiresAt,
   }), [
     apiBase,
+    runtimeMode,
+    publicSourceDriver,
+    publicSourceStorageTarget,
     llmBaseUrl,
     llmApiKey,
     llmModel,
