@@ -52,9 +52,6 @@ export async function apiRequest<T>(
     throw new ApiError("请先登录后再继续。", 401);
   }
 
-  const method = (options?.method || "GET").toUpperCase();
-  const useCache = method === "GET" && authMode === "none";
-
   const res = await fetch(`${baseUrl}${path}`, {
     ...options,
     headers: {
@@ -62,7 +59,6 @@ export async function apiRequest<T>(
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(options?.headers ?? {}),
     },
-    ...(useCache ? {} : { cache: "no-store" as RequestCache }),
   });
 
   const data = await readResponsePayload<T>(res);

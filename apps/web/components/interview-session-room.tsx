@@ -437,7 +437,6 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify(requestPayload),
-        cache: "no-store",
       });
 
       if (!response.ok || !response.body) {

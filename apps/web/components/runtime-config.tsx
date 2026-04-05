@@ -78,7 +78,7 @@ async function probeHealth(baseUrl: string) {
   if (!normalizedBaseUrl) return false;
 
   try {
-    const response = await fetch(`${normalizedBaseUrl}/health`, { cache: "no-store" });
+    const response = await fetch(`${normalizedBaseUrl}/health`);
     if (!response.ok) return false;
     const contentType = response.headers.get("content-type") || "";
     if (!contentType.toLowerCase().includes("application/json")) return false;
@@ -180,7 +180,7 @@ export function RuntimeConfigProvider({ children }: ProviderProps) {
           setApiBase(resolvedApiBase);
         }
 
-        const response = await fetch(`${resolvedApiBase}/health`, { cache: "no-store" });
+        const response = await fetch(`${resolvedApiBase}/health`);
         if (!response.ok) return;
         const contentType = response.headers.get("content-type") || "";
         if (!contentType.toLowerCase().includes("application/json")) return;
