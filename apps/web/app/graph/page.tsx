@@ -10,7 +10,7 @@ type Mode = "2d" | "3d";
 
 export default function GraphPage() {
   const { apiBase } = useRuntimeConfig();
-  const [mode, setMode] = useState<Mode>("3d");
+  const [mode, setMode] = useState<Mode>("2d");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState({ nodes: 0, edges: 0 });

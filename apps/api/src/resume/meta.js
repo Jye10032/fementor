@@ -5,6 +5,7 @@ const {
   ensureUserProfileDir,
   stripKnownDocumentExtensions,
   normalizeFileStem,
+  normalizeStorageFileStem,
   createUniqueFilePath,
   saveUserDoc,
   readUserDoc,
@@ -26,7 +27,10 @@ const normalizeStoredTextFilename = ({ filename, prefix }) => {
   const rawName = String(filename || '').trim() || `${prefix || 'doc'}.md`;
   const parsed = path.parse(rawName);
   const sourceStem = stripKnownDocumentExtensions(parsed.name || prefix || 'doc');
-  const safeBase = normalizeFileStem(sourceStem, prefix || 'doc');
+  const fallbackBase = `${prefix || 'doc'}-${Date.now()}`;
+  const safeBase = isStorageEnabled()
+    ? normalizeStorageFileStem(sourceStem, fallbackBase)
+    : normalizeFileStem(sourceStem, prefix || 'doc');
   return `${safeBase}.md`;
 };
 

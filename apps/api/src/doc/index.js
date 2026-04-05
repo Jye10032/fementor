@@ -47,6 +47,13 @@ const normalizeFileStem = (input, fallback = 'doc') => {
   return cleaned && hasMeaningfulStemContent(cleaned) ? cleaned : fallback;
 };
 
+const normalizeStorageFileStem = (input, fallback = 'doc') => {
+  const asciiCandidate = String(input || '')
+    .normalize('NFKD')
+    .replace(/[^\x00-\x7F]+/g, ' ');
+  return normalizeFileStem(asciiCandidate, fallback);
+};
+
 const createUniqueFilePath = ({ dir, filename, content }) => {
   const parsed = path.parse(filename);
   const baseName = parsed.name || 'doc';
@@ -94,7 +101,7 @@ const saveJdDoc = async ({ userId, jdText, filename }) => {
 
   const rawName = String(filename || '').trim() || `jd-${Date.now()}.md`;
   const parsed = path.parse(rawName);
-  const normalizedName = `${normalizeFileStem(parsed.name, `jd-${Date.now()}`)}${parsed.ext || ''}`;
+  const normalizedName = `${normalizeStorageFileStem(parsed.name, `jd-${Date.now()}`)}${parsed.ext || ''}`;
   const targetName = normalizedName.startsWith('jd-') ? normalizedName : `jd-${normalizedName}`;
   const bucket = getBucketName('jd');
   const objectPath = getObjectPath({ userId, fileName: targetName });
@@ -249,6 +256,7 @@ module.exports = {
   ensureUserKnowledgeDir,
   stripKnownDocumentExtensions,
   normalizeFileStem,
+  normalizeStorageFileStem,
   createUniqueFilePath,
   saveUserDoc,
   saveJdDoc,

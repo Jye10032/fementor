@@ -6,6 +6,8 @@ const { saveResumeDoc, listResumeDocs } = require('./resume');
 
 const RESUME_EXAMPLE_FILENAME = '匿名简历示例.md';
 const JD_EXAMPLE_FILENAME = '通用前端JD示例.md';
+const RESUME_EXAMPLE_STORAGE_FILENAME = 'resume-example.md';
+const JD_EXAMPLE_STORAGE_FILENAME = 'jd-example.md';
 
 const resumeExampleSummary =
   '3年前端开发经验，聚焦企业级Web应用与增长场景，熟悉 React / Next.js / TypeScript / Tailwind CSS，具备组件化建设、复杂交互、性能优化与跨团队协作经验。';
@@ -62,7 +64,9 @@ const jdExampleText = [
 const findExistingResumeExample = async (userId) => {
   const resumeDocs = await listResumeDocs(userId);
   return resumeDocs.find((item) =>
-    item.name === `resume-${RESUME_EXAMPLE_FILENAME}`
+    item.name === RESUME_EXAMPLE_STORAGE_FILENAME
+    || item.name === 'resume-anonymous-resume-example.md'
+    || item.name === `resume-${RESUME_EXAMPLE_FILENAME}`
     || item.original_filename === RESUME_EXAMPLE_FILENAME
     || item.name.startsWith('resume-匿名简历示例')
   ) || null;
@@ -71,7 +75,9 @@ const findExistingResumeExample = async (userId) => {
 const findExistingJdExample = async (userId) => {
   const jdDocs = await listJdDocs(userId);
   return jdDocs.find((item) =>
-    item.name === `jd-${JD_EXAMPLE_FILENAME}` || item.name.startsWith('jd-通用前端JD示例')
+    item.name === JD_EXAMPLE_STORAGE_FILENAME
+    || item.name === `jd-${JD_EXAMPLE_FILENAME}`
+    || item.name.startsWith('jd-通用前端JD示例')
   ) || null;
 };
 
@@ -84,14 +90,14 @@ const ensureExampleProfileDocs = async ({ userId, authUser = null }) => {
   const resumePath = existingResume?.path || await saveResumeDoc({
     userId,
     resumeText: resumeExampleText,
-    filename: RESUME_EXAMPLE_FILENAME,
+    filename: RESUME_EXAMPLE_STORAGE_FILENAME,
     summary: resumeExampleSummary,
     originalFilename: RESUME_EXAMPLE_FILENAME,
   });
   const jdPath = existingJd?.path || await saveJdDoc({
     userId,
     jdText: jdExampleText,
-    filename: JD_EXAMPLE_FILENAME,
+    filename: JD_EXAMPLE_STORAGE_FILENAME,
   });
 
   const resumeName = path.basename(resumePath);
