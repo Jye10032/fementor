@@ -59,7 +59,7 @@ export function CurrentQuestionCard({
               {difficultyLabel[displayQuestion.difficulty]}
             </span>
             {isTransitioning ? (
-              <span className="rounded-full bg-sky-100 px-2.5 py-1 text-[11px] font-medium text-sky-700">
+              <span className="rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary">
                 即将切题
               </span>
             ) : null}
@@ -68,24 +68,24 @@ export function CurrentQuestionCard({
         </div>
 
         {nextQuestion ? (
-          <div className="question-card-settle w-full rounded-xl border border-sky-200 bg-sky-50 p-3 lg:max-w-[260px]">
+          <div className="question-card-settle w-full rounded-xl border border-primary/20 bg-primary/5 p-3 lg:max-w-[260px]">
             <div className="flex items-center gap-2">
-              <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-white text-sky-700">
+              <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-card text-primary">
                 <Sparkles className="h-3.5 w-3.5" />
               </span>
-              <p className="text-sm font-semibold text-sky-900">上一轮反馈已完成</p>
+              <p className="text-sm font-semibold text-foreground">上一轮反馈已完成</p>
             </div>
-            <div className="mt-2 overflow-hidden rounded-full bg-white/80">
-              <div className="auto-advance-progress h-1.5 rounded-full bg-sky-500" />
+            <div className="mt-2 overflow-hidden rounded-full bg-card/80">
+              <div className="auto-advance-progress h-1.5 rounded-full bg-primary" />
             </div>
-            <p className="mt-1.5 text-xs font-medium tracking-[0.08em] text-sky-700">
+            <p className="mt-1.5 text-xs font-medium tracking-[0.08em] text-primary">
               约 5 秒后自动进入，也可立即切换
             </p>
-            <p className="mt-2 text-sm font-medium leading-6 text-sky-900">
+            <p className="mt-2 text-sm font-medium leading-6 text-foreground">
               下一题：第 {nextQuestion.order_no} 题
               {nextQuestion.question_type === "follow_up" ? " · 追问" : ""}
             </p>
-            <p className="mt-0.5 line-clamp-2 text-sm leading-6 text-sky-800">
+            <p className="mt-0.5 line-clamp-2 text-sm leading-6 text-foreground">
               {nextQuestion.stem}
             </p>
             <button

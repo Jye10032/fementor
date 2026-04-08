@@ -52,9 +52,9 @@ export default function HomePage() {
                 <h3 className="text-base font-semibold text-muted-foreground">运行配置</h3>
                 <p className="mt-2 text-2xl font-bold tabular-nums text-card-foreground">
                   {configReady ? (
-                    <span className="text-green-500">已就绪</span>
+                    <span className="text-accent">已就绪</span>
                   ) : (
-                    <span className="text-amber-500">未配置</span>
+                    <span className="text-warning">未配置</span>
                   )}
                 </p>
                 <p className="mt-1 text-sm text-muted-foreground">

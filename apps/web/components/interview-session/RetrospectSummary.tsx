@@ -87,7 +87,7 @@ export function RetrospectSummary({
       <div className="grid gap-3 lg:grid-cols-2">
         <article className={insightClassName}>
           <div className="flex items-center gap-2">
-            <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
+            <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-accent/10 text-accent">
               <Brain className="h-4 w-4" />
             </span>
             <div>
@@ -99,14 +99,14 @@ export function RetrospectSummary({
             {renderTagList(
               memory?.stable_strengths ?? [],
               "这一场还没有沉淀出明显的稳定优势。",
-              "border-emerald-200 bg-emerald-50 text-emerald-700",
+              "border-accent/20 bg-accent/5 text-accent",
             )}
           </div>
         </article>
 
         <article className={insightClassName}>
           <div className="flex items-center gap-2">
-            <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
+            <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-warning/10 text-warning">
               <CircleAlert className="h-4 w-4" />
             </span>
             <div>
@@ -118,14 +118,14 @@ export function RetrospectSummary({
             {renderTagList(
               memory?.recommended_focus ?? [],
               "暂时还没有生成明确的训练重点。",
-              "border-amber-200 bg-amber-50 text-amber-700",
+              "border-warning/20 bg-warning/5 text-warning",
             )}
           </div>
         </article>
 
         <article className={insightClassName}>
           <div className="flex items-center gap-2">
-            <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-rose-100 text-rose-700">
+            <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
               <CircleAlert className="h-4 w-4" />
             </span>
             <div>
@@ -137,14 +137,14 @@ export function RetrospectSummary({
             {renderTagList(
               memory?.stable_weaknesses ?? [],
               "这一场没有识别出明显的重复性风险。",
-              "border-rose-200 bg-rose-50 text-rose-700",
+              "border-destructive/20 bg-destructive/5 text-destructive",
             )}
           </div>
         </article>
 
         <article className={insightClassName}>
           <div className="flex items-center gap-2">
-            <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-sky-100 text-sky-700">
+            <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10 text-primary">
               <BriefcaseBusiness className="h-4 w-4" />
             </span>
             <div>
@@ -160,7 +160,7 @@ export function RetrospectSummary({
               {renderTagList(
                 memory?.project_signals ?? [],
                 "这一场没有额外沉淀新的项目信号。",
-                "border-sky-200 bg-sky-50 text-sky-700",
+                "border-primary/20 bg-primary/5 text-primary",
               )}
             </div>
             <div>

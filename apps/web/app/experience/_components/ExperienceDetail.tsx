@@ -16,7 +16,7 @@ function formatPopularity(value: number) {
 function difficultyStyle(d: string) {
   const lower = d.toLowerCase();
   if (lower === "easy" || lower === "简单") return "border-success/30 bg-success/8 text-success";
-  if (lower === "medium" || lower === "中等") return "border-amber-500/30 bg-amber-500/8 text-amber-600";
+  if (lower === "medium" || lower === "中等") return "border-warning/30 bg-warning/8 text-warning";
   if (lower === "hard" || lower === "困难") return "border-destructive/30 bg-destructive/8 text-destructive";
   return "border-border/70 bg-background text-muted-foreground";
 }
@@ -42,7 +42,7 @@ export function ExperienceDetail({ item }: ExperienceDetailProps) {
           {item.role_name ? <span className="inline-flex items-center gap-1"><User className="h-3 w-3" />{item.role_name}</span> : null}
           {item.interview_stage ? <span className="inline-flex items-center gap-1"><Layers className="h-3 w-3" />{item.interview_stage}</span> : null}
           <span className="inline-flex items-center gap-1"><User className="h-3 w-3" />{item.author_name || "未知作者"}</span>
-          <span className="font-semibold text-amber-600">
+          <span className="font-semibold text-warning">
             <Flame className="mr-0.5 inline h-3 w-3" />{formatPopularity(item.popularity)}
           </span>
           <a href={item.source_url} target="_blank" rel="noreferrer" className="inline-flex cursor-pointer items-center gap-1 text-primary transition-colors hover:text-primary/80">

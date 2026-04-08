@@ -28,25 +28,25 @@ export default function GraphPage() {
   const hint = mode === "3d" ? "拖拽旋转 / 滚轮缩放 / 点击高亮" : "拖拽节点 / 滚轮缩放 / 点击高亮";
 
   return (
-    <div className="relative h-[calc(100vh-57px)] w-full overflow-hidden bg-slate-100">
+    <div className="relative h-[calc(100vh-57px)] w-full overflow-hidden bg-secondary">
       <div className="absolute top-5 left-5 z-10">
-        <h1 className="text-lg font-semibold text-slate-800">前端知识图谱</h1>
-        <p className="mt-1 text-xs text-slate-500">
+        <h1 className="text-lg font-semibold text-foreground">前端知识图谱</h1>
+        <p className="mt-1 text-xs text-muted-foreground">
           {loading ? "加载中..." : error ? error : `${stats.nodes} 节点 · ${stats.edges} 条边 | ${hint}`}
         </p>
       </div>
 
       {/* 2D/3D 切换 */}
-      <div className="absolute top-5 right-5 z-10 flex rounded-lg border border-slate-200 bg-white/90 shadow-sm text-xs overflow-hidden">
+      <div className="absolute top-5 right-5 z-10 flex rounded-lg border border-border bg-card/90 shadow-sm text-xs overflow-hidden">
         <button
           onClick={() => setMode("2d")}
-          className={`px-3 py-1.5 transition-colors ${mode === "2d" ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-slate-100"}`}
+          className={`px-3 py-1.5 transition-colors ${mode === "2d" ? "bg-foreground text-primary-foreground" : "text-muted-foreground hover:bg-secondary"}`}
         >
           2D
         </button>
         <button
           onClick={() => setMode("3d")}
-          className={`px-3 py-1.5 transition-colors ${mode === "3d" ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-slate-100"}`}
+          className={`px-3 py-1.5 transition-colors ${mode === "3d" ? "bg-foreground text-primary-foreground" : "text-muted-foreground hover:bg-secondary"}`}
         >
           3D
         </button>
@@ -54,27 +54,27 @@ export default function GraphPage() {
 
       {/* hover 信息 */}
       {hovered && (
-        <div className="absolute top-16 right-5 z-10 rounded-lg border border-slate-200 bg-white/90 px-4 py-3 shadow-sm text-sm text-slate-700">
-          <div className="font-semibold text-slate-900">{hovered.id}</div>
-          <div className="text-xs text-slate-500 mt-1">
+        <div className="absolute top-16 right-5 z-10 rounded-lg border border-border bg-card/90 px-4 py-3 shadow-sm text-sm text-foreground">
+          <div className="font-semibold text-foreground">{hovered.id}</div>
+          <div className="text-xs text-muted-foreground mt-1">
             {hovered.parent ? `父节点: ${hovered.parent} | 分类: ${hovered.category}` : "一级分类"}
           </div>
         </div>
       )}
 
       {/* 图例 */}
-      <div className="absolute bottom-5 left-5 z-10 rounded-lg border border-slate-200 bg-white/90 px-4 py-3 shadow-sm max-h-[50vh] overflow-y-auto">
+      <div className="absolute bottom-5 left-5 z-10 rounded-lg border border-border bg-card/90 px-4 py-3 shadow-sm max-h-[50vh] overflow-y-auto">
         {Object.entries(legend).map(([cat, color]) => (
-          <div key={cat} className="flex items-center gap-2 py-0.5 text-xs text-slate-600">
+          <div key={cat} className="flex items-center gap-2 py-0.5 text-xs text-muted-foreground">
             <span className="h-2.5 w-2.5 rounded-full" style={{ background: color }} />
             {cat}
           </div>
         ))}
-        <div className="mt-2 flex items-center gap-2 text-xs text-slate-500">
-          <span className="inline-block h-0.5 w-5 bg-slate-300" /> 父子关系
+        <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+          <span className="inline-block h-0.5 w-5 bg-border" /> 父子关系
         </div>
-        <div className="flex items-center gap-2 text-xs text-slate-500">
-          <span className="inline-block h-0 w-5 border-t-2 border-dashed border-slate-300" /> 共现关联
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span className="inline-block h-0 w-5 border-t-2 border-dashed border-border" /> 共现关联
         </div>
       </div>
 

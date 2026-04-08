@@ -59,12 +59,12 @@ export function Composer({
     <div className="border-t border-border/70 bg-card/95 px-4 py-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] md:px-6">
       <div className="mx-auto space-y-3">
         {questionCardMode === "transition" ? (
-          <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-4 text-sm leading-6 text-sky-800">
+          <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-4 text-sm leading-6 text-foreground">
             当前正在等待切换到下一题，输入区暂时锁定，避免上一轮评价与下一题回答混在一起。
           </div>
         ) : null}
         {sessionClosed ? (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm leading-6 text-amber-800">
+          <div className="rounded-xl border border-warning/20 bg-warning/5 px-4 py-4 text-sm leading-6 text-foreground">
             本场面试已经结束，当前会话不再接收新的回答。请返回面试准备页重新开始。
           </div>
         ) : null}

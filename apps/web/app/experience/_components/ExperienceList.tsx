@@ -110,7 +110,7 @@ function ExperienceRow({ item, onDelete, deleting, selectable, selected, onToggl
           </span>
         ) : null}
         <span className="mx-0.5 text-border">|</span>
-        <span className="text-xs font-semibold text-amber-600">
+        <span className="text-xs font-semibold text-warning">
           <Flame className="mr-0.5 inline h-3 w-3" />{formatPopularity(item.popularity)}
         </span>
         <span className="text-xs text-muted-foreground">{item.question_group_count}组 · {item.question_item_count}题</span>
@@ -242,7 +242,7 @@ export function ExperienceList({ items, loading, error, onDelete, onDeleteBatch 
               type="button"
               onClick={() => void handleBatchDelete()}
               disabled={batchDeleting}
-              className="cursor-pointer rounded-lg bg-destructive px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-destructive/90 disabled:opacity-50"
+              className="cursor-pointer rounded-lg bg-destructive px-2.5 py-1 text-xs font-medium text-primary-foreground transition-colors hover:bg-destructive/90 disabled:opacity-50"
             >
               {batchDeleting ? "删除中..." : `删除 ${selected.size} 条`}
             </button>

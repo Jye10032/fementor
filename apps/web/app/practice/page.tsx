@@ -6,6 +6,11 @@ import { useAuthState } from "../../components/auth-provider";
 import { PageHero, PagePanel, PageShell } from "../../components/page-shell";
 import { useRuntimeConfig } from "../../components/runtime-config";
 import { apiRequest } from "../../lib/api";
+import { ChapterSidebar } from "./_components/ChapterSidebar";
+import { PracticeControls } from "./_components/PracticeControls";
+import { QuestionQueue } from "./_components/QuestionQueue";
+import { ActiveQuestion } from "./_components/ActiveQuestion";
+import { ScoreResult } from "./_components/ScoreResult";
 
 type PracticeItem = {
   id: string;
@@ -91,6 +96,7 @@ export default function PracticePage() {
       setChaptersLoading(false);
     }
   };
+  // PRACTICE_PAGE_REST
 
   const load = async (targetChapter = chapter) => {
     if (!targetChapter) return;
@@ -129,11 +135,7 @@ export default function PracticePage() {
       setSubmitting(true);
       const data = await apiRequest<ScoreResponse>(apiBase, "/v1/scoring/evaluate", {
         method: "POST",
-        body: JSON.stringify({
-          mode: "practice",
-          question: currentItem.question,
-          answer,
-        }),
+        body: JSON.stringify({ mode: "practice", question: currentItem.question, answer }),
         auth: "required",
       });
       setScoreResult(data);
@@ -153,13 +155,9 @@ export default function PracticePage() {
         : new Date(Date.now() + 2 * 86400000).toISOString();
       await apiRequest(apiBase, `/v1/question-bank/${currentItem.id}/review`, {
         method: "POST",
-        body: JSON.stringify({
-          review_status: reviewStatus,
-          next_review_at: nextReviewAt,
-        }),
+        body: JSON.stringify({ review_status: reviewStatus, next_review_at: nextReviewAt }),
         auth: "required",
       });
-
       const remaining = items.filter((item) => item.id !== currentItem.id);
       setItems(remaining);
       setCurrentIndex(0);
@@ -170,6 +168,14 @@ export default function PracticePage() {
       setOutput(String(error));
     }
   };
+
+  const handleSelectQuestion = (index: number) => {
+    setCurrentIndex(index);
+    setAnswer("");
+    setScoreResult(null);
+  };
+
+  // PRACTICE_PAGE_JSX
 
   return (
     <PageShell>
@@ -212,191 +218,49 @@ export default function PracticePage() {
       <div className="space-y-6">
         <section className="grid gap-6 xl:grid-cols-[260px_minmax(0,1fr)]">
           <PagePanel className="p-5">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-semibold text-foreground">章节列表</h2>
-                <p className="mt-1 text-sm text-muted-foreground">从左侧选择一个章节进入练习。</p>
-              </div>
-              <button
-                onClick={() => void loadChapters()}
-                disabled={chaptersLoading}
-                className="action-secondary px-3 py-2 text-xs disabled:opacity-60"
-              >
-                {chaptersLoading ? "刷新中..." : "刷新"}
-              </button>
-            </div>
-
-            <div className="mt-4 space-y-3">
-              {chapters.map((item) => (
-                <button
-                  key={item.name}
-                  onClick={() => setChapter(item.name)}
-                  className={`w-full rounded-2xl border p-4 text-left transition-colors ${
-                    chapter === item.name ? "border-primary bg-primary/5 shadow-sm" : "border-border bg-background/80 hover:bg-secondary"
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-sm font-medium text-foreground">{item.name}</p>
-                    <span className="rounded-full bg-secondary px-2.5 py-1 text-[11px] text-muted-foreground">{item.count}</span>
-                  </div>
-                </button>
-              ))}
-              {chapters.length === 0 ? (
-                <div className="rounded-2xl bg-secondary p-4 text-sm text-muted-foreground">
-                  {chaptersLoading ? "正在读取章节..." : "当前还没有可练习章节，先去模拟面试完成复盘。"}
-                </div>
-              ) : null}
-            </div>
+            <ChapterSidebar
+              chapters={chapters} chapter={chapter} setChapter={setChapter}
+              chaptersLoading={chaptersLoading} loadChapters={() => void loadChapters()}
+            />
           </PagePanel>
 
           <PagePanel>
-
-            <div className="mt-4 flex flex-wrap items-end gap-3">
-              <div className="rounded-xl bg-secondary px-4 py-2 text-sm text-foreground">
-                当前章节：<span className="font-medium">{chapter || "未选择"}</span>
-              </div>
-              <div className="rounded-xl bg-secondary px-4 py-2 text-sm text-foreground">
-                当前用户：<span className="font-medium">{viewer?.name || viewer?.email || "已登录用户"}</span>
-              </div>
-              <label className="inline-flex items-center gap-2 text-sm text-muted-foreground">
-                <input type="checkbox" checked={includeFuture} onChange={(e) => setIncludeFuture(e.target.checked)} />
-                include_future
-              </label>
-              <button onClick={() => void load()} className="action-primary disabled:opacity-60" disabled={loading || !chapter || !isSignedIn}>
-                {loading ? "拉取中..." : "拉取练习题"}
-              </button>
-            </div>
-
+            <PracticeControls
+              chapter={chapter}
+              viewerName={viewer?.name || viewer?.email || "已登录用户"}
+              includeFuture={includeFuture} setIncludeFuture={setIncludeFuture}
+              loading={loading} isSignedIn={isSignedIn}
+              onLoad={() => void load()}
+            />
+            {/* Inner two-column: queue + active question */}
             <div className="mt-4 grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
-              <section className="rounded-2xl border border-border bg-background p-4">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">待练题单</h2>
-                  <span className="text-xs text-muted-foreground">{items.length} 题</span>
-                </div>
-                <div className="mt-3 space-y-3">
-                  {items.map((item, index) => (
-                    <button
-                      key={item.id}
-                      onClick={() => {
-                        setCurrentIndex(index);
-                        setAnswer("");
-                        setScoreResult(null);
-                      }}
-                      className={`w-full rounded-xl border p-4 text-left transition-colors ${
-                        currentItem?.id === item.id ? "border-primary bg-primary/5" : "border-border bg-card hover:bg-secondary"
-                      }`}
-                    >
-                      <p className="font-medium text-foreground">{item.question}</p>
-                      <p className="mt-2 text-xs text-muted-foreground">
-                        {item.chapter} · {item.difficulty} · {item.weakness_tag || "无薄弱项标签"}
-                      </p>
-                    </button>
-                  ))}
-                  {items.length === 0 ? <p className="text-sm text-muted-foreground">当前章节暂无可练习题</p> : null}
-                </div>
-              </section>
+              <QuestionQueue
+                items={items}
+                currentItemId={currentItem?.id ?? null}
+                onSelect={handleSelectQuestion}
+              />
 
               <section className="rounded-2xl border border-border bg-background p-4">
                 {currentItem ? (
-                  <div className="space-y-4">
-                    <header className="rounded-xl bg-secondary p-4">
-                      <p className="text-xs uppercase tracking-wider text-muted-foreground">当前题目</p>
-                      <h2 className="mt-2 text-lg font-semibold text-foreground">{currentItem.question}</h2>
-                      <p className="mt-2 text-xs text-muted-foreground">
-                        {currentItem.chapter} · {currentItem.difficulty} · next_review_at {currentItem.next_review_at ?? "无"}
-                      </p>
-                    </header>
-
-                    <label className="block text-sm">
-                      <span className="mb-1 block text-muted-foreground">你的回答</span>
-                      <textarea
-                        value={answer}
-                        onChange={(e) => setAnswer(e.target.value)}
-                        rows={8}
-                        placeholder="按项目背景、方案选择、权衡取舍、结果复盘来组织回答。"
-                        className="field-shell w-full"
-                      />
-                    </label>
-
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        onClick={submitAnswer}
-                        disabled={submitting || !answer.trim()}
-                        className="action-primary"
-                      >
-                        {submitting ? "评分中..." : "提交评分"}
-                      </button>
-                      <button
-                        onClick={() => setAnswer("")}
-                        className="action-secondary"
-                      >
-                        清空回答
-                      </button>
-                    </div>
-
+                  <>
+                    <ActiveQuestion
+                      question={currentItem.question}
+                      chapter={currentItem.chapter}
+                      difficulty={currentItem.difficulty}
+                      nextReviewAt={currentItem.next_review_at}
+                      answer={answer} setAnswer={setAnswer}
+                      submitting={submitting} onSubmit={submitAnswer}
+                    />
                     {scoreResult ? (
-                      <section className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
-                        <article className="rounded-xl border border-border bg-card p-4">
-                          <p className="text-xs uppercase tracking-wider text-muted-foreground">评分结果</p>
-                          <p className="mt-3 text-4xl font-bold text-foreground">{scoreResult.score}</p>
-                          <p className="mt-2 text-sm text-muted-foreground">{scoreResult.feedback}</p>
-                          <p className="mt-2 text-xs text-muted-foreground">证据命中 {scoreResult.evidence_refs_count} 条</p>
-                          <div className="mt-4 flex flex-col gap-2">
-                            <button
-                              onClick={() => scheduleReview("done")}
-                              className="action-primary"
-                            >
-                              掌握较好，标记完成
-                            </button>
-                            <button
-                              onClick={() => scheduleReview("pending")}
-                              className="action-secondary"
-                            >
-                              仍需复习，2天后再看
-                            </button>
-                          </div>
-                        </article>
-
-                        <div className="grid gap-4">
-                          <article className="rounded-xl border border-border bg-card p-4">
-                            <p className="text-xs uppercase tracking-wider text-muted-foreground">优点</p>
-                            <div className="mt-3 flex flex-wrap gap-2">
-                              {scoreResult.strengths.map((item) => (
-                                <span key={item} className="rounded-full bg-primary/10 px-3 py-1 text-xs text-primary">{item}</span>
-                              ))}
-                            </div>
-                          </article>
-                          <article className="rounded-xl border border-border bg-card p-4">
-                            <p className="text-xs uppercase tracking-wider text-muted-foreground">待改进</p>
-                            <div className="mt-3 flex flex-wrap gap-2">
-                              {scoreResult.weaknesses.map((item) => (
-                                <span key={item} className="rounded-full bg-amber-500/10 px-3 py-1 text-xs text-amber-700">{item}</span>
-                              ))}
-                            </div>
-                          </article>
-                          <article className="rounded-xl border border-border bg-card p-4">
-                            <p className="text-xs uppercase tracking-wider text-muted-foreground">标准答案</p>
-                            <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-foreground">{scoreResult.standard_answer}</p>
-                          </article>
-                          <article className="rounded-xl border border-border bg-card p-4">
-                            <p className="text-xs uppercase tracking-wider text-muted-foreground">检索证据</p>
-                            <div className="mt-3 space-y-3">
-                              {scoreResult.evidence_refs.map((item, index) => (
-                                <div key={`${item.source_uri}-${index}`} className="rounded-lg bg-secondary p-3">
-                                  <p className="text-xs text-muted-foreground">{item.source_type} · {item.source_uri || "无路径"} · confidence {item.confidence ?? "n/a"}</p>
-                                  <p className="mt-2 text-sm text-foreground">{item.quote || "无摘要"}</p>
-                                </div>
-                              ))}
-                            </div>
-                          </article>
-                        </div>
-                      </section>
+                      <div className="mt-4">
+                        <ScoreResult scoreResult={scoreResult} onScheduleReview={scheduleReview} />
+                      </div>
                     ) : (
-                      <div className="rounded-xl border border-dashed border-border bg-card p-4 text-sm text-muted-foreground">
+                      <div className="mt-4 rounded-xl border border-dashed border-border bg-card p-4 text-sm text-muted-foreground">
                         提交回答后，这里会展示评分、优缺点和检索证据。
                       </div>
                     )}
-                  </div>
+                  </>
                 ) : (
                   <div className="rounded-xl bg-secondary p-6 text-sm text-muted-foreground">
                     先从左侧选择章节，系统会自动拉取该章节的练习题。

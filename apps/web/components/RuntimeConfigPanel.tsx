@@ -88,7 +88,7 @@ export function RuntimeConfigPanel({ onSaved }: RuntimeConfigPanelProps) {
           llmSyncState === "ready"
             ? "text-[color:var(--success)]"
             : llmSyncState === "warning"
-              ? "text-amber-600"
+              ? "text-warning"
               : llmSyncState === "error"
                 ? "text-[color:var(--destructive)]"
                 : "text-muted-foreground"

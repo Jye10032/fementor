@@ -31,11 +31,11 @@ export function InterviewQuestionTab({
             key={item.id}
             className={`rounded-xl border p-4 ${
               isPending
-                ? "border-sky-200 bg-sky-50"
+                ? "border-primary/25 bg-primary/5"
                 : isCurrent
                   ? "border-primary/35 bg-primary/5"
                   : item.question_type === "follow_up"
-                    ? "border-amber-200 bg-amber-50/80"
+                    ? "border-warning/25 bg-warning/5"
                     : "border-border/70 bg-background/75"
             }`}
           >
@@ -51,7 +51,7 @@ export function InterviewQuestionTab({
                     </span>
                   ) : null}
                   {isPending ? (
-                    <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] text-sky-700">
+                    <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] text-primary">
                       下一题
                     </span>
                   ) : null}

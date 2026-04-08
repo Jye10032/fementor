@@ -12,8 +12,8 @@ function getStageTone(step: StageStep) {
   if (step === "transition" || step === "completed") {
     return {
       icon: Waypoints,
-      textClassName: "text-sky-600",
-      badgeClassName: "bg-sky-100 text-sky-700",
+      textClassName: "text-primary",
+      badgeClassName: "bg-primary/10 text-primary",
       badgeLabel: step === "completed" ? "已完成" : "处理中",
     };
   }
@@ -29,8 +29,8 @@ function getStageTone(step: StageStep) {
 
   return {
     icon: LoaderCircle,
-    textClassName: "text-amber-600",
-    badgeClassName: "bg-amber-100 text-amber-700",
+    textClassName: "text-warning",
+    badgeClassName: "bg-warning/10 text-warning",
     badgeLabel: "处理中",
   };
 }
@@ -77,7 +77,7 @@ export function StageStatusBar({ stageLabel, stageStep }: StageStatusBarProps) {
                     isCurrent
                       ? "bg-primary text-primary-foreground shadow-[0_0_0_3px_color-mix(in_oklab,var(--primary)_25%,transparent)]"
                       : isDone
-                        ? "bg-sky-500 text-white"
+                        ? "bg-primary text-primary-foreground"
                         : "bg-secondary text-muted-foreground"
                   }`}
                 >
@@ -90,7 +90,7 @@ export function StageStatusBar({ stageLabel, stageStep }: StageStatusBarProps) {
                   )}
                 </span>
                 <span className={`mt-1 text-[10px] leading-tight ${
-                  isCurrent ? "font-medium text-amber-700" : isDone ? "text-sky-700" : "text-muted-foreground"
+                  isCurrent ? "font-medium text-warning" : isDone ? "text-primary" : "text-muted-foreground"
                 }`}>
                   {item.label}
                 </span>
@@ -98,7 +98,7 @@ export function StageStatusBar({ stageLabel, stageStep }: StageStatusBarProps) {
               {/* connector line */}
               {index < stageItems.length - 1 ? (
                 <div className={`mx-1 h-0.5 flex-1 rounded-full transition-colors ${
-                  isDone ? "bg-sky-400" : "bg-border"
+                  isDone ? "bg-primary" : "bg-border"
                 }`} />
               ) : null}
             </div>

@@ -164,7 +164,7 @@ export default function InterviewPage() {
                   }`}
                 >
                   <span
-                    className={`h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
+                    className={`h-4 w-4 rounded-full bg-card shadow-sm transition-transform ${
                       useExperienceQuestions ? "translate-x-4" : "translate-x-0"
                     }`}
                   />

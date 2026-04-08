@@ -34,7 +34,7 @@ export function InterviewCompletionReport({
               题目作答与评分流程已经结束。先看本场结论，再决定是继续生成复盘沉淀，还是直接结束本次会话。
             </p>
           </div>
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
+          <div className="rounded-xl border border-accent/30 bg-accent/8 px-4 py-3 text-sm font-medium text-accent">
             <div className="flex items-center gap-2">
               <CheckCircle2 className="h-4 w-4" />
               已完成 {answeredCount} 道题

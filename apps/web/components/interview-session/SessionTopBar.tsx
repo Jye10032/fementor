@@ -5,15 +5,15 @@ import { difficultyLabel, questionTypeLabel, sourceLabel } from "./copy";
 
 function getStatusTone(stageStep: StageStep, completed: boolean) {
   if (completed) {
-    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    return "border-accent/30 bg-accent/8 text-accent";
   }
   if (stageStep === "transition" || stageStep === "completed") {
-    return "border-sky-200 bg-sky-50 text-sky-700";
+    return "border-primary/30 bg-primary/8 text-primary";
   }
   if (stageStep === "idle") {
     return "border-border bg-background/80 text-muted-foreground";
   }
-  return "border-amber-200 bg-amber-50 text-amber-700";
+  return "border-warning/30 bg-warning/8 text-warning";
 }
 
 type SessionTopBarProps = {

@@ -71,10 +71,10 @@ export default function ExperiencePage() {
       </div>
 
       {isLoaded && !isSignedIn ? (
-        <div className="flex items-center justify-between gap-4 rounded-xl border border-amber-200/80 bg-amber-50/50 px-5 py-3 backdrop-blur">
+        <div className="flex items-center justify-between gap-4 rounded-xl border border-warning/20 bg-warning/5 px-5 py-3 backdrop-blur">
           <div className="flex items-center gap-3">
-            <LogIn className="h-4 w-4 shrink-0 text-amber-600" />
-            <p className="text-sm text-amber-800">
+            <LogIn className="h-4 w-4 shrink-0 text-warning" />
+            <p className="text-sm text-foreground">
               {runtimeMode === "local"
                 ? `当前为本地开发环境，可直接同步面经；数据写入 ${describePublicSourceTarget(publicSourceStorageTarget)}。`
                 : "未登录时可查看面经，登录管理员账号后才能同步最新内容。"}
@@ -82,12 +82,12 @@ export default function ExperiencePage() {
           </div>
           {authEnabled && runtimeMode !== "local" ? (
             <SignInButton mode="modal">
-              <button type="button" className="cursor-pointer rounded-lg bg-amber-600 px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-amber-700">登录</button>
+              <button type="button" className="cursor-pointer rounded-lg bg-warning px-4 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-warning/90">登录</button>
             </SignInButton>
           ) : runtimeMode === "local" ? (
-            <span className="text-sm text-amber-800">本地模式已放开同步权限</span>
+            <span className="text-sm text-foreground">本地模式已放开同步权限</span>
           ) : (
-            <span className="text-sm text-amber-800">登录未启用</span>
+            <span className="text-sm text-foreground">登录未启用</span>
           )}
         </div>
       ) : null}
