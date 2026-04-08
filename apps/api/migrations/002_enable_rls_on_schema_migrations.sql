@@ -1,0 +1,1 @@
+ALTER TABLE public.schema_migrations ENABLE ROW LEVEL SECURITY;

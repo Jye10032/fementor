@@ -53,7 +53,9 @@ async function ensureMigrationsTable(client) {
       version text PRIMARY KEY,
       checksum text NOT NULL,
       applied_at timestamptz NOT NULL DEFAULT now()
-    )
+    );
+
+    ALTER TABLE public.schema_migrations ENABLE ROW LEVEL SECURITY;
   `);
 }
 
