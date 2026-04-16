@@ -639,7 +639,7 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
   }
 
   return (
-    <section className="flex h-dvh flex-col overflow-hidden px-3 py-3 md:px-4 md:py-4">
+    <section className="flex h-dvh flex-col overflow-hidden px-3 py-3 lg:[zoom:0.8] md:px-4 md:py-4">
       <div className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col gap-3">
         <SessionTopBar
           answeredCount={answeredCount}
