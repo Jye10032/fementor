@@ -35,7 +35,7 @@ function formatPopularity(value: number) {
 
 function SkeletonCard() {
   return (
-    <div className="animate-pulse space-y-2 px-4 py-3">
+    <div className="animate-pulse space-y-2 px-1 py-4">
       <div className="flex items-center gap-2">
         <div className="h-4 w-12 rounded-full bg-secondary" />
         <div className="h-4 w-2/3 rounded bg-secondary" />
@@ -59,8 +59,8 @@ function ExperienceRow({ item, onDelete, deleting, selectable, selected, onToggl
   onToggle?: (id: string) => void;
 }) {
   return (
-    <article className="space-y-1.5 px-4 pt-3 pb-5 transition-colors duration-150 hover:bg-secondary/40">
-      <div className="flex items-center gap-2">
+    <article className="space-y-2 px-1 py-4 transition-colors duration-150 hover:bg-secondary/40 sm:px-2">
+      <div className="flex flex-wrap items-start gap-x-2 gap-y-2">
         {selectable && (
           <input
             type="checkbox"
@@ -71,12 +71,12 @@ function ExperienceRow({ item, onDelete, deleting, selectable, selected, onToggl
           />
         )}
         <span className="eyebrow-chip shrink-0">{item.source_platform}</span>
-        <h2 className="truncate text-sm font-semibold text-foreground">{item.title}</h2>
+        <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">{item.title}</h2>
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
-          <Link href={`/experience/${item.id}`} className="inline-flex cursor-pointer items-center rounded-lg bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90">
+          <Link href={`/experience/${item.id}`} className="inline-flex cursor-pointer items-center rounded-md bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary transition-colors hover:bg-primary/15">
             详情<ArrowRight className="ml-0.5 h-3 w-3" />
           </Link>
-          <a href={item.source_url} target="_blank" rel="noreferrer" className="inline-flex cursor-pointer items-center rounded-lg border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-secondary">
+          <a href={item.source_url} target="_blank" rel="noreferrer" className="inline-flex cursor-pointer items-center rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-secondary">
             原帖<ExternalLink className="ml-0.5 h-3 w-3" />
           </a>
           {onDelete && (
@@ -84,7 +84,7 @@ function ExperienceRow({ item, onDelete, deleting, selectable, selected, onToggl
               type="button"
               onClick={() => onDelete(item.id)}
               disabled={deleting}
-              className="cursor-pointer rounded-lg p-1 text-muted-foreground/40 transition-colors duration-200 hover:bg-destructive/10 hover:text-destructive"
+              className="cursor-pointer rounded-md p-1 text-muted-foreground/40 transition-colors duration-200 hover:bg-destructive/10 hover:text-destructive"
               aria-label="删除面经"
             >
               <Trash2 className="h-3.5 w-3.5" />
@@ -192,7 +192,7 @@ export function ExperienceList({ items, loading, error, onDelete, onDeleteBatch 
 
   if (error) {
     return (
-      <div className="panel-surface flex items-center gap-3">
+      <div className="flex items-center gap-3 border-l-2 border-destructive/60 py-3 pl-3">
         <AlertCircle className="h-5 w-5 shrink-0 text-destructive" />
         <p className="text-sm text-destructive">{error}</p>
       </div>
@@ -201,7 +201,7 @@ export function ExperienceList({ items, loading, error, onDelete, onDeleteBatch 
 
   if (loading && items.length === 0) {
     return (
-      <div className="overflow-hidden rounded-2xl border border-border/70 bg-card/90 shadow-[var(--shadow-card)] backdrop-blur">
+      <div className="overflow-hidden border-y border-border/70">
         <LoadingBar />
       </div>
     );
@@ -209,8 +209,8 @@ export function ExperienceList({ items, loading, error, onDelete, onDeleteBatch 
 
   if (!loading && items.length === 0) {
     return (
-      <div className="panel-surface flex flex-col items-center gap-3 py-12 text-center">
-        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-secondary">
+      <div className="flex flex-col items-center gap-3 border-y border-border/70 py-10 text-center">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-secondary">
           <BookOpen className="h-6 w-6 text-muted-foreground" />
         </div>
         <p className="text-sm text-muted-foreground">
@@ -223,7 +223,7 @@ export function ExperienceList({ items, loading, error, onDelete, onDeleteBatch 
   return (
     <div
       ref={listRef}
-      className="overflow-hidden rounded-2xl border border-border/70 bg-card/90 shadow-[var(--shadow-card)] backdrop-blur"
+      className="overflow-hidden border-y border-border/70"
     >
       {selectable && items.length > 0 && (
         <div className="flex items-center gap-3 border-b border-border/40 px-4 py-2">

@@ -1,7 +1,7 @@
 # 项目文档索引
 
-- 版本：v1.0
-- 日期：2026-03-17
+- 版本：v1.1
+- 日期：2026-08-26
 
 ## 目录约定
 
@@ -10,8 +10,12 @@
 - 面向系统设计与技术方案。
 - 关注“当前模块怎么实现、用了什么技术、边界在哪里”。
 - 其中：
-  - `architecture/specs/`：方向性方案、专题 spec。
   - `architecture/todolists/`：实施清单、任务清单、迁移 checklist。
+
+### `specs/` 与 `todolists/`
+
+- `specs/`：已经细化的专题规格和实施方案。
+- `todolists/`：现有业务能力的任务清单；架构专项清单放在 `architecture/todolists/`。
 
 ### `pages/`
 
@@ -30,25 +34,31 @@
 
 ## 当前建议优先阅读
 
-1. [项目架构设计](/Users/user/vscode/fementor/docs/项目架构设计.md)
-2. [Clerk 认证与用户存储接入 Spec](/Users/user/vscode/fementor/docs/architecture/specs/clerk-auth-and-user-storage-spec.md)
-3. [Clerk 认证与用户存储接入实施清单](/Users/user/vscode/fementor/docs/architecture/todolists/clerk-auth-implementation-plan.md)
-4. [后端 Fastify 改造实施清单](/Users/user/vscode/fementor/docs/architecture/todolists/backend-fastify-migration-todolist.md)
-5. [简历解析架构](/Users/user/vscode/fementor/docs/architecture/resume-parsing.md)
-6. [面试编排架构](/Users/user/vscode/fementor/docs/architecture/interview-orchestrator.md)
-7. [上下文与长期记忆架构](/Users/user/vscode/fementor/docs/architecture/context-and-memory.md)
-8. [简历解析页](/Users/user/vscode/fementor/docs/pages/resume-page.md)
-9. [模拟面试页](/Users/user/vscode/fementor/docs/pages/interview-page.md)
-10. [模拟面试会话页优化 Spec](/Users/user/vscode/fementor/docs/pages/interview-session-optimization-spec.md)
-11. [最小API契约](/Users/user/vscode/fementor/docs/最小API契约.md)
+1. [项目架构设计](architecture/项目架构设计.md)
+2. [Clerk 认证与用户存储接入 Spec](specs/clerk-auth-and-user-storage-spec.md)
+3. [Clerk 认证与用户存储接入实施清单](todolists/done/clerk-auth-implementation-plan.md)
+4. [后端 Fastify 改造实施清单](todolists/backend-fastify-migration-todolist.md)
+5. [简历解析架构](architecture/resume-parsing.md)
+6. [面试编排架构](architecture/interview-orchestrator.md)
+7. [上下文与长期记忆架构](architecture/context-and-memory.md)
+8. [Agent 化改造路线图](architecture/agent-modernization-roadmap.md)
+9. [DSH-first Agent Runtime 与 OpenViking 方案](architecture/agent-runtime-openviking-preliminary-design.md)
+10. [DSH-first 与 OpenViking 分阶段实施清单](architecture/todolists/agent-runtime-openviking-implementation-todolist.md)
+11. [DSH Worker Pool 并发与故障恢复设计](architecture/dsh-worker-pool-design.md)
+12. [PostgreSQL 单库收敛设计](architecture/postgresql-single-database-convergence-design.md)
+13. [PostgreSQL 单库收敛实施清单](architecture/todolists/postgresql-single-database-convergence-todolist.md)
+14. [简历解析页](pages/resume-page.md)
+15. [模拟面试页](pages/interview-page.md)
+16. [模拟面试会话页优化 Spec](specs/interview-session-optimization-spec.md)
+17. [最小API契约](database/最小API契约.md)
 
 ## 现有根目录文档说明
 
-- [项目架构设计](/Users/user/vscode/fementor/docs/项目架构设计.md)：系统总览。
-- [最小API契约](/Users/user/vscode/fementor/docs/最小API契约.md)：主要接口入口。
-- [数据库字段级设计](/Users/user/vscode/fementor/docs/数据库字段级设计.md)：数据库结构。
-- [prompt-模板](/Users/user/vscode/fementor/docs/prompt-模板.md)：提示词模板。
-- [mvp-方案记录](/Users/user/vscode/fementor/docs/mvp-方案记录.md)：版本迭代记录。
+- [项目架构设计](architecture/项目架构设计.md)：系统总览。
+- [最小API契约](database/最小API契约.md)：主要接口入口。
+- [数据库字段级设计](database/数据库字段级设计.md)：数据库结构。
+- [prompt-模板](prompt-模板.md)：提示词模板。
+- [mvp-方案记录](mvp-方案记录.md)：版本迭代记录。
 
 ## 维护规则
 
@@ -92,4 +102,4 @@ Feat :add local postgres health payload
   - `DATABASE_URL`
   - `PGSSL_DISABLE`
 
-API 侧模板见 [apps/api/.env.example](/Users/user/vscode/fementor/apps/api/.env.example)。
+API 侧模板见 [apps/api/.env.example](../apps/api/.env.example)。

@@ -1,8 +1,8 @@
 # 题库三层模型方案
 
-- 版本：v0.1
-- 日期：2026-03-27
-- 状态：设计中
+- 版本：v0.2
+- 日期：2026-08-26
+- 状态：三层模型保留，存储方案已更新为 PostgreSQL 单库
 
 ## 1. 目标
 
@@ -12,7 +12,7 @@
 2. 用户题库层
 3. 练习记录层
 
-该模型既服务线上登录态 + PostgreSQL，也服务本地免登录 + SQLite，不再让“本地/线上差异”侵入题库业务本身。
+该模型同时服务线上登录态和本地免登录模式，两种部署都使用 PostgreSQL，不再让“本地/线上差异”侵入题库业务本身。
 
 ## 2. 为什么要拆三层
 
@@ -194,7 +194,7 @@
 
 1. 同一套业务模型
 2. 两种身份解析方式
-3. 两种存储实现方式
+3. 一种 PostgreSQL 存储实现
 
 ### 线上
 
@@ -206,7 +206,7 @@
 
 1. 默认本地用户，例如 `local_dev_user`
 2. 不要求登录
-3. 题库数据写本地 SQLite
+3. 题库数据写本机 PostgreSQL
 
 ### 关键结论
 
@@ -226,12 +226,7 @@
 2. `userQuestionBankRepo`
 3. `questionAttemptRepo`
 
-底层实现两套：
-
-1. SQLite repository
-2. PostgreSQL repository
-
-运行时按环境变量切换。
+底层只保留 PostgreSQL repository。本地与线上可以使用不同 PostgreSQL 实例和认证方式，但共享 schema、migration 与 repository contract，不再通过运行时环境变量选择数据库引擎。
 
 ## 6. 与面经模块的关系
 

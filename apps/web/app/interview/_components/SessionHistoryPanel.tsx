@@ -32,21 +32,21 @@ export function SessionHistoryPanel({
   };
 
   return (
-    <section className="panel-surface sticky top-22 space-y-3">
-      <h2 className="text-base font-semibold text-foreground">历史记录</h2>
+    <section className="sticky top-22 border-t border-border/70 pt-4">
+      <h2 className="text-sm font-semibold text-foreground">历史记录</h2>
       {loadingHistory ? (
-        <div className="tool-empty">加载中...</div>
+        <div className="mt-3 py-3 text-sm text-muted-foreground">加载中...</div>
       ) : !sessionHistory.length ? (
-        <div className="tool-empty">暂无历史记录</div>
+        <div className="mt-3 py-3 text-sm text-muted-foreground">暂无历史记录</div>
       ) : (
-        <div className="space-y-1.5">
+        <div className="mt-3 divide-y divide-border/60 border-y border-border/60">
           {sessionHistory.map((session) => {
             const date = new Date(session.started_at).toLocaleDateString("zh-CN");
             const isActive = session.status === "in_progress";
-            const itemClassName = `rounded-xl border px-3 py-2.5 text-xs transition-colors duration-200 ${
+            const itemClassName = `px-1 py-2.5 text-xs transition-colors duration-200 hover:bg-secondary/40 ${
               isActive
-                ? "border-primary/30 bg-primary/5 hover:bg-primary/10"
-                : "border-border/40 hover:bg-secondary/50"
+                ? "border-l-2 border-primary/45 bg-primary/[0.04] pl-2"
+                : ""
             }`;
             return (
               <div key={session.id} className={`flex items-center gap-2 ${itemClassName}`}>

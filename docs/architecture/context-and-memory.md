@@ -4,6 +4,8 @@
 - 日期：2026-03-17
 - 状态：已接入并可用
 
+> 演进说明（2026-08-26）：本文的 SQLite/Markdown 内容记录当前长期记忆实现。结构化业务记录将统一迁移到 PostgreSQL；OpenViking 后续只作为派生上下文与 Agent 记忆层，边界见 [DSH-first 与 OpenViking 方案](agent-runtime-openviking-preliminary-design.md)。
+
 ## 1. 模块职责
 
 上下文与长期记忆模块负责在面试过程中控制 prompt 长度，并把会话结束后的稳定结论沉淀下来，供后续复盘和练习使用。

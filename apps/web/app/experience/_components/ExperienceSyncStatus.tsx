@@ -33,32 +33,21 @@ export function ExperienceSyncStatus({ job, error }: ExperienceSyncStatusProps) 
   const config = job ? statusConfig[job.status] : null;
 
   return (
-    <section className="panel-surface fade-in-up">
-      <div className="flex flex-wrap items-start justify-between gap-4">
+    <section className="fade-in-up border-b border-border/70 pb-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 text-sm">
             {job ? <StatusIcon status={job.status} /> : null}
-            <p className="text-sm font-semibold text-foreground">同步状态</p>
+            <p className="font-semibold text-foreground">同步状态</p>
+            {job && config ? <span className={`text-xs ${config.color}`}>{config.label}</span> : null}
           </div>
-          {job && config ? (
-            <p className={`mt-1 text-sm ${config.color}`}>{config.label}</p>
-          ) : null}
           {error ? <p className="mt-2 text-sm text-destructive">{error}</p> : null}
         </div>
         {job ? (
-          <div className="grid min-w-[260px] grid-cols-3 gap-3">
-            <div className="metric-tile">
-              <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">新增</p>
-              <p className="mt-2 text-lg font-semibold text-success">{job.created_count}</p>
-            </div>
-            <div className="metric-tile">
-              <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">跳过</p>
-              <p className="mt-2 text-lg font-semibold text-muted-foreground">{job.skipped_count}</p>
-            </div>
-            <div className="metric-tile">
-              <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">失败</p>
-              <p className={`mt-2 text-lg font-semibold ${job.failed_count > 0 ? "text-destructive" : "text-muted-foreground"}`}>{job.failed_count}</p>
-            </div>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+            <span>新增 <strong className="font-semibold text-success">{job.created_count}</strong></span>
+            <span>跳过 <strong className="font-semibold text-foreground">{job.skipped_count}</strong></span>
+            <span>失败 <strong className={`font-semibold ${job.failed_count > 0 ? "text-destructive" : "text-foreground"}`}>{job.failed_count}</strong></span>
           </div>
         ) : null}
       </div>
@@ -70,7 +59,7 @@ export function ExperienceSyncStatus({ job, error }: ExperienceSyncStatusProps) 
       ) : null}
 
       {job?.error_message ? (
-        <div className="mt-3 flex items-start gap-2 rounded-xl bg-destructive/5 px-4 py-3">
+        <div className="mt-3 flex items-start gap-2 border-l-2 border-destructive/60 bg-destructive/5 px-3 py-2.5">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
           <p className="text-sm text-destructive">{job.error_message}</p>
         </div>

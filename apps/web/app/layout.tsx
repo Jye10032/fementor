@@ -1,20 +1,9 @@
 import { ClerkProvider } from "@clerk/nextjs";
 import type { Metadata } from "next";
-import { Manrope, Space_Grotesk } from "next/font/google";
 import { AuthProvider } from "../components/auth-provider";
 import { Navbar } from "../components/navbar";
 import { RuntimeConfigProvider } from "../components/runtime-config";
 import "./globals.css";
-
-const bodyFont = Manrope({
-  subsets: ["latin"],
-  variable: "--font-body",
-});
-
-const displayFont = Space_Grotesk({
-  subsets: ["latin"],
-  variable: "--font-display",
-});
 
 export const metadata: Metadata = {
   title: "FEMentor · 前端面试训练",
@@ -24,9 +13,10 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   const clerkEnabled = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
 
+  // Browser extensions may annotate <html> before React hydrates the page.
   return (
-    <html lang="zh-CN">
-      <body className={`${bodyFont.variable} ${displayFont.variable}`}>
+    <html lang="zh-CN" suppressHydrationWarning>
+      <body>
         {clerkEnabled ? (
           <ClerkProvider>
             <RuntimeConfigProvider>

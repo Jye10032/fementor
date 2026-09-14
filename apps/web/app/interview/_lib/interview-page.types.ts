@@ -7,8 +7,8 @@ export type StartSessionResponse = {
   queue_sources?: string[];
 };
 
-export type StartSessionLimitError = {
-  error: "NEED_USER_LLM_KEY";
+export type StartSessionError = {
+  error: "NEED_USER_LLM_KEY" | "DAILY_LIMIT_REACHED" | "START_FAILED";
   free_limit?: number;
   used_today?: number;
   remaining_free?: number;

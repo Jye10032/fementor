@@ -1,8 +1,8 @@
 # 公共题源运行模式与权限方案
 
-- 版本：v0.1
-- 日期：2026-03-28
-- 状态：设计中
+- 版本：v0.2
+- 日期：2026-08-26
+- 状态：权限模型保留，存储方案已更新为 PostgreSQL 单库
 
 ## 1. 目标
 
@@ -35,15 +35,14 @@
 
 1. 默认本机即为 `admin`
 2. 可以执行题库拉取 / 面经抓取 / 公共题源同步
-3. 拉取后只写本地数据库
+3. 拉取后只写本地 PostgreSQL
 4. 不写远程数据库
 
 ## 3. 运行模式
 
-建议增加两个环境变量：
+只保留运行形态变量：
 
 1. `APP_RUNTIME_MODE=cloud|local`
-2. `PUBLIC_SOURCE_DRIVER=postgres|sqlite`
 
 推荐组合：
 
@@ -51,15 +50,17 @@
 
 ```env
 APP_RUNTIME_MODE=cloud
-PUBLIC_SOURCE_DRIVER=postgres
+AGENT_RUNTIME=dsh
 ```
 
 ### 线下
 
 ```env
 APP_RUNTIME_MODE=local
-PUBLIC_SOURCE_DRIVER=sqlite
+AGENT_RUNTIME=dsh
 ```
+
+`APP_RUNTIME_MODE` 决定产品形态和用户配置权限，`AGENT_RUNTIME` 由部署环境决定 Agent 执行器；二者相互独立。线上和本地默认都使用 DSH，前端不能覆盖 Runtime、provider、模型、Base URL、API Key、Cordis Profile、官方 Skill、Tool、Workflow 或 subagent。`PUBLIC_SOURCE_DRIVER` 不再参与运行时选库。本地和线上都使用 PostgreSQL，区别仅在连接目标、身份和权限策略。
 
 ## 4. 权限模型
 
@@ -151,7 +152,7 @@ LOCAL_DEFAULT_ADMIN=1
 应统一由 service / repository 层决定：
 
 1. 当前是 `cloud` 还是 `local`
-2. 当前公共题源写入目标是 `postgres` 还是 `sqlite`
+2. 当前 PostgreSQL 连接目标属于本地还是托管环境
 
 ## 7.1 云端写入
 
@@ -176,7 +177,7 @@ LOCAL_DEFAULT_ADMIN=1
 
 1. 抓取牛客
 2. 清洗结构化
-3. 写入本地 SQLite
+3. 写入本地 PostgreSQL
 
 ## 8. 统一判断函数
 
@@ -186,13 +187,13 @@ LOCAL_DEFAULT_ADMIN=1
 
 返回：
 
-1. `remote_postgres`
-2. `local_sqlite`
+1. `hosted_postgres`
+2. `local_postgres`
 
 示例规则：
 
-1. `cloud + postgres` -> `remote_postgres`
-2. `local + sqlite` -> `local_sqlite`
+1. `cloud` -> `hosted_postgres`
+2. `local` -> `local_postgres`
 
 ## 8.2 `canManagePublicSources(context)`
 
@@ -225,7 +226,7 @@ LOCAL_DEFAULT_ADMIN=1
 
 1. 默认本机管理员
 2. 触发牛客抓取或公共题源同步
-3. 数据写入本地 SQLite
+3. 数据写入本地 PostgreSQL
 4. 模拟面试与检索只查本地库
 
 ## 10. 前端表现
@@ -264,9 +265,8 @@ LOCAL_DEFAULT_ADMIN=1
 ### Phase 1
 
 1. 增加 `APP_RUNTIME_MODE`
-2. 增加 `PUBLIC_SOURCE_DRIVER`
-3. 增加 `users.role`
-4. 增加 `ADMIN_EMAILS`
+2. 增加 `users.role`
+3. 增加 `ADMIN_EMAILS`
 
 ### Phase 2
 
@@ -276,9 +276,9 @@ LOCAL_DEFAULT_ADMIN=1
 
 ### Phase 3
 
-1. 公共题源写入改为按运行模式分流
-2. `cloud` 写 PostgreSQL
-3. `local` 写 SQLite
+1. 公共题源统一通过 PostgreSQL repository 写入
+2. `cloud` 连接托管 PostgreSQL
+3. `local` 连接本地 PostgreSQL
 
 ### Phase 4
 

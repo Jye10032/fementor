@@ -4,6 +4,8 @@
 - 日期：2026-03-17
 - 状态：已接入并可用
 
+> 演进说明（2026-08-26）：本文的 SQLite 章节记录当前/历史实现，不是目标存储方案。数据库将按 [PostgreSQL 单库收敛设计](postgresql-single-database-convergence-design.md) 统一；Agent 执行层按 [DSH-first 方案](agent-runtime-openviking-preliminary-design.md) 演进，FEMentor 仍拥有面试状态机。
+
 ## 1. 模块职责
 
 面试编排模块负责把“简历 + JD + 题目队列 + 用户回答 + 检索证据 + 评分 + 追问 + 复盘”串成一条完整流程。

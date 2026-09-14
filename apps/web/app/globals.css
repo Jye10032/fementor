@@ -2,6 +2,7 @@
 @import "tw-animate-css";
 
 :root {
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
   --background: oklch(0.98 0.006 265);
   --foreground: oklch(0.21 0.04 280);
   --card: oklch(0.995 0.004 265);
@@ -28,7 +29,7 @@
 }
 
 @theme inline {
-  --font-sans: var(--font-body), "Helvetica Neue", sans-serif;
+  --font-sans: var(--font-ui);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -66,6 +67,7 @@
       radial-gradient(circle, color-mix(in oklab, var(--border) 30%, transparent) 1px, transparent 1px);
     background-size: 100%, 100%, 100%, 32px 32px;
     min-height: 100vh;
+    overflow-x: hidden;
   }
 
   ::selection {
@@ -86,8 +88,8 @@
   h2,
   h3,
   h4 {
-    font-family: var(--font-display), sans-serif;
-    letter-spacing: -0.03em;
+    font-family: var(--font-ui);
+    letter-spacing: 0;
   }
 
   input,
@@ -199,11 +201,11 @@
 
 @layer components {
   .page-shell {
-    @apply px-4 py-6 sm:px-6 lg:px-8;
+    @apply min-w-0 w-full overflow-x-hidden px-4 py-6 sm:px-6 lg:px-8;
   }
 
   .page-shell__inner {
-    @apply mx-auto flex max-w-7xl flex-col gap-6;
+    @apply mx-auto flex min-w-0 w-full max-w-7xl flex-col gap-6;
   }
 
   .page-hero {
@@ -248,7 +250,7 @@
   }
 
   .panel-surface {
-    @apply rounded-2xl border border-border/70 bg-card/90 p-5 shadow-[var(--shadow-card)] backdrop-blur md:p-6;
+    @apply min-w-0 w-full max-w-full rounded-2xl border border-border/70 bg-card/90 p-5 shadow-[var(--shadow-card)] backdrop-blur md:p-6;
     transition: box-shadow 320ms ease, border-color 320ms ease, transform 320ms ease;
   }
 
@@ -261,7 +263,7 @@
   }
 
   .field-shell {
-    @apply rounded-xl border border-input bg-background/88 px-3 py-2.5 shadow-sm;
+    @apply min-w-0 max-w-full rounded-xl border border-input bg-background/88 px-3 py-2.5 shadow-sm;
   }
 
   .action-primary {
@@ -290,7 +292,7 @@
   }
 
   .eyebrow-chip {
-    @apply inline-flex items-center rounded-full border border-border/70 bg-background/80 px-3 py-1 text-[0.68rem] font-semibold uppercase tracking-[0.22em] text-muted-foreground;
+    @apply inline-flex items-center rounded-full border border-border/70 bg-background/80 px-3 py-1 text-xs font-medium tracking-normal text-muted-foreground;
   }
 
   .status-indicator {

@@ -32,10 +32,10 @@ export function ExperienceDetail({ item }: ExperienceDetailProps) {
   return (
     <div className="space-y-4">
       {/* Header: title + meta inline */}
-      <section className="panel-surface space-y-2">
+      <section className="space-y-3 border-b border-border/70 pb-5">
         <div className="flex flex-wrap items-center gap-2">
           <span className="eyebrow-chip">{item.source_platform}</span>
-          <h1 className="text-xl font-semibold text-foreground">{item.title}</h1>
+          <h1 className="min-w-0 text-xl font-semibold text-foreground sm:text-2xl">{item.title}</h1>
         </div>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
           {item.company_name ? <span className="inline-flex items-center gap-1"><Building2 className="h-3 w-3" />{item.company_name}</span> : null}
@@ -53,37 +53,41 @@ export function ExperienceDetail({ item }: ExperienceDetailProps) {
 
       {/* Question groups + raw content side by side */}
       <section className="grid gap-3 xl:grid-cols-2">
-        <div className="space-y-3">
-          <p className="text-base font-semibold text-foreground">问题簇</p>
+        <div className="min-w-0 space-y-3">
+          <div className="flex items-baseline justify-between gap-3">
+            <p className="text-base font-semibold text-foreground">问题簇</p>
+            <span className="text-xs text-muted-foreground">{item.groups.length} 组</span>
+          </div>
           {item.groups.length === 0 ? (
-            <p className="text-sm text-muted-foreground">当前没有抽取到问题簇。</p>
+            <p className="border-y border-border/70 py-5 text-sm text-muted-foreground">当前没有抽取到问题簇。</p>
           ) : (
-            item.groups.map((group) => (
-              <article key={group.id} className="overflow-hidden rounded-xl border border-border/70 bg-card/90 backdrop-blur">
-                <div className="border-b border-border/70 px-4 py-3">
+            <div className="divide-y divide-border/70 border-y border-border/70">
+              {item.groups.map((group) => (
+                <article key={group.id} className="overflow-hidden">
+                  <div className="py-4">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="eyebrow-chip">{group.topic_cluster || "未分类"}</span>
-                    <h2 className="text-base font-semibold text-foreground">{group.canonical_question || "未命名问题簇"}</h2>
+                    <h2 className="min-w-0 text-base font-semibold text-foreground">{group.canonical_question || "未命名问题簇"}</h2>
                   </div>
                   <p className="mt-0.5 text-xs text-muted-foreground">
                     {group.group_type} · 置信度 {group.confidence.toFixed(2)}
                   </p>
-                </div>
-                <div className="divide-y divide-border/50">
+                  </div>
+                  <div className="divide-y divide-border/50 border-t border-border/50">
                   {group.items.map((question) => (
-                    <div key={question.id} className="px-4 py-3">
+                    <div key={question.id} className="py-3">
                       <div className="flex flex-wrap items-center gap-1.5">
-                        <span className={`rounded-full border px-2 py-0.5 text-[11px] tracking-wide ${roleStyle(question.question_role)}`}>
+                        <span className={`rounded-full border px-2 py-0.5 text-[11px] tracking-normal ${roleStyle(question.question_role)}`}>
                           {question.question_role}
                         </span>
-                        <span className="rounded-full border border-border/70 bg-background px-2 py-0.5 text-[11px] tracking-wide text-muted-foreground">
+                        <span className="rounded-full border border-border/70 bg-background px-2 py-0.5 text-[11px] tracking-normal text-muted-foreground">
                           {question.category}
                         </span>
-                        <span className={`rounded-full border px-2 py-0.5 text-[11px] tracking-wide ${difficultyStyle(question.difficulty)}`}>
+                        <span className={`rounded-full border px-2 py-0.5 text-[11px] tracking-normal ${difficultyStyle(question.difficulty)}`}>
                           {question.difficulty}
                         </span>
                       </div>
-                      <p className="mt-1.5 text-sm font-medium text-foreground">{question.question_text_normalized || question.question_text_raw}</p>
+                      <p className="mt-1.5 text-sm font-normal leading-6 text-foreground">{question.question_text_normalized || question.question_text_raw}</p>
                       {question.knowledge_points.length > 0 ? (
                         <div className="mt-1.5 flex flex-wrap gap-1">
                           {question.knowledge_points.map((kp) => (
@@ -95,16 +99,17 @@ export function ExperienceDetail({ item }: ExperienceDetailProps) {
                       ) : null}
                     </div>
                   ))}
-                </div>
-              </article>
-            ))
+                  </div>
+                </article>
+              ))}
+            </div>
           )}
         </div>
-        <article className="panel-surface xl:sticky xl:top-22 xl:self-start">
-          <p className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-foreground">
+        <article className="border-t border-border/70 pt-4 xl:sticky xl:top-22 xl:self-start xl:border-l xl:border-t-0 xl:pl-5 xl:pt-0">
+          <p className="mb-3 flex items-center gap-1.5 text-sm font-semibold text-foreground">
             <FileText className="h-3.5 w-3.5 text-muted-foreground" />原文
           </p>
-          <p className="whitespace-pre-wrap text-sm leading-7 text-muted-foreground">{item.content_raw || "暂无原文"}</p>
+          <p className="whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{item.content_raw || "暂无原文"}</p>
         </article>
       </section>
     </div>

@@ -12,6 +12,8 @@ export function RuntimeConfigPanel({ onSaved }: RuntimeConfigPanelProps) {
   const {
     apiBase,
     setApiBase,
+    runtimeMode,
+    agentRuntimeId,
     llmBaseUrl,
     setLlmBaseUrl,
     llmApiKey,
@@ -30,6 +32,8 @@ export function RuntimeConfigPanel({ onSaved }: RuntimeConfigPanelProps) {
 
   const remainingInterviewCount = viewer?.capabilities?.remaining_interview_session_count;
   const dailyInterviewLimit = viewer?.capabilities?.daily_interview_session_limit;
+
+  if (runtimeMode !== "local" || agentRuntimeId !== "native-api") return null;
 
   return (
     <div>

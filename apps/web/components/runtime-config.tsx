@@ -16,6 +16,11 @@ type RuntimeConfigContextValue = {
   apiBase: string;
   setApiBase: (value: string) => void;
   runtimeMode: string;
+  agentRuntimeId: string;
+  agentRuntimeAvailable: boolean | null;
+  agentRuntimeState: string;
+  agentRuntimeErrorCode: string | null;
+  refreshRuntimeHealth: (baseUrl?: string) => Promise<void>;
   publicSourceDriver: string;
   publicSourceStorageTarget: string;
   llmBaseUrl: string;
@@ -39,6 +44,7 @@ const DEFAULT_LOCAL_API_BASE = "http://localhost:3300";
 const DEFAULT_API_BASE = process.env.NEXT_PUBLIC_API_BASE || (typeof window !== "undefined" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1" ? "/api/proxy" : DEFAULT_LOCAL_API_BASE);
 const DEFAULT_LLM_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_LLM_MODEL = "gpt-4o-mini";
+const HEALTH_REQUEST_TIMEOUT_MS = 2000;
 
 type HealthResponse = {
   ok?: boolean;
@@ -46,6 +52,12 @@ type HealthResponse = {
     mode?: string;
     public_source_driver?: string;
     public_source_storage_target?: string;
+  };
+  agent_runtime?: {
+    selected_runtime?: string;
+    available?: boolean;
+    state?: string;
+    error_code?: string;
   };
   llm?: {
     base_url?: string;
@@ -73,16 +85,33 @@ function normalizeBaseUrl(value: string | null | undefined) {
   return String(value || "").trim().replace(/\/+$/, "");
 }
 
-async function probeHealth(baseUrl: string) {
-  const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
-  if (!normalizedBaseUrl) return false;
+function isHostedBrowser() {
+  if (typeof window === "undefined") return false;
+  return window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1";
+}
 
+async function fetchHealth(baseUrl: string): Promise<HealthResponse> {
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
+  if (!normalizedBaseUrl) throw new Error("health_base_missing");
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), HEALTH_REQUEST_TIMEOUT_MS);
   try {
-    const response = await fetch(`${normalizedBaseUrl}/health`);
-    if (!response.ok) return false;
+    const response = await fetch(`${normalizedBaseUrl}/health`, { signal: controller.signal });
+    if (!response.ok) throw new Error(`health_http_${response.status}`);
     const contentType = response.headers.get("content-type") || "";
-    if (!contentType.toLowerCase().includes("application/json")) return false;
+    if (!contentType.toLowerCase().includes("application/json")) throw new Error("health_invalid_response");
     const data = (await response.json()) as HealthResponse;
+    if (data.ok !== true) throw new Error("health_not_ready");
+    return data;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function probeHealth(baseUrl: string) {
+  try {
+    const data = await fetchHealth(baseUrl);
     return data.ok === true;
   } catch {
     return false;
@@ -94,7 +123,9 @@ function getBootstrapApiCandidates() {
     return [normalizeBaseUrl(DEFAULT_API_BASE)].filter(Boolean);
   }
 
-  const savedApi = normalizeBaseUrl(window.localStorage.getItem("fementor.apiBase"));
+  const savedApi = isHostedBrowser()
+    ? ""
+    : normalizeBaseUrl(window.localStorage.getItem("fementor.apiBase"));
   const envApi = normalizeBaseUrl(DEFAULT_API_BASE);
 
   return [savedApi, envApi]
@@ -108,7 +139,11 @@ type ProviderProps = {
 
 export function RuntimeConfigProvider({ children }: ProviderProps) {
   const [apiBase, setApiBase] = useState(DEFAULT_API_BASE);
-  const [runtimeMode, setRuntimeMode] = useState("local");
+  const [runtimeMode, setRuntimeMode] = useState("unknown");
+  const [agentRuntimeId, setAgentRuntimeId] = useState("unknown");
+  const [agentRuntimeAvailable, setAgentRuntimeAvailable] = useState<boolean | null>(null);
+  const [agentRuntimeState, setAgentRuntimeState] = useState("checking");
+  const [agentRuntimeErrorCode, setAgentRuntimeErrorCode] = useState<string | null>(null);
   const [publicSourceDriver, setPublicSourceDriver] = useState("sqlite");
   const [publicSourceStorageTarget, setPublicSourceStorageTarget] = useState("local_sqlite");
   const [llmBaseUrl, setLlmBaseUrl] = useState(DEFAULT_LLM_BASE_URL);
@@ -121,7 +156,69 @@ export function RuntimeConfigProvider({ children }: ProviderProps) {
   const [sessionLlmMaskedKey, setSessionLlmMaskedKey] = useState<string | null>(null);
   const [sessionLlmExpiresAt, setSessionLlmExpiresAt] = useState<string | null>(null);
   const [backendLlmReady, setBackendLlmReady] = useState(false);
+  const [runtimeHealthInitialized, setRuntimeHealthInitialized] = useState(false);
   const initializedRef = useRef(false);
+  const healthRequestIdRef = useRef(0);
+  const sessionLlmConfiguredRef = useRef(sessionLlmConfigured);
+  sessionLlmConfiguredRef.current = sessionLlmConfigured;
+
+  const applyHealthState = useCallback((data: HealthResponse) => {
+    const nextRuntimeMode = String(data.runtime?.mode || "").trim();
+    const nextAgentRuntimeId = String(data.agent_runtime?.selected_runtime || "").trim();
+    const nextAgentRuntimeState = String(data.agent_runtime?.state || "unknown").trim();
+    const nextAgentRuntimeErrorCode = String(data.agent_runtime?.error_code || "").trim();
+
+    if (nextRuntimeMode) setRuntimeMode(nextRuntimeMode);
+    if (nextAgentRuntimeId) setAgentRuntimeId(nextAgentRuntimeId);
+    setAgentRuntimeAvailable(data.agent_runtime?.available === true);
+    setAgentRuntimeState(nextAgentRuntimeState);
+    setAgentRuntimeErrorCode(nextAgentRuntimeErrorCode || null);
+
+    const nextPublicSourceDriver = String(data.runtime?.public_source_driver || "").trim();
+    const nextPublicSourceStorageTarget = String(data.runtime?.public_source_storage_target || "").trim();
+    if (nextPublicSourceDriver) setPublicSourceDriver(nextPublicSourceDriver);
+    if (nextPublicSourceStorageTarget) setPublicSourceStorageTarget(nextPublicSourceStorageTarget);
+
+    return {
+      backendBaseUrl: String(data.llm?.base_url || "").trim(),
+      backendModel: String(data.llm?.model || "").trim(),
+      hasBackendKey: data.llm?.has_api_key === true,
+    };
+  }, []);
+
+  const applyBackendLlmHealth = useCallback((hasBackendKey: boolean) => {
+    setBackendLlmReady(hasBackendKey);
+    if (hasBackendKey) {
+      setLlmSyncState("ready");
+      setLlmSyncStatus("服务端默认 LLM 已就绪。");
+    } else if (!sessionLlmConfiguredRef.current) {
+      setLlmSyncState("idle");
+      setLlmSyncStatus("服务端默认 LLM 尚未配置。");
+    }
+  }, []);
+
+  const refreshRuntimeHealth = useCallback(async (baseUrl?: string) => {
+    const targetBaseUrl = normalizeBaseUrl(baseUrl || apiBase);
+    const requestId = healthRequestIdRef.current + 1;
+    healthRequestIdRef.current = requestId;
+
+    setAgentRuntimeAvailable(null);
+    setAgentRuntimeState("checking");
+    setAgentRuntimeErrorCode(null);
+
+    try {
+      const data = await fetchHealth(targetBaseUrl);
+      if (requestId !== healthRequestIdRef.current) return;
+      const { hasBackendKey } = applyHealthState(data);
+      applyBackendLlmHealth(hasBackendKey);
+    } catch {
+      if (requestId !== healthRequestIdRef.current) return;
+      setAgentRuntimeAvailable(false);
+      setAgentRuntimeState("unavailable");
+      setAgentRuntimeErrorCode("health_unreachable");
+      applyBackendLlmHealth(false);
+    }
+  }, [apiBase, applyBackendLlmHealth, applyHealthState]);
 
   const applySessionConfigState = useCallback((payload?: SessionLlmConfigResponse | null) => {
     const config = payload?.config;
@@ -155,9 +252,17 @@ export function RuntimeConfigProvider({ children }: ProviderProps) {
   }, [backendLlmReady]);
 
   useEffect(() => {
-    const savedApi = normalizeBaseUrl(window.localStorage.getItem("fementor.apiBase")) || normalizeBaseUrl(DEFAULT_API_BASE);
-    const savedLlmBaseUrl = window.localStorage.getItem("fementor.llmBaseUrl");
-    const savedLlmModel = window.localStorage.getItem("fementor.llmModel");
+    const allowBrowserOverrides = !isHostedBrowser();
+    let cancelled = false;
+    const savedApi = (allowBrowserOverrides
+      ? normalizeBaseUrl(window.localStorage.getItem("fementor.apiBase"))
+      : "") || normalizeBaseUrl(DEFAULT_API_BASE);
+    const savedLlmBaseUrl = allowBrowserOverrides
+      ? window.localStorage.getItem("fementor.llmBaseUrl")
+      : null;
+    const savedLlmModel = allowBrowserOverrides
+      ? window.localStorage.getItem("fementor.llmModel")
+      : null;
 
     setApiBase(savedApi);
     if (savedLlmBaseUrl) setLlmBaseUrl(savedLlmBaseUrl);
@@ -176,25 +281,14 @@ export function RuntimeConfigProvider({ children }: ProviderProps) {
           }
         }
 
+        if (cancelled) return;
         if (resolvedApiBase !== savedApi) {
           setApiBase(resolvedApiBase);
         }
 
-        const response = await fetch(`${resolvedApiBase}/health`);
-        if (!response.ok) return;
-        const contentType = response.headers.get("content-type") || "";
-        if (!contentType.toLowerCase().includes("application/json")) return;
-        const data = (await response.json()) as HealthResponse;
-        const backendBaseUrl = String(data.llm?.base_url || "").trim();
-        const backendModel = String(data.llm?.model || "").trim();
-        const hasBackendKey = data.llm?.has_api_key === true;
-        const nextRuntimeMode = String(data.runtime?.mode || "").trim();
-        const nextPublicSourceDriver = String(data.runtime?.public_source_driver || "").trim();
-        const nextPublicSourceStorageTarget = String(data.runtime?.public_source_storage_target || "").trim();
-
-        if (nextRuntimeMode) setRuntimeMode(nextRuntimeMode);
-        if (nextPublicSourceDriver) setPublicSourceDriver(nextPublicSourceDriver);
-        if (nextPublicSourceStorageTarget) setPublicSourceStorageTarget(nextPublicSourceStorageTarget);
+        const data = await fetchHealth(resolvedApiBase);
+        if (cancelled) return;
+        const { backendBaseUrl, backendModel, hasBackendKey } = applyHealthState(data);
 
         if (!savedLlmBaseUrl && backendBaseUrl) {
           setLlmBaseUrl(backendBaseUrl);
@@ -202,31 +296,50 @@ export function RuntimeConfigProvider({ children }: ProviderProps) {
         if (!savedLlmModel && backendModel) {
           setLlmModel(backendModel);
         }
-        setBackendLlmReady(hasBackendKey);
-        if (hasBackendKey) {
-          setLlmSyncState("ready");
-          setLlmSyncStatus("服务端默认 LLM 已就绪。");
-        }
+        applyBackendLlmHealth(hasBackendKey);
       } catch {
-        // Ignore bootstrap failures and keep local defaults.
+        if (cancelled) return;
+        setAgentRuntimeAvailable(false);
+        setAgentRuntimeState("unavailable");
+        setAgentRuntimeErrorCode("health_unreachable");
       } finally {
-        initializedRef.current = true;
+        if (!cancelled) {
+          initializedRef.current = true;
+          setRuntimeHealthInitialized(true);
+        }
       }
     })();
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [applyBackendLlmHealth, applyHealthState]);
 
   useEffect(() => {
-    if (!initializedRef.current) return;
+    if (!runtimeHealthInitialized) return;
+    const initialRefresh = window.setTimeout(() => {
+      void refreshRuntimeHealth();
+    }, 350);
+    const timer = window.setInterval(() => {
+      void refreshRuntimeHealth();
+    }, 30000);
+    return () => {
+      window.clearTimeout(initialRefresh);
+      window.clearInterval(timer);
+    };
+  }, [apiBase, refreshRuntimeHealth, runtimeHealthInitialized]);
+
+  useEffect(() => {
+    if (!initializedRef.current || isHostedBrowser()) return;
     window.localStorage.setItem("fementor.apiBase", normalizeBaseUrl(apiBase));
   }, [apiBase]);
 
   useEffect(() => {
-    if (!initializedRef.current) return;
+    if (!initializedRef.current || isHostedBrowser()) return;
     window.localStorage.setItem("fementor.llmBaseUrl", llmBaseUrl);
   }, [llmBaseUrl]);
 
   useEffect(() => {
-    if (!initializedRef.current) return;
+    if (!initializedRef.current || isHostedBrowser()) return;
     window.localStorage.setItem("fementor.llmModel", llmModel);
   }, [llmModel]);
 
@@ -298,6 +411,11 @@ export function RuntimeConfigProvider({ children }: ProviderProps) {
     apiBase,
     setApiBase,
     runtimeMode,
+    agentRuntimeId,
+    agentRuntimeAvailable,
+    agentRuntimeState,
+    agentRuntimeErrorCode,
+    refreshRuntimeHealth,
     publicSourceDriver,
     publicSourceStorageTarget,
     llmBaseUrl,
@@ -318,6 +436,11 @@ export function RuntimeConfigProvider({ children }: ProviderProps) {
   }), [
     apiBase,
     runtimeMode,
+    agentRuntimeId,
+    agentRuntimeAvailable,
+    agentRuntimeState,
+    agentRuntimeErrorCode,
+    refreshRuntimeHealth,
     publicSourceDriver,
     publicSourceStorageTarget,
     llmBaseUrl,
