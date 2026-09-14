@@ -9,9 +9,9 @@ const {
   generateEvaluationNarration,
   generateFollowUpQuestion,
   generateInterviewerReply,
-  processInterviewTurnWithLLM,
   shouldInsertFollowUp,
 } = require('./llm-service');
+const { evaluateInterviewAnswerWithRuntime } = require('../agent-runtime/interview-runtime');
 const { selectOrGenerateFollowUp, rankFollowUpByRelevance, adaptFollowUp } = require('../experience/follow-up-reuse');
 const { recallQuestionForKeyword } = require('../experience/recall');
 const { createHttpError } = require('../http');
@@ -88,7 +88,8 @@ const submitInterviewTurnUnified = async ({ sessionId, body, onPhase, onToken, s
 
   // 3. Unified LLM call
   await emitPhase('evaluation', '评估回答');
-  const llmResult = await processInterviewTurnWithLLM({
+  const llmResult = await evaluateInterviewAnswerWithRuntime({
+    interviewSessionId: sessionId,
     question,
     answer,
     interviewContext: interviewContext.contextText,

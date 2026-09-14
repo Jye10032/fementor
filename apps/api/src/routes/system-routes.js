@@ -1,7 +1,7 @@
 const { DB_PATH, getUserById, upsertUser } = require('../db');
-const { DATABASE_URL, isPostgresEnabled } = require('../postgres');
+const { DATABASE_URL, getPostgresTarget, isPostgresEnabled } = require('../postgres');
 const { hasRealLLM, getLlmConfig, setRuntimeLlmConfig, validateLlmRuntimeConfig } = require('../llm');
-const { json, jsonError, readBody } = require('../http');
+const { createHttpError, json, jsonError, readBody } = require('../http');
 const {
   buildViewerPayload,
   ensureLocalUserProfile,
@@ -25,8 +25,15 @@ const {
   upsertSessionLlmConfig,
 } = require('../lib/session-llm-config-store');
 const { getGraph, getBuildStatus } = require('../experience/knowledge-graph');
+const { getAgentRuntimeHealth } = require('../agent-runtime/interview-runtime');
 
 const hasText = (value) => String(value || '').trim() !== '';
+
+const assertSessionLlmConfigEnabled = () => {
+  if (getAppRuntimeMode() === 'cloud') {
+    throw createHttpError(403, 'session LLM configuration is disabled in cloud mode');
+  }
+};
 
 const readSessionLlmBody = ({ body }) => ({
   baseUrl: String(body.base_url || '').trim(),
@@ -38,6 +45,7 @@ const getRequestSessionContext = async ({ req }) =>
   getResolvedUserContext({ req, requireAuth: true, allowDevFallback: false });
 
 const getSessionLlmConfigResponse = async ({ req }) => {
+  assertSessionLlmConfigEnabled();
   const context = await getRequestSessionContext({ req });
   const sessionConfig = getSessionLlmConfig({
     userId: context.userId,
@@ -53,6 +61,7 @@ const getSessionLlmConfigResponse = async ({ req }) => {
 };
 
 const upsertSessionLlmConfigResponse = async ({ req, body }) => {
+  assertSessionLlmConfigEnabled();
   const context = await getRequestSessionContext({ req });
   const payload = readSessionLlmBody({ body });
 
@@ -94,6 +103,7 @@ const upsertSessionLlmConfigResponse = async ({ req, body }) => {
 };
 
 const validateSessionLlmConfigResponse = async ({ req, body }) => {
+  assertSessionLlmConfigEnabled();
   const context = await getRequestSessionContext({ req });
   const existing = getSessionLlmConfig({
     userId: context.userId,
@@ -138,6 +148,7 @@ const validateSessionLlmConfigResponse = async ({ req, body }) => {
 };
 
 const deleteSessionLlmConfigResponse = async ({ req }) => {
+  assertSessionLlmConfigEnabled();
   const context = await getRequestSessionContext({ req });
   deleteSessionLlmConfig({ userId: context.userId, token: context.token });
   return {
@@ -160,11 +171,7 @@ const getHealthPayload = () => {
     date: new Date().toISOString(),
     database: {
       driver: postgresEnabled ? 'postgres' : 'sqlite',
-      target: postgresEnabled
-        ? runtimeStorageTarget === 'remote_postgres'
-          ? 'remote_postgres'
-          : 'local_postgres'
-        : 'local_sqlite',
+      target: postgresEnabled ? getPostgresTarget() : 'local_sqlite',
       sqlite_fallback_path: DB_PATH,
     },
     llm: {
@@ -187,10 +194,12 @@ const getHealthPayload = () => {
       experience_storage_driver: getExperienceStorageDriver(),
       experience_storage_target: getExperienceStorageTarget(),
     },
+    agent_runtime: getAgentRuntimeHealth(),
   };
 };
 
 const updateRuntimeLlmConfig = async ({ body }) => {
+  assertSessionLlmConfigEnabled();
   const nextConfig = setRuntimeLlmConfig({
     baseUrl: body.base_url,
     apiKey: body.api_key,

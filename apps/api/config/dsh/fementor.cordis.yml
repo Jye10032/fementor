@@ -1,0 +1,58 @@
+# FEMentor scoring runtime. Stdout is reserved for JSON-RPC frames.
+# This profile exposes only the read-only Skill loader. It mounts no shell,
+# general filesystem, subagent, workflow, or write tools.
+
+- id: sdk-jsonrpc-server
+  name: '@deepseek-ai/dsh-sdk-jsonrpc-server'
+  config:
+    maxTokensAsSuccess: false
+
+- id: llm-deepseek
+  name: '@deepseek-ai/dsh-llm-deepseek'
+  config:
+    apiKeyEnv: DEEPSEEK_API_KEY
+    streamIdleTimeoutMs: 120000
+    models:
+      - id: !!js process.env.DSH_MODEL ?? 'deepseek-v4-flash'
+        contextWindow: !!js Number(process.env.DSH_CONTEXT_WINDOW ?? 128000)
+
+# Optional catalog-backed routes. Only the credential named by
+# DSH_PROVIDER_API_KEY_ENV is inherited by the child process.
+- id: llm-multi-provider
+  name: '@deepseek-ai/dsh-llm-pi-ai'
+  config:
+    providers:
+      openai:
+        apiKeyEnv: OPENAI_API_KEY
+        streamIdleTimeoutMs: 120000
+      anthropic:
+        apiKeyEnv: ANTHROPIC_API_KEY
+        streamIdleTimeoutMs: 120000
+
+- id: agent-spine
+  name: '@deepseek-ai/dsh-agent-spine-demo'
+  config:
+    includeHarnessIdentity: false
+    includeRuntimeContext: false
+    persona: 'You are the bounded FEMentor interview evaluation worker. Follow the task contract and return only its requested output.'
+    workspaceContext: false
+    skills:
+      enabled: true
+      filesystem:
+        includeDefaultRoots: false
+        customSkillDirs:
+          - ./skills
+        watch: false
+      tool:
+        catalogDescriptionMaxLength: 240
+    toolBash: false
+    toolJobs: false
+
+- id: sessions
+  name: '@deepseek-ai/dsh-session-persistence-jsonl'
+  config:
+    root: !!js process.env.DSH_SESSION_ROOT ?? './.dsh/sessions'
+    compression: none
+
+- id: session-checkpoints
+  name: '@deepseek-ai/dsh-session-checkpoint-policy'

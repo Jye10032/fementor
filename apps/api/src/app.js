@@ -20,10 +20,16 @@ const { registerOfficialQuestionBankRoutes } = require('./routes/official-questi
 const { closeOfficialQuestionSourcePool } = require('./official-question-bank/repository');
 const { errorHandlerPlugin } = require('./plugins/error-handler');
 const { requestContextPlugin } = require('./plugins/request-context');
+const {
+  disposeInterviewRuntimes,
+  prepareConfiguredInterviewRuntime,
+} = require('./agent-runtime/interview-runtime');
 
 const MULTIPART_LIMIT_BYTES = 8 * 1024 * 1024;
 
 async function buildApp() {
+  await prepareConfiguredInterviewRuntime();
+
   if (isPostgresEnabled()) {
     await initPostgres();
   } else {
@@ -67,6 +73,10 @@ async function buildApp() {
   await app.register(registerPublicQuestionSourceRoutes);
   await app.register(registerOfficialQuestionBankRoutes);
   await app.register(registerDocumentRoutes);
+  app.addHook('onClose', async () => {
+    await disposeInterviewRuntimes();
+    await closeOfficialQuestionSourcePool();
+  });
 
   return app;
 }

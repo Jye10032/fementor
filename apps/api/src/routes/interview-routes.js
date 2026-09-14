@@ -17,7 +17,12 @@ const {
 const { readJdDoc } = require('../doc');
 const { appendMemoryEntry } = require('../memory');
 const { json, jsonError, parseNumberOrFallback, readBody, writeSse, flushSseFrame, getErrorMessage } = require('../http');
-const { getResolvedUserContext, ensureLocalUserProfile, ensureSessionOwner } = require('../request-context');
+const {
+  getAppRuntimeMode,
+  getResolvedUserContext,
+  ensureLocalUserProfile,
+  ensureSessionOwner,
+} = require('../request-context');
 const { summarizeLongTermMemory } = require('../interview/context-service');
 const { generateInterviewQuestionQueue, generateKeywordQueue, generateQuestionForKeyword } = require('../interview/llm-service');
 const { submitInterviewTurn } = require('../interview/turn-service');
@@ -99,6 +104,37 @@ const mergeExperienceQuestionsIntoQueue = ({ queueItems, experienceQuestions = [
   }));
 };
 
+const getInterviewStartLimitFailure = ({
+  todayUsedCount,
+  hasUserSessionKey,
+  runtimeMode = getAppRuntimeMode(),
+  agentRuntimeId = String(process.env.AGENT_RUNTIME || 'native-api').trim().toLowerCase(),
+}) => {
+  if (todayUsedCount < 1) return null;
+
+  if (runtimeMode === 'cloud' || agentRuntimeId !== 'native-api') {
+    return {
+      error: 'DAILY_LIMIT_REACHED',
+      free_limit: 1,
+      used_today: todayUsedCount,
+      remaining_free: 0,
+      message: '今日免费模拟面试次数已用完，请明日再试',
+    };
+  }
+
+  if (!hasUserSessionKey) {
+    return {
+      error: 'NEED_USER_LLM_KEY',
+      free_limit: 1,
+      used_today: todayUsedCount,
+      remaining_free: 0,
+      message: '请先配置当前会话 LLM Key 后再启动本日更多模拟面试',
+    };
+  }
+
+  return null;
+};
+
 // ── Extracted response functions for Fastify routes ──
 
 const startInterviewSessionResponse = async ({ req, body }) => {
@@ -118,20 +154,15 @@ const startInterviewSessionResponse = async ({ req, body }) => {
     jobDescription = String(activeJdDoc?.content || '').trim();
   }
   if (!jobDescription) return { statusCode: 400, payload: { error: 'job_description is required' } };
-  const todayUsedCount = await countSessionsStartedOnUtcDate({ userId });
-  const hasUserSessionKey = Boolean(getSessionLlmConfig({ userId, token: context.token })?.apiKey);
-  if (todayUsedCount >= 1 && !hasUserSessionKey) {
-    return {
-      statusCode: 403,
-      payload: {
-        error: 'NEED_USER_LLM_KEY',
-        free_limit: 1,
-        used_today: todayUsedCount,
-        remaining_free: 0,
-        message: '请先上传 session 级 LLM Key 后再启动本日更多模拟面试',
-      },
-    };
-  }
+      const todayUsedCount = await countSessionsStartedOnUtcDate({ userId });
+      const hasUserSessionKey = Boolean(getSessionLlmConfig({ userId, token: context.token })?.apiKey);
+      const limitFailure = getInterviewStartLimitFailure({ todayUsedCount, hasUserSessionKey });
+      if (limitFailure) {
+        return {
+          statusCode: 403,
+          payload: limitFailure,
+        };
+      }
 
   const sessionId = randomUUID();
   const session = await createInterviewSession({ id: sessionId, userId });
@@ -452,14 +483,9 @@ const handleInterviewRoutes = async ({ req, res, url, corsHeaders }) => {
       if (!jobDescription) return json(res, 400, { error: 'job_description is required' });
       const todayUsedCount = await countSessionsStartedOnUtcDate({ userId });
       const hasUserSessionKey = Boolean(getSessionLlmConfig({ userId, token: context.token })?.apiKey);
-      if (todayUsedCount >= 1 && !hasUserSessionKey) {
-        return json(res, 403, {
-          error: 'NEED_USER_LLM_KEY',
-          free_limit: 1,
-          used_today: todayUsedCount,
-          remaining_free: 0,
-          message: '请先上传 session 级 LLM Key 后再启动本日更多模拟面试',
-        });
+      const limitFailure = getInterviewStartLimitFailure({ todayUsedCount, hasUserSessionKey });
+      if (limitFailure) {
+        return json(res, 403, limitFailure);
       }
 
       const sessionId = randomUUID();
@@ -1054,6 +1080,7 @@ async function registerInterviewRoutes(app) {
 }
 
 module.exports = {
+  getInterviewStartLimitFailure,
   handleInterviewRoutes,
   registerInterviewRoutes,
 };

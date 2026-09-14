@@ -30,6 +30,10 @@ const buildLlmRuntimeConfig = ({ runtimeConfig = null, sessionContext = null } =
     };
   }
 
+  if (String(process.env.APP_RUNTIME_MODE || 'local').trim().toLowerCase() === 'cloud') {
+    return baseConfig;
+  }
+
   if (!sessionContext || !sessionContext.userId) {
     return baseConfig;
   }
@@ -121,6 +125,7 @@ async function requestChatCompletion({
   temperature = 0.2,
   sessionContext,
   runtimeConfig,
+  signal,
 }) {
   const llmConfig = buildLlmRuntimeConfig({ runtimeConfig, sessionContext });
   const requestUrl = `${llmConfig.baseUrl}/chat/completions`;
@@ -140,6 +145,7 @@ async function requestChatCompletion({
           Authorization: `Bearer ${llmConfig.apiKey}`,
         },
         body: requestBody,
+        signal,
       });
     } catch (error) {
       const willRetry = attempt < NETWORK_RETRY_ATTEMPTS && isRetriableNetworkError(error);
@@ -171,6 +177,7 @@ async function chatCompletion({
   temperature,
   sessionContext,
   runtimeConfig,
+  signal,
 }) {
   if (!hasRealLLM({ sessionContext, runtimeConfig })) {
     throw new Error('OPENAI_API_KEY is required');
@@ -183,6 +190,7 @@ async function chatCompletion({
     temperature,
     sessionContext,
     runtimeConfig,
+    signal,
   });
   if (!response.ok) {
     const text = await response.text();
@@ -198,6 +206,7 @@ async function jsonCompletion({
   temperature = 0.2,
   sessionContext,
   runtimeConfig,
+  signal,
 }) {
   const content = await chatCompletion({
     messages,
@@ -205,6 +214,7 @@ async function jsonCompletion({
     temperature,
     sessionContext,
     runtimeConfig,
+    signal,
   });
   console.log('[llm.jsonCompletion.raw]', { content });
   const parsed = extractJsonObject(content);
@@ -221,6 +231,7 @@ async function streamJsonCompletion({
   onToken,
   sessionContext,
   runtimeConfig,
+  signal,
 }) {
   let content = '';
   for await (const delta of streamCompletion({
@@ -229,6 +240,7 @@ async function streamJsonCompletion({
     temperature,
     sessionContext,
     runtimeConfig,
+    signal,
   })) {
     content += delta;
     if (typeof onToken === 'function') {
@@ -249,6 +261,7 @@ async function* streamCompletion({
   temperature = 0.2,
   sessionContext,
   runtimeConfig,
+  signal,
 }) {
   if (!hasRealLLM({ sessionContext, runtimeConfig })) {
     throw new Error('OPENAI_API_KEY is required');
@@ -261,6 +274,7 @@ async function* streamCompletion({
     temperature,
     sessionContext,
     runtimeConfig,
+    signal,
   });
   if (!response.ok || !response.body) {
     const text = await response.text();

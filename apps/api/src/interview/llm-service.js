@@ -566,6 +566,44 @@ const buildUnifiedTurnUserContent = ({
   return JSON.stringify(payload);
 };
 
+const buildUnifiedTurnMessages = (input) => ([
+  {
+    role: 'system',
+    content: buildUnifiedTurnSystemPrompt(input),
+  },
+  {
+    role: 'user',
+    content: buildUnifiedTurnUserContent(input),
+  },
+]);
+
+const normalizeUnifiedTurnResult = (result, questionTypeHint) => ({
+  intent: result.intent || 'invalid',
+  intent_confidence: result.intent_confidence || 0,
+  intent_reason: result.intent_reason || '',
+  question_type: result.question_type || questionTypeHint || 'project',
+  question_type_reason: result.question_type_reason || '',
+  score: result.total_score || 0,
+  dimension_scores: result.dimension_scores || {},
+  strengths: Array.isArray(result.strengths) ? result.strengths : [],
+  weaknesses: Array.isArray(result.weaknesses) ? result.weaknesses : [],
+  feedback: result.feedback || '',
+  standard_answer: result.standard_answer || '',
+  knowledge_boundary: {
+    mentioned_but_shallow: Array.isArray(result.knowledge_boundary?.mentioned_but_shallow)
+      ? result.knowledge_boundary.mentioned_but_shallow : [],
+    conspicuously_absent: Array.isArray(result.knowledge_boundary?.conspicuously_absent)
+      ? result.knowledge_boundary.conspicuously_absent : [],
+  },
+  follow_up_validation: result.follow_up_validation || null,
+  expected_points_hit: Array.isArray(result.expected_points_hit) ? result.expected_points_hit : [],
+  expected_points_missed: Array.isArray(result.expected_points_missed) ? result.expected_points_missed : [],
+  next_action: result.next_action || null,
+  next_action_reason: result.next_action_reason || '',
+  keyword_proficiency_snapshot: result.keyword_proficiency_snapshot || null,
+  content: result.content || '',
+});
+
 const processInterviewTurnWithLLM = async ({
   question,
   answer,
@@ -578,6 +616,7 @@ const processInterviewTurnWithLLM = async ({
   keywordContext,
   onToken,
   sessionContext,
+  signal,
 }) => {
   const startedAt = Date.now();
   let firstDeltaAt = null;
@@ -596,28 +635,19 @@ const processInterviewTurnWithLLM = async ({
     },
   });
 
-  const messages = [
-    {
-      role: 'system',
-      content: buildUnifiedTurnSystemPrompt({ candidateFollowUp, keywordContext }),
-    },
-    {
-      role: 'user',
-      content: buildUnifiedTurnUserContent({
-        question,
-        answer,
-        interviewContext,
-        resumeSummary,
-        jobDescription,
-        evidenceRefs,
-        questionTypeHint,
-        candidateFollowUp,
-        keywordContext,
-      }),
-    },
-  ];
+  const messages = buildUnifiedTurnMessages({
+    question,
+    answer,
+    interviewContext,
+    resumeSummary,
+    jobDescription,
+    evidenceRefs,
+    questionTypeHint,
+    candidateFollowUp,
+    keywordContext,
+  });
 
-  for await (const delta of streamCompletion({ messages, sessionContext })) {
+  for await (const delta of streamCompletion({ messages, sessionContext, signal })) {
     await splitter.feed(delta);
   }
 
@@ -636,32 +666,7 @@ const processInterviewTurnWithLLM = async ({
     await onToken(result.content);
   }
 
-  return {
-    intent: result.intent || 'invalid',
-    intent_confidence: result.intent_confidence || 0,
-    intent_reason: result.intent_reason || '',
-    question_type: result.question_type || questionTypeHint || 'project',
-    question_type_reason: result.question_type_reason || '',
-    score: result.total_score || 0,
-    dimension_scores: result.dimension_scores || {},
-    strengths: Array.isArray(result.strengths) ? result.strengths : [],
-    weaknesses: Array.isArray(result.weaknesses) ? result.weaknesses : [],
-    feedback: result.feedback || '',
-    standard_answer: result.standard_answer || '',
-    knowledge_boundary: {
-      mentioned_but_shallow: Array.isArray(result.knowledge_boundary?.mentioned_but_shallow)
-        ? result.knowledge_boundary.mentioned_but_shallow : [],
-      conspicuously_absent: Array.isArray(result.knowledge_boundary?.conspicuously_absent)
-        ? result.knowledge_boundary.conspicuously_absent : [],
-    },
-    follow_up_validation: result.follow_up_validation || null,
-    expected_points_hit: Array.isArray(result.expected_points_hit) ? result.expected_points_hit : [],
-    expected_points_missed: Array.isArray(result.expected_points_missed) ? result.expected_points_missed : [],
-    next_action: result.next_action || null,
-    next_action_reason: result.next_action_reason || '',
-    keyword_proficiency_snapshot: result.keyword_proficiency_snapshot || null,
-    content: result.content || '',
-  };
+  return normalizeUnifiedTurnResult(result, questionTypeHint);
 };
 
 const generateKeywordQueue = async ({ resumeStructured, jobDescription, targetLevel, level2Vocabulary, sessionContext }) => {
@@ -843,6 +848,7 @@ const generateInterviewReport = async ({ keywordQueue, turns, resumeSummary, job
 };
 
 module.exports = {
+  buildUnifiedTurnMessages,
   classifyInterviewTurnIntent,
   enhanceEvaluationWithLLM,
   generateEvaluationNarration,
@@ -853,6 +859,7 @@ module.exports = {
   generateKeywordQueue,
   generateQuestionForKeyword,
   processInterviewTurnWithLLM,
+  normalizeUnifiedTurnResult,
   shouldInsertFollowUp,
   summarizeResumeWithLLM,
 };
