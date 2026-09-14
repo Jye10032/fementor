@@ -1,4 +1,7 @@
-const { verifyToken } = require('@clerk/backend');
+const { createClerkClient, verifyToken } = require('@clerk/backend');
+
+let clerkClient = null;
+let clerkClientSecretKey = '';
 
 function decodeBase64Url(value) {
   const normalized = String(value || '')
@@ -47,6 +50,59 @@ function buildAuthUserFromPayload(payload) {
   };
 }
 
+function getClerkClient(secretKey) {
+  if (!secretKey) {
+    return null;
+  }
+
+  if (!clerkClient || clerkClientSecretKey !== secretKey) {
+    clerkClient = createClerkClient({ secretKey });
+    clerkClientSecretKey = secretKey;
+  }
+
+  return clerkClient;
+}
+
+async function enrichAuthUserFromClerk(authUser, fetchUser = fetchClerkUser) {
+  if (!authUser || authUser.email) {
+    return authUser;
+  }
+
+  const user = await fetchUser(authUser.clerkUserId);
+  if (!user) {
+    return authUser;
+  }
+
+  const primaryEmail = user.primaryEmailAddress?.emailAddress
+    || user.emailAddresses?.find((address) => address.id === user.primaryEmailAddressId)?.emailAddress
+    || user.emailAddresses?.[0]?.emailAddress
+    || null;
+  const givenName = String(user.firstName || '').trim();
+  const familyName = String(user.lastName || '').trim();
+
+  return {
+    ...authUser,
+    email: String(primaryEmail || '').trim() || null,
+    name: authUser.name || String(user.fullName || '').trim() || [givenName, familyName].filter(Boolean).join(' ') || null,
+    avatarUrl: authUser.avatarUrl || String(user.imageUrl || '').trim() || null,
+  };
+}
+
+async function fetchClerkUser(userId) {
+  const secretKey = String(process.env.CLERK_SECRET_KEY || '').trim();
+  const client = getClerkClient(secretKey);
+  if (!client || !userId) {
+    return null;
+  }
+
+  try {
+    return await client.users.getUser(userId);
+  } catch (error) {
+    console.warn('[auth.clerk.user_lookup_failed]', error instanceof Error ? error.message : 'user lookup failed');
+    return null;
+  }
+}
+
 async function verifyClerkSessionToken(token) {
   const secretKey = String(process.env.CLERK_SECRET_KEY || '').trim() || undefined;
   const jwtKey = String(process.env.CLERK_JWT_KEY || '').trim() || undefined;
@@ -60,7 +116,8 @@ async function verifyClerkSessionToken(token) {
     jwtKey,
   });
 
-  return buildAuthUserFromPayload(payload);
+  const authUser = buildAuthUserFromPayload(payload);
+  return enrichAuthUserFromClerk(authUser);
 }
 
 async function getRequestAuth(req) {
@@ -128,5 +185,7 @@ async function getRequestAuth(req) {
 }
 
 module.exports = {
+  buildAuthUserFromPayload,
+  enrichAuthUserFromClerk,
   getRequestAuth,
 };

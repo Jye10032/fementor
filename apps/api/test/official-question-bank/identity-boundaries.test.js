@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const { afterEach, beforeEach, test } = require('node:test');
 
-const { getRequestAuth } = require('../../src/auth');
+const { enrichAuthUserFromClerk, getRequestAuth } = require('../../src/auth');
 const { importResponse } = require('../../src/routes/official-question-bank-routes');
 const {
   getWeaknessesResponse,
@@ -51,6 +51,29 @@ test('cloud mode rejects decoded but unverified Clerk tokens', async () => {
 
   assert.equal(auth.isAuthenticated, false);
   assert.equal(auth.verificationMode, 'rejected');
+});
+
+test('verified Clerk users without an email claim are enriched from their Clerk profile', async () => {
+  const authUser = await enrichAuthUserFromClerk(
+    {
+      clerkUserId: 'user_admin',
+      email: null,
+      name: null,
+      avatarUrl: null,
+    },
+    async (userId) => ({
+      id: userId,
+      primaryEmailAddressId: 'email_admin',
+      emailAddresses: [{ id: 'email_admin', emailAddress: 'a13174323726@gmail.com' }],
+      firstName: '叶',
+      lastName: '季',
+      imageUrl: 'https://img.example/admin.png',
+    }),
+  );
+
+  assert.equal(authUser.email, 'a13174323726@gmail.com');
+  assert.equal(authUser.name, '叶 季');
+  assert.equal(authUser.avatarUrl, 'https://img.example/admin.png');
 });
 
 test('cloud anonymous official import uses the stable identity error', async () => {
