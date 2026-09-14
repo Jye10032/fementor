@@ -61,7 +61,13 @@ export function useExperienceSync({
 
   // On mount, check if there's an active sync job on the server
   useEffect(() => {
-    if (!enabled || !apiBase) return;
+    if (!enabled || !apiBase) {
+      clearPolling();
+      setJob(null);
+      setSyncing(false);
+      setError(null);
+      return;
+    }
     let cancelled = false;
 
     (async () => {
@@ -79,7 +85,10 @@ export function useExperienceSync({
       }
     })();
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      clearPolling();
+    };
   }, [enabled, apiBase, authRequired, pollJob]);
 
   const startSync = async () => {

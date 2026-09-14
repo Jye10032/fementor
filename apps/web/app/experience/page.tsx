@@ -27,9 +27,11 @@ function describePublicSourceTarget(target: string) {
 
 export default function ExperiencePage() {
   const { apiBase, runtimeMode, publicSourceStorageTarget } = useRuntimeConfig();
-  const { authEnabled, authReady, isLoaded, isSignedIn, viewer } = useAuthState();
+  const { authEnabled, authReady, isLoaded, isSignedIn, viewer, viewerLoading } = useAuthState();
   const syncRequiresAuth = runtimeMode !== "local";
-  const canSync = syncRequiresAuth ? authReady && isSignedIn : true;
+  const canManagePublicSources = viewer?.capabilities?.can_manage_public_sources === true;
+  const syncAccessLoading = isSignedIn && (!authReady || !isLoaded || viewerLoading);
+  const canSync = authReady && isLoaded && isSignedIn && !viewerLoading && canManagePublicSources;
   const [searchQuery, setSearchQuery] = useState("");
   const deferredQuery = useDeferredValue(searchQuery);
   const experienceList = useExperienceList({
@@ -76,7 +78,7 @@ export default function ExperiencePage() {
             <LogIn className="h-4 w-4 shrink-0 text-warning" />
             <p className="text-sm text-foreground">
               {runtimeMode === "local"
-                ? `当前为本地开发环境，可直接同步面经；数据写入 ${describePublicSourceTarget(publicSourceStorageTarget)}。`
+                ? `当前为本地开发环境，可直接浏览面经；数据写入 ${describePublicSourceTarget(publicSourceStorageTarget)}。`
                 : "未登录时可查看面经，登录管理员账号后才能同步最新内容。"}
             </p>
           </div>
@@ -101,6 +103,8 @@ export default function ExperiencePage() {
         onSync={() => void experienceSync.startSync()}
         searchQuery={searchQuery}
         onSearchQueryChange={setSearchQuery}
+        syncAccessLoading={syncAccessLoading}
+        syncAllowed={canSync}
         syncDisabled={!canSync}
         searchDisabled={false}
       />
@@ -111,8 +115,8 @@ export default function ExperiencePage() {
         items={experienceList.items}
         loading={experienceList.loading}
         error={experienceList.error}
-        onDelete={isSignedIn ? experienceList.deleteItem : undefined}
-        onDeleteBatch={isSignedIn ? experienceList.deleteItems : undefined}
+        onDelete={canManagePublicSources ? experienceList.deleteItem : undefined}
+        onDeleteBatch={canManagePublicSources ? experienceList.deleteItems : undefined}
       />
     </PageShell>
   );

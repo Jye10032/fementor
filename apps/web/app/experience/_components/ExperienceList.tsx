@@ -214,7 +214,7 @@ export function ExperienceList({ items, loading, error, onDelete, onDeleteBatch 
           <BookOpen className="h-6 w-6 text-muted-foreground" />
         </div>
         <p className="text-sm text-muted-foreground">
-          当前没有可展示的面经。先同步一次近 7 日内容，再回来查看列表。
+          当前没有可展示的面经。
         </p>
       </div>
     );

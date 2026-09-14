@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2, RefreshCw, Search } from "lucide-react";
+import { Loader2, RefreshCw, Search, ShieldCheck } from "lucide-react";
 
 type ExperienceSearchBarProps = {
   keyword: string;
@@ -11,6 +11,8 @@ type ExperienceSearchBarProps = {
   onSync: () => void;
   searchQuery: string;
   onSearchQueryChange: (value: string) => void;
+  syncAllowed?: boolean;
+  syncAccessLoading?: boolean;
   syncDisabled?: boolean;
   searchDisabled?: boolean;
 };
@@ -26,6 +28,8 @@ export function ExperienceSearchBar({
   onSync,
   searchQuery,
   onSearchQueryChange,
+  syncAllowed = true,
+  syncAccessLoading = false,
   syncDisabled = false,
   searchDisabled = false,
 }: ExperienceSearchBarProps) {
@@ -52,50 +56,61 @@ export function ExperienceSearchBar({
           <p className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
             <RefreshCw className="h-3.5 w-3.5 text-primary" />同步新的面经
           </p>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <div className="relative min-w-0 flex-1">
-              <RefreshCw className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-              <input
-                value={keyword}
-                onChange={(event) => onKeywordChange(event.target.value)}
-                placeholder="例如：前端实习 / React"
-                className="field-shell w-full pl-9"
-                disabled={syncDisabled || syncing}
-              />
-            </div>
-            <div className="flex shrink-0 gap-1 rounded-lg border border-border/70 bg-background/80 p-0.5">
-              {LIMIT_OPTIONS.map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  onClick={() => onLimitChange(n)}
+          {syncAllowed ? (
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <div className="relative min-w-0 flex-1">
+                <RefreshCw className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  value={keyword}
+                  onChange={(event) => onKeywordChange(event.target.value)}
+                  placeholder="例如：前端实习 / React"
+                  className="field-shell w-full pl-9"
                   disabled={syncDisabled || syncing}
-                  className={`cursor-pointer rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                    limit === n
-                      ? "bg-primary/10 text-primary"
-                      : "text-muted-foreground hover:bg-secondary"
-                  }`}
-                >
-                  {n}条
-                </button>
-              ))}
+                />
+              </div>
+              <div className="flex shrink-0 gap-1 rounded-lg border border-border/70 bg-background/80 p-0.5">
+                {LIMIT_OPTIONS.map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => onLimitChange(n)}
+                    disabled={syncDisabled || syncing}
+                    className={`cursor-pointer rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                      limit === n
+                        ? "bg-primary/10 text-primary"
+                        : "text-muted-foreground hover:bg-secondary"
+                    }`}
+                  >
+                    {n}条
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={onSync}
+                disabled={syncDisabled || syncing || !keyword.trim()}
+                className="inline-flex cursor-pointer items-center justify-center whitespace-nowrap rounded-lg border border-border bg-background px-3 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {syncing ? (
+                  <>
+                    <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                    同步中...
+                  </>
+                ) : (
+                  "同步"
+                )}
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={onSync}
-              disabled={syncDisabled || syncing || !keyword.trim()}
-              className="inline-flex cursor-pointer items-center justify-center whitespace-nowrap rounded-lg border border-border bg-background px-3 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {syncing ? (
-                <>
-                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                  同步中...
-                </>
+          ) : (
+            <div className="flex min-h-10 items-center gap-2 border border-border/70 bg-secondary/25 px-3 py-2 text-sm text-muted-foreground">
+              {syncAccessLoading ? (
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" />
               ) : (
-                "同步"
+                <ShieldCheck className="h-4 w-4 shrink-0 text-primary" />
               )}
-            </button>
-          </div>
+              <span>{syncAccessLoading ? "正在检查同步权限..." : "仅管理员可同步最新面经，普通用户可直接浏览和搜索。"}</span>
+            </div>
+          )}
         </section>
       </div>
     </div>
