@@ -16,6 +16,7 @@ const {
   upsertUser,
 } = require('./db');
 const { createHttpError, requirePathSegment } = require('./http');
+const { ensureLocalRequestIdentity } = require('./local-identity');
 
 const getAppRuntimeMode = () =>
   String(process.env.APP_RUNTIME_MODE || 'local').trim().toLowerCase() === 'cloud'
@@ -61,7 +62,7 @@ const resolveViewerRole = ({ authUser = null, appUser = null }) => {
 };
 
 const canManagePublicSources = ({ runtimeMode, role }) =>
-  runtimeMode === 'local' || getNormalizedRole(role) === 'admin';
+  getNormalizedRole(role) === 'admin';
 
 const getResolvedUserContext = async ({
   req,
@@ -70,25 +71,32 @@ const getResolvedUserContext = async ({
   requireAuth = false,
   allowDevFallback = true,
 }) => {
+  const runtimeMode = getAppRuntimeMode();
   const auth = await getRequestAuth(req);
   const authUserId = String(auth.authUser?.clerkUserId || '').trim();
-  const fallbackUserId = String(bodyUserId || queryUserId || '').trim();
-  const devFallbackUserId = allowDevFallback
+  const localIdentity = runtimeMode === 'local' ? ensureLocalRequestIdentity(req) : null;
+  const devFallbackUserId = allowDevFallback && runtimeMode === 'local' && !localIdentity
     ? String(process.env.DEV_FAKE_USER_ID || '').trim()
     : '';
+  const userId = authUserId || localIdentity?.userId || devFallbackUserId || '';
+  const hasTrustedIdentity = auth.isAuthenticated || Boolean(localIdentity?.userId || devFallbackUserId);
 
-  const userId = authUserId || fallbackUserId || devFallbackUserId;
-
-  if (requireAuth && !auth.isAuthenticated) {
+  if (requireAuth && !hasTrustedIdentity) {
     throw createHttpError(401, 'unauthorized');
   }
 
   if (!userId) {
-    throw createHttpError(requireAuth ? 401 : 400, requireAuth ? 'unauthorized' : 'user_id is required');
+    return {
+      ...auth,
+      runtimeMode,
+      userId: null,
+    };
   }
 
   return {
     ...auth,
+    runtimeMode,
+    verificationMode: auth.isAuthenticated ? auth.verificationMode : 'local_cookie',
     userId,
   };
 };
@@ -101,9 +109,9 @@ const getResolvedViewerAccessContext = async ({
   const runtimeMode = getAppRuntimeMode();
   const auth = await getRequestAuth(req);
   const authUserId = String(auth.authUser?.clerkUserId || '').trim();
-  const fallbackUserId = String(bodyUserId || queryUserId || '').trim();
+  const localIdentity = runtimeMode === 'local' ? ensureLocalRequestIdentity(req) : null;
   const userId = authUserId
-    || fallbackUserId
+    || localIdentity?.userId
     || (runtimeMode === 'local' && isLocalDefaultAdminEnabled() ? getLocalDefaultAdminUserId() : '');
 
   if (!userId) {
@@ -124,6 +132,7 @@ const getResolvedViewerAccessContext = async ({
 
   return {
     ...auth,
+    verificationMode: auth.isAuthenticated ? auth.verificationMode : 'local_cookie',
     appUser,
     role,
     runtimeMode,

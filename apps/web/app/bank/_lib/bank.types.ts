@@ -16,3 +16,33 @@ export type BankResponse = {
   chapter: string | null;
   items: BankItem[];
 };
+
+export type OfficialQuestion = {
+  id: string;
+  canonical_question: string;
+  question_text: string;
+  category: string;
+  difficulty: string;
+  track: string;
+  chapter: string;
+  knowledge_points: string[];
+  expected_points: string[];
+  is_imported: boolean;
+  read_only: true;
+  updated_at: string;
+};
+
+export type OfficialQuestionBankResponse = {
+  items: OfficialQuestion[];
+  total: number;
+  source: "remote_official";
+  read_only: true;
+};
+
+export type OfficialQuestionBankStatus = {
+  configured: boolean;
+  reachable: boolean;
+  read_only?: boolean;
+  total: number;
+  last_error?: string;
+};

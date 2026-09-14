@@ -1743,6 +1743,123 @@ async function addUserQuestionBankItemRecord({
   });
 }
 
+async function listImportedOfficialQuestionIdsRecord({ userId, remoteIds = [] }) {
+  const normalizedIds = remoteIds.map((id) => String(id || '').trim()).filter(Boolean);
+  if (!isPostgresEnabled() || !userId || normalizedIds.length === 0) return [];
+  const sourceRefs = normalizedIds.map((id) => `remote:${id}`);
+  return withClient(async (client) => {
+    const result = await client.query(
+      `
+      SELECT qs.source_ref_id
+      FROM user_question_bank uqb
+      INNER JOIN question_source qs ON qs.id = uqb.question_source_id
+      WHERE uqb.user_id = $1
+        AND qs.source_type = 'official_remote'
+        AND qs.source_ref_id = ANY($2::text[])
+      `,
+      [userId, sourceRefs],
+    );
+    return result.rows.map((row) => String(row.source_ref_id || '').replace(/^remote:/, ''));
+  });
+}
+
+async function importOfficialQuestionRecord({ userId, remoteQuestion }) {
+  if (!isPostgresEnabled() || !userId || !remoteQuestion?.id) return null;
+  return withClient(async (client) => {
+    await client.query('BEGIN');
+    try {
+      const sourceResult = await client.query(
+        `
+        INSERT INTO question_source (
+          id, source_type, source_ref_id, canonical_question, question_text, normalized_question,
+          category, difficulty, track, chapter, knowledge_points_json, expected_points_json,
+          metadata_json, status, merged_into_source_id, created_at, updated_at
+        )
+        VALUES ($1, 'official_remote', $2, $3, $4, $5, $6, $7, $8, $9,
+                $10::jsonb, $11::jsonb, $12::jsonb, 'active', NULL, now(), now())
+        ON CONFLICT (source_type, source_ref_id)
+        DO UPDATE SET canonical_question = EXCLUDED.canonical_question,
+                      question_text = EXCLUDED.question_text,
+                      normalized_question = EXCLUDED.normalized_question,
+                      category = EXCLUDED.category,
+                      difficulty = EXCLUDED.difficulty,
+                      track = EXCLUDED.track,
+                      chapter = EXCLUDED.chapter,
+                      knowledge_points_json = EXCLUDED.knowledge_points_json,
+                      expected_points_json = EXCLUDED.expected_points_json,
+                      metadata_json = EXCLUDED.metadata_json,
+                      status = 'active',
+                      updated_at = now()
+        RETURNING id, source_type, source_ref_id, canonical_question, question_text, normalized_question,
+                  category, difficulty, track, chapter, knowledge_points_json, expected_points_json,
+                  metadata_json, status, merged_into_source_id, created_at, updated_at
+        `,
+        [
+          randomUUID(),
+          `remote:${remoteQuestion.id}`,
+          remoteQuestion.canonical_question,
+          remoteQuestion.question_text,
+          remoteQuestion.normalized_question || '',
+          remoteQuestion.category || '',
+          remoteQuestion.difficulty || 'medium',
+          remoteQuestion.track || '',
+          remoteQuestion.chapter || '',
+          JSON.stringify(remoteQuestion.knowledge_points || []),
+          JSON.stringify(remoteQuestion.expected_points || []),
+          JSON.stringify({
+            origin: 'remote_official',
+            remote_source_id: remoteQuestion.id,
+            remote_updated_at: remoteQuestion.updated_at,
+            remote_metadata: remoteQuestion.metadata || {},
+          }),
+        ],
+      );
+      const source = normalizeQuestionSourceRow(sourceResult.rows[0]);
+      const bankResult = await client.query(
+        `
+        INSERT INTO user_question_bank (
+          id, user_id, question_source_id, track, chapter, custom_question_text, review_status,
+          mastery_level, weakness_tag, next_review_at, last_practiced_at, is_favorited,
+          source_channel, created_at, updated_at
+        )
+        VALUES ($1, $2, $3, $4, $5, '', 'pending', 0, '', NULL, NULL, false,
+                'remote_official', now(), now())
+        ON CONFLICT (user_id, question_source_id) DO NOTHING
+        RETURNING id, user_id, question_source_id, track, chapter, custom_question_text, review_status,
+                  mastery_level, weakness_tag, next_review_at, last_practiced_at, is_favorited,
+                  source_channel, created_at, updated_at
+        `,
+        [randomUUID(), userId, source.id, remoteQuestion.track || '', remoteQuestion.chapter || ''],
+      );
+      const created = Boolean(bankResult.rows[0]);
+      const itemResult = created ? bankResult : await client.query(
+        `
+        SELECT id, user_id, question_source_id, track, chapter, custom_question_text, review_status,
+               mastery_level, weakness_tag, next_review_at, last_practiced_at, is_favorited,
+               source_channel, created_at, updated_at
+        FROM user_question_bank
+        WHERE user_id = $1 AND question_source_id = $2
+        LIMIT 1
+        `,
+        [userId, source.id],
+      );
+      const item = normalizeUserQuestionBankRow(itemResult.rows[0] || null);
+      if (!item) {
+        throw new Error('official question import conflict could not be resolved');
+      }
+      await client.query('COMMIT');
+      return {
+        item,
+        source,
+        created,
+      };
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    }
+  });
+}
+
 async function listUserQuestionBankRecord({
   userId,
   track,
@@ -2393,6 +2510,7 @@ module.exports = {
   getUserProfileByAuthUserId,
   getAdminEmails,
   initPostgres,
+  importOfficialQuestionRecord,
   insertInterviewQuestionAfterRecord,
   isPostgresEnabled,
   listAttemptsByUserRecord,
@@ -2400,6 +2518,7 @@ module.exports = {
   listInterviewQuestionsBySession,
   listInterviewSessionsByUser,
   listInterviewTurnsBySession,
+  listImportedOfficialQuestionIdsRecord,
   listPracticeUserQuestionBankRecord,
   listQuestionSourcesByIdsRecord,
   listUserQuestionBankRecord,

@@ -1,43 +1,89 @@
 "use client";
 
 import { SignInButton } from "@clerk/nextjs";
+import { Globe2, LibraryBig } from "lucide-react";
+import { useState } from "react";
 import { useAuthState } from "../../components/auth-provider";
-import { PageHero, PagePanel, PageShell } from "../../components/page-shell";
+import { PagePanel, PageShell } from "../../components/page-shell";
 import { useRuntimeConfig } from "../../components/runtime-config";
 import { useBankItems } from "./_hooks/use-bank-items";
+import { useOfficialQuestionBank } from "./_hooks/use-official-question-bank";
 import { BankFilterControls } from "./_components/BankFilterControls";
 import { BankStatsTiles } from "./_components/BankStatsTiles";
 import { BankItemList } from "./_components/BankItemList";
 import { BankSidebar } from "./_components/BankSidebar";
+import { OfficialQuestionBank } from "./_components/OfficialQuestionBank";
+
+type BankView = "mine" | "official";
 
 export default function BankPage() {
   const { apiBase } = useRuntimeConfig();
-  const { authEnabled, isLoaded, isSignedIn, viewer } = useAuthState();
-  const bank = useBankItems(apiBase);
+  const { authEnabled, authReady, authUser, isLoaded, isSignedIn, viewer } = useAuthState();
+  const identityKey = authUser?.clerkUserId || viewer?.id || (isSignedIn ? "authenticated" : "anonymous");
+  const dataReady = authReady && isLoaded;
+  const bank = useBankItems(apiBase, {
+    enabled: dataReady && isSignedIn,
+    identityKey,
+  });
+  const officialBank = useOfficialQuestionBank(apiBase, {
+    enabled: dataReady,
+    identityKey,
+    onImported: bank.refresh,
+  });
+  const [activeView, setActiveView] = useState<BankView>("mine");
+  const viewerLabel = viewer?.name || viewer?.email || (isSignedIn ? "本地用户" : "未登录");
 
   return (
     <PageShell>
-      <PageHero
-        eyebrow="Question Bank"
-        title="把模拟面试的反馈压成一套真正会追踪的复习题单"
-        description="这里不是静态列表，而是把题目来源、薄弱点和复习状态组织成训练面板，方便你决定下一轮练什么、先补哪里。"
-        aside={(
-          <>
-            <article className="panel-muted">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">当前用户</p>
-              <p className="mt-3 text-lg font-semibold text-foreground">{viewer?.name || viewer?.email || "未登录"}</p>
-            </article>
-            <article className="panel-muted">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">章节焦点</p>
-              <p className="mt-3 text-sm leading-6 text-foreground">{bank.chapter || "未选择章节"}</p>
-            </article>
-          </>
-        )}
-      />
+      <header className="flex min-w-0 flex-col gap-5 border-b border-border/70 pb-6 md:flex-row md:items-end md:justify-between">
+        <div className="min-w-0 max-w-2xl">
+          <p className="text-xs font-semibold text-primary">题库</p>
+          <h1 className="mt-2 break-words text-2xl font-semibold text-foreground sm:text-3xl">选择题目，安排下一轮训练</h1>
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">
+            从官方题库导入题目，或继续复习模拟面试沉淀到个人题库的薄弱项。
+          </p>
+        </div>
+        <dl className="grid min-w-0 grid-cols-2 gap-5 text-sm md:min-w-72">
+          <div className="border-l border-border pl-4">
+            <dt className="text-xs text-muted-foreground">当前用户</dt>
+            <dd className="mt-1 truncate font-semibold text-foreground">{viewerLabel}</dd>
+          </div>
+          <div className="border-l border-border pl-4">
+            <dt className="text-xs text-muted-foreground">章节焦点</dt>
+            <dd className="mt-1 truncate font-semibold text-foreground">{bank.chapter || "全部章节"}</dd>
+          </div>
+        </dl>
+      </header>
 
-      {!isLoaded ? (
+      <PagePanel className="p-2">
+        <div className="grid min-w-0 gap-1 sm:grid-cols-2" role="tablist" aria-label="题库来源">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeView === "mine"}
+            onClick={() => setActiveView("mine")}
+            className={`flex min-h-12 min-w-0 items-center justify-center gap-2 rounded-xl px-4 text-sm font-semibold transition-colors ${activeView === "mine" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-secondary hover:text-foreground"}`}
+          >
+            <LibraryBig className="size-4" />
+            我的题库
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeView === "official"}
+            onClick={() => setActiveView("official")}
+            className={`flex min-h-12 min-w-0 items-center justify-center gap-2 rounded-xl px-4 text-sm font-semibold transition-colors ${activeView === "official" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-secondary hover:text-foreground"}`}
+          >
+            <Globe2 className="size-4" />
+            官方题库
+            <span className={`rounded-full px-2 py-0.5 text-[11px] ${activeView === "official" ? "bg-primary-foreground/15 text-primary-foreground" : "bg-secondary text-muted-foreground"}`}>只读</span>
+          </button>
+        </div>
+      </PagePanel>
+
+      {activeView === "mine" && !isLoaded ? (
         <PagePanel>正在同步登录态...</PagePanel>
-      ) : !isSignedIn ? (
+      ) : activeView === "mine" && !isSignedIn ? (
         <PagePanel className="flex items-center justify-between gap-4">
           <div>
             <p className="text-base font-semibold text-foreground">题单页面需要先登录。</p>
@@ -53,32 +99,46 @@ export default function BankPage() {
         </PagePanel>
       ) : null}
 
-      <div className="space-y-6">
-        <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_300px]">
-          <PagePanel className="space-y-5">
-            <BankFilterControls
-              chapter={bank.chapter} setChapter={bank.setChapter}
-              sourceFilter={bank.sourceFilter} setSourceFilter={bank.setSourceFilter}
-              typeFilter={bank.typeFilter} setTypeFilter={bank.setTypeFilter}
-              loading={bank.loading} refresh={bank.refresh}
-            />
-            <BankStatsTiles
-              totalCount={bank.filteredItems.length}
-              pendingCount={bank.pendingCount}
-              doneCount={bank.doneCount}
-              weaknessCount={bank.weaknessCount}
-            />
-            <BankItemList items={bank.filteredItems} markDone={bank.markDone} />
-          </PagePanel>
-
-          <BankSidebar
-            chapter={bank.chapter}
-            sourceFilter={bank.sourceFilter}
-            typeFilter={bank.typeFilter}
-            output={bank.output}
+      {activeView === "official" ? (
+        <PagePanel>
+          <OfficialQuestionBank
+            bank={officialBank}
+            authEnabled={authEnabled}
+            isSignedIn={isLoaded && isSignedIn}
           />
-        </section>
-      </div>
+        </PagePanel>
+      ) : (
+        <div className="space-y-6">
+          <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_300px]">
+            <PagePanel className="space-y-5">
+              <BankFilterControls
+                chapter={bank.chapter} setChapter={bank.setChapter}
+                sourceFilter={bank.sourceFilter} setSourceFilter={bank.setSourceFilter}
+                typeFilter={bank.typeFilter} setTypeFilter={bank.setTypeFilter}
+                loading={bank.loading} refresh={bank.refresh}
+              />
+              <BankStatsTiles
+                totalCount={bank.filteredItems.length}
+                pendingCount={bank.pendingCount}
+                doneCount={bank.doneCount}
+                weaknessCount={bank.weaknessCount}
+              />
+              {bank.error ? (
+                <p className="rounded-lg border border-warning/30 bg-warning/5 px-4 py-3 text-sm text-warning">
+                  {bank.error}
+                </p>
+              ) : null}
+              <BankItemList items={bank.filteredItems} markDone={bank.markDone} />
+            </PagePanel>
+
+            <BankSidebar
+              chapter={bank.chapter}
+              sourceFilter={bank.sourceFilter}
+              typeFilter={bank.typeFilter}
+            />
+          </section>
+        </div>
+      )}
     </PageShell>
   );
 }

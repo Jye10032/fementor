@@ -96,6 +96,18 @@ async function getRequestAuth(req) {
     }
   }
 
+  const allowDecodedFallback = String(process.env.ALLOW_UNVERIFIED_AUTH_TOKEN || '').trim() === '1'
+    && String(process.env.APP_RUNTIME_MODE || 'local').trim().toLowerCase() !== 'cloud'
+    && process.env.NODE_ENV !== 'production';
+  if (!allowDecodedFallback) {
+    return {
+      isAuthenticated: false,
+      token,
+      authUser: null,
+      verificationMode: 'rejected',
+    };
+  }
+
   const payload = parseJwtPayload(token);
   const fallbackAuthUser = buildAuthUserFromPayload(payload);
   if (!fallbackAuthUser) {

@@ -120,6 +120,11 @@ export default function PracticePage() {
   };
 
   useEffect(() => {
+    const requestedChapter = new URLSearchParams(window.location.search).get("chapter")?.trim();
+    if (requestedChapter) setChapter(requestedChapter);
+  }, []);
+
+  useEffect(() => {
     if (!isSignedIn) return;
     void loadChapters();
   }, [apiBase, isSignedIn]);

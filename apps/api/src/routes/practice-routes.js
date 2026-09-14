@@ -13,27 +13,32 @@ const {
 
 const ALLOWED_QUESTION_ATTEMPT_SESSION_TYPES = ['interview'];
 
-const getWeaknessesResponse = async ({ pathname, searchParams }) => {
-  const userId = requirePathSegment(pathname, 3, 'user_id');
-  if (!userId) {
-    return { statusCode: 400, payload: { error: 'user_id is required' } };
+const getWeaknessesResponse = async ({ req, pathname, searchParams }) => {
+  const requestedUserId = requirePathSegment(pathname, 3, 'user_id');
+  const context = await getResolvedUserContext({ req, requireAuth: true });
+  if (requestedUserId !== context.userId) {
+    return { statusCode: 404, payload: { error: 'user not found' } };
   }
   const limit = parseNumberOrFallback(searchParams.get('limit') || 20, 20);
   return {
     statusCode: 200,
-    payload: { user_id: userId, items: await getWeaknessesByUser(userId, limit) },
+    payload: { user_id: context.userId, items: await getWeaknessesByUser(context.userId, limit) },
   };
 };
 
-const listAttemptsResponse = async ({ searchParams }) => {
-  const userId = String(searchParams.get('user_id') || '').trim();
-  if (!userId) {
+const listAttemptsResponse = async ({ req, searchParams }) => {
+  const requestedUserId = String(searchParams.get('user_id') || '').trim();
+  if (!requestedUserId) {
     return { statusCode: 400, payload: { error: 'user_id is required' } };
+  }
+  const context = await getResolvedUserContext({ req, requireAuth: true });
+  if (requestedUserId !== context.userId) {
+    return { statusCode: 404, payload: { error: 'user not found' } };
   }
   const limit = parseNumberOrFallback(searchParams.get('limit') || 20, 20);
   return {
     statusCode: 200,
-    payload: { user_id: userId, items: await listAttemptsByUser(userId, limit) },
+    payload: { user_id: context.userId, items: await listAttemptsByUser(context.userId, limit) },
   };
 };
 
@@ -116,6 +121,9 @@ const promoteQuestionSourceResponse = async ({ req, body }) => {
   if (!sourceRefId) return { statusCode: 400, payload: { error: 'source_ref_id is required' } };
   if (!canonicalQuestion) return { statusCode: 400, payload: { error: 'canonical_question is required' } };
   if (!questionText) return { statusCode: 400, payload: { error: 'question_text is required' } };
+  if (sourceType === 'official_remote' || sourceRefId.startsWith('remote:')) {
+    return { statusCode: 403, payload: { error: 'official_source_is_read_only' } };
+  }
 
   const result = await promoteQuestionSource({
     sourceType,
@@ -244,17 +252,26 @@ const createQuestionAttemptResponse = async ({ req, body }) => {
 
 const handlePracticeRoutes = async ({ req, res, url }) => {
   if (req.method === 'GET' && url.pathname.startsWith('/v1/users/') && url.pathname.endsWith('/weaknesses')) {
-    const result = await getWeaknessesResponse({
-      pathname: url.pathname,
-      searchParams: url.searchParams,
-    });
-    json(res, result.statusCode, result.payload);
+    try {
+      const result = await getWeaknessesResponse({
+        pathname: url.pathname,
+        searchParams: url.searchParams,
+        req,
+      });
+      json(res, result.statusCode, result.payload);
+    } catch (error) {
+      jsonError(res, error);
+    }
     return true;
   }
 
   if (req.method === 'GET' && url.pathname === '/v1/attempts') {
-    const result = await listAttemptsResponse({ searchParams: url.searchParams });
-    json(res, result.statusCode, result.payload);
+    try {
+      const result = await listAttemptsResponse({ req, searchParams: url.searchParams });
+      json(res, result.statusCode, result.payload);
+    } catch (error) {
+      jsonError(res, error);
+    }
     return true;
   }
 
@@ -357,6 +374,7 @@ async function registerPracticeRoutes(app) {
     const result = await getWeaknessesResponse({
       pathname: `/v1/users/${request.params.user_id}/weaknesses`,
       searchParams,
+      req: request.raw,
     });
     reply.code(result.statusCode);
     return result.payload;
@@ -364,7 +382,7 @@ async function registerPracticeRoutes(app) {
 
   app.get('/v1/attempts', async (request, reply) => {
     const searchParams = new URLSearchParams(request.query || {});
-    const result = await listAttemptsResponse({ searchParams });
+    const result = await listAttemptsResponse({ req: request.raw, searchParams });
     reply.code(result.statusCode);
     return result.payload;
   });
@@ -438,6 +456,9 @@ async function registerPracticeRoutes(app) {
 }
 
 module.exports = {
+  getWeaknessesResponse,
   handlePracticeRoutes,
+  listAttemptsResponse,
+  promoteQuestionSourceResponse,
   registerPracticeRoutes,
 };

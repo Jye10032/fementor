@@ -1,16 +1,24 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { apiRequest } from "../../../lib/api";
 import type { BankItem, BankResponse } from "../_lib/bank.types";
 
-export function useBankItems(apiBase: string) {
-  const [chapter, setChapter] = useState("状态管理");
+type BankItemsOptions = {
+  enabled?: boolean;
+  identityKey?: string;
+};
+
+export function useBankItems(
+  apiBase: string,
+  { enabled = true, identityKey = "anonymous" }: BankItemsOptions = {},
+) {
+  const [chapter, setChapter] = useState("");
   const [items, setItems] = useState<BankItem[]>([]);
   const [sourceFilter, setSourceFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
   const [loading, setLoading] = useState(false);
-  const [output, setOutput] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   const filteredItems = items.filter((item) => {
     const sourceMatch = sourceFilter === "all" || (item.source_question_source || "unknown") === sourceFilter;
@@ -25,19 +33,25 @@ export function useBankItems(apiBase: string) {
   const refresh = async () => {
     try {
       setLoading(true);
+      setError(null);
       const data = await apiRequest<BankResponse>(
         apiBase,
         `/v1/question-bank?chapter=${encodeURIComponent(chapter)}&limit=50`,
         { auth: "required" },
       );
       setItems(data.items || []);
-      setOutput(JSON.stringify({ count: data.items.length }, null, 2));
     } catch (error) {
-      setOutput(String(error));
+      setItems([]);
+      setError(error instanceof Error ? error.message : String(error));
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (!enabled) return;
+    void refresh();
+  }, [apiBase, enabled, identityKey]);
 
   const markDone = async (id: string) => {
     try {
@@ -49,14 +63,14 @@ export function useBankItems(apiBase: string) {
       });
       await refresh();
     } catch (error) {
-      setOutput(String(error));
+      setError(error instanceof Error ? error.message : String(error));
     }
   };
 
   return {
     chapter, setChapter, items, filteredItems,
     sourceFilter, setSourceFilter, typeFilter, setTypeFilter,
-    loading, output,
+    loading, error,
     pendingCount, doneCount, weaknessCount,
     refresh, markDone,
   };

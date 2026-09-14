@@ -28,27 +28,57 @@ function buildAuthUser(user: ReturnType<typeof useUser>["user"]): AuthUser | nul
 }
 
 function DisabledAuthProvider({ children }: { children: ReactNode }) {
+  const { apiBase } = useRuntimeConfig();
+  const [viewer, setViewer] = useState<Viewer | null>(null);
+  const [viewerLoading, setViewerLoading] = useState(true);
+  const [viewerError, setViewerError] = useState<string | null>(null);
+
+  const refreshViewer = async () => {
+    try {
+      setViewerLoading(true);
+      setViewerError(null);
+      const response = await fetchViewer(apiBase);
+      setViewer(response.viewer);
+      return response.viewer;
+    } catch (error) {
+      setViewer(null);
+      setViewerError(error instanceof Error ? error.message : "加载本地身份失败");
+      return null;
+    } finally {
+      setViewerLoading(false);
+    }
+  };
+
   const value = useMemo<AuthState>(() => ({
     authEnabled: false,
-    authReady: true,
-    isLoaded: true,
-    isSignedIn: false,
+    authReady: !viewerLoading,
+    isLoaded: !viewerLoading,
+    isSignedIn: Boolean(viewer),
     authUser: null,
-    viewer: null,
-    viewerLoading: false,
-    viewerError: null,
+    viewer,
+    viewerLoading,
+    viewerError,
     getToken: async () => null,
-    refreshViewer: async () => null,
-  }), []);
+    refreshViewer,
+  }), [viewer, viewerError, viewerLoading]);
 
   useEffect(() => {
     setApiTokenResolver(async () => null);
+    void refreshViewer();
     return () => {
       setApiTokenResolver(async () => null);
     };
-  }, []);
+  }, [apiBase]);
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={value}>
+      {viewerLoading ? (
+        <div className="flex min-h-screen items-center justify-center bg-background px-6 text-sm text-muted-foreground" role="status">
+          正在准备本地空间...
+        </div>
+      ) : children}
+    </AuthContext.Provider>
+  );
 }
 
 function ClerkAuthProvider({ children }: { children: ReactNode }) {

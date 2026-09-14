@@ -1,3 +1,4 @@
+const { randomUUID } = require('crypto');
 const { db, parseJsonArray, parseJsonObject } = require('./core');
 
 const normalizeQuestionSourceRow = (row) =>
@@ -622,6 +623,70 @@ const summarizeQuestionAttemptMasteryByUserQuestionBankId = (userQuestionBankId)
     )
     .get(userQuestionBankId);
 
+const listImportedOfficialQuestionIds = ({ userId, remoteIds = [] }) => {
+  const normalizedIds = remoteIds.map((id) => String(id || '').trim()).filter(Boolean);
+  if (!userId || normalizedIds.length === 0) return [];
+  const refs = normalizedIds.map((id) => `remote:${id}`);
+  const placeholders = refs.map(() => '?').join(', ');
+  return db
+    .prepare(
+      `
+      SELECT qs.source_ref_id
+      FROM user_question_bank uqb
+      INNER JOIN question_source qs ON qs.id = uqb.question_source_id
+      WHERE uqb.user_id = ?
+        AND qs.source_type = 'official_remote'
+        AND qs.source_ref_id IN (${placeholders})
+      `,
+    )
+    .all(userId, ...refs)
+    .map((row) => String(row.source_ref_id || '').replace(/^remote:/, ''));
+};
+
+const importOfficialQuestion = ({ userId, remoteQuestion }) => {
+  if (!userId || !remoteQuestion?.id) return null;
+  const importTransaction = db.transaction(() => {
+    const sourceResult = upsertQuestionSource({
+      id: randomUUID(),
+      sourceType: 'official_remote',
+      sourceRefId: `remote:${remoteQuestion.id}`,
+      canonicalQuestion: remoteQuestion.canonical_question,
+      questionText: remoteQuestion.question_text,
+      normalizedQuestion: remoteQuestion.normalized_question,
+      category: remoteQuestion.category,
+      difficulty: remoteQuestion.difficulty,
+      track: remoteQuestion.track,
+      chapter: remoteQuestion.chapter,
+      knowledgePoints: remoteQuestion.knowledge_points,
+      expectedPoints: remoteQuestion.expected_points,
+      metadata: {
+        origin: 'remote_official',
+        remote_source_id: remoteQuestion.id,
+        remote_updated_at: remoteQuestion.updated_at,
+        remote_metadata: remoteQuestion.metadata || {},
+      },
+      status: 'active',
+    });
+    const existing = getUserQuestionBankItemByUserAndSource({
+      userId,
+      questionSourceId: sourceResult.item.id,
+    });
+    if (existing) {
+      return { item: existing, source: sourceResult.item, created: false };
+    }
+    const bankResult = addUserQuestionBankItem({
+      id: randomUUID(),
+      userId,
+      questionSourceId: sourceResult.item.id,
+      track: remoteQuestion.track,
+      chapter: remoteQuestion.chapter,
+      sourceChannel: 'remote_official',
+    });
+    return { item: bankResult.item, source: sourceResult.item, created: true };
+  });
+  return importTransaction();
+};
+
 module.exports = {
   addUserQuestionBankItem,
   createQuestionAttempt,
@@ -632,6 +697,8 @@ module.exports = {
   getQuestionSourceBySourceRef,
   getUserQuestionBankItemById,
   getUserQuestionBankItemByUserAndSource,
+  importOfficialQuestion,
+  listImportedOfficialQuestionIds,
   listQuestionAttemptsByUserQuestionBankId,
   listQuestionSourcesByIds,
   listPracticeUserQuestionBank,

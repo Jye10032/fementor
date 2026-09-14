@@ -16,6 +16,8 @@ const { registerInterviewRoutes } = require('./routes/interview-routes');
 const { registerPracticeRoutes } = require('./routes/practice-routes');
 const { registerExperienceRoutes } = require('./routes/experience-routes');
 const { registerPublicQuestionSourceRoutes } = require('./routes/public-question-source-routes');
+const { registerOfficialQuestionBankRoutes } = require('./routes/official-question-bank-routes');
+const { closeOfficialQuestionSourcePool } = require('./official-question-bank/repository');
 const { errorHandlerPlugin } = require('./plugins/error-handler');
 const { requestContextPlugin } = require('./plugins/request-context');
 
@@ -63,6 +65,7 @@ async function buildApp() {
   await app.register(registerPracticeRoutes);
   await app.register(registerExperienceRoutes);
   await app.register(registerPublicQuestionSourceRoutes);
+  await app.register(registerOfficialQuestionBankRoutes);
   await app.register(registerDocumentRoutes);
 
   return app;

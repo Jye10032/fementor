@@ -12,9 +12,12 @@ const { handleInterviewRoutes } = require('./routes/interview-routes');
 const { handlePracticeRoutes } = require('./routes/practice-routes');
 const { handleExperienceRoutes } = require('./routes/experience-routes');
 const { handlePublicQuestionSourceRoutes } = require('./routes/public-question-source-routes');
+const { handleOfficialQuestionBankRoutes } = require('./routes/official-question-bank-routes');
+const { closeOfficialQuestionSourcePool } = require('./official-question-bank/repository');
 const { getExperienceStore } = require('./experience/store');
 const { loadEmbeddingsFromStore } = require('./experience/embedding-cache');
 const { buildKnowledgeGraph } = require('./experience/knowledge-graph');
+const { ensureLocalRequestIdentity } = require('./local-identity');
 
 const PORT = process.env.PORT || 3300;
 
@@ -26,6 +29,7 @@ const routeHandlers = [
   handlePracticeRoutes,
   handleExperienceRoutes,
   handlePublicQuestionSourceRoutes,
+  handleOfficialQuestionBankRoutes,
 ];
 
 async function bootstrap() {
@@ -49,6 +53,10 @@ async function bootstrap() {
     Object.entries(corsHeaders).forEach(([key, value]) => {
       res.setHeader(key, value);
     });
+    const localIdentity = ensureLocalRequestIdentity(req);
+    if (localIdentity?.setCookie) {
+      res.setHeader('Set-Cookie', localIdentity.setCookie);
+    }
 
     if (req.method === 'OPTIONS') {
       res.writeHead(204);
@@ -68,6 +76,29 @@ async function bootstrap() {
   server.listen(PORT, () => {
     console.log(`[fementor-api] listening on :${PORT}`);
   });
+
+  let closing = false;
+  const close = async (signal) => {
+    if (closing) return;
+    closing = true;
+    server.close(async (error) => {
+      try {
+        await closeOfficialQuestionSourcePool();
+      } catch (closeError) {
+        console.error('[fementor-api.shutdown.failed]', signal, closeError);
+        process.exit(1);
+        return;
+      }
+      if (error) {
+        console.error('[fementor-api.shutdown.failed]', signal, error);
+        process.exit(1);
+        return;
+      }
+      process.exit(0);
+    });
+  };
+  process.once('SIGINT', () => void close('SIGINT'));
+  process.once('SIGTERM', () => void close('SIGTERM'));
 }
 
 bootstrap().catch((error) => {

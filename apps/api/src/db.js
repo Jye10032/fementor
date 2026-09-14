@@ -30,6 +30,7 @@ const {
   getUserQuestionBankItemByIdRecord,
   getUserQuestionBankItemByUserAndSourceRecord,
   getWeaknessesByUserRecord,
+  importOfficialQuestionRecord,
   insertInterviewQuestionAfterRecord,
   initPostgres,
   isPostgresEnabled,
@@ -38,6 +39,7 @@ const {
   listInterviewQuestionsBySession,
   listInterviewSessionsByUser,
   listInterviewTurnsBySession,
+  listImportedOfficialQuestionIdsRecord,
   listPracticeUserQuestionBankRecord,
   listQuestionSourcesByIdsRecord,
   listUserQuestionBankRecord,
@@ -306,6 +308,18 @@ function addUserQuestionBankItem(payload) {
     : getSqliteModules().questionSource.addUserQuestionBankItem(payload);
 }
 
+function listImportedOfficialQuestionIds(payload) {
+  return usePostgresPrimary()
+    ? listImportedOfficialQuestionIdsRecord(payload)
+    : getSqliteModules().questionSource.listImportedOfficialQuestionIds(payload);
+}
+
+function importOfficialQuestion(payload) {
+  return usePostgresPrimary()
+    ? importOfficialQuestionRecord(payload)
+    : getSqliteModules().questionSource.importOfficialQuestion(payload);
+}
+
 function listUserQuestionBank(payload) {
   return usePostgresPrimary()
     ? listUserQuestionBankRecord(payload)
@@ -417,6 +431,8 @@ module.exports = {
   getUserQuestionBankItemById,
   getUserQuestionBankItemByUserAndSource,
   addUserQuestionBankItem,
+  listImportedOfficialQuestionIds,
+  importOfficialQuestion,
   listUserQuestionBank,
   listPracticeUserQuestionBank,
   updateUserQuestionBankReviewState,

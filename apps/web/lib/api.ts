@@ -45,17 +45,15 @@ export async function apiRequest<T>(
   options?: ApiRequestConfig,
 ): Promise<T> {
   const isFormData = typeof FormData !== "undefined" && options?.body instanceof FormData;
+  const hasBody = options?.body !== undefined && options?.body !== null;
   const authMode = options?.auth ?? "optional";
   const token = authMode === "none" ? null : await resolveApiToken();
 
-  if (authMode === "required" && !token) {
-    throw new ApiError("请先登录后再继续。", 401);
-  }
-
   const res = await fetch(`${baseUrl}${path}`, {
     ...options,
+    credentials: options?.credentials ?? "include",
     headers: {
-      ...(isFormData ? {} : { "Content-Type": "application/json" }),
+      ...(isFormData || !hasBody ? {} : { "Content-Type": "application/json" }),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(options?.headers ?? {}),
     },
