@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import Link from "next/link";
 import { AlertCircle, ArrowRight, BookOpen, Building2, Calendar, ExternalLink, Flame, Layers, Trash2, User } from "lucide-react";
@@ -10,6 +10,8 @@ type ExperienceListProps = {
   items: ExperienceListItem[];
   loading: boolean;
   error: string | null;
+  filtered?: boolean;
+  listQuery?: string;
   onDelete?: (id: string) => Promise<void>;
   onDeleteBatch?: (ids: string[]) => Promise<void>;
 };
@@ -50,13 +52,14 @@ function SkeletonCard() {
   );
 }
 
-function ExperienceRow({ item, onDelete, deleting, selectable, selected, onToggle }: {
+function ExperienceRow({ item, onDelete, deleting, selectable, selected, onToggle, listQuery }: {
   item: ExperienceListItem;
   onDelete?: (id: string) => void;
   deleting: boolean;
   selectable: boolean;
   selected: boolean;
   onToggle?: (id: string) => void;
+  listQuery?: string;
 }) {
   return (
     <article className="space-y-2 px-1 py-4 transition-colors duration-150 hover:bg-secondary/40 sm:px-2">
@@ -73,7 +76,7 @@ function ExperienceRow({ item, onDelete, deleting, selectable, selected, onToggl
         <span className="eyebrow-chip shrink-0">{item.source_platform}</span>
         <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">{item.title}</h2>
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
-          <Link href={`/experience/${item.id}`} className="inline-flex cursor-pointer items-center rounded-md bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary transition-colors hover:bg-primary/15">
+          <Link href={`/experience/${item.id}${listQuery ? `?${listQuery}` : ""}`} className="inline-flex cursor-pointer items-center rounded-md bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary transition-colors hover:bg-primary/15">
             详情<ArrowRight className="ml-0.5 h-3 w-3" />
           </Link>
           <a href={item.source_url} target="_blank" rel="noreferrer" className="inline-flex cursor-pointer items-center rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-secondary">
@@ -134,11 +137,17 @@ function LoadingBar() {
   );
 }
 
-export function ExperienceList({ items, loading, error, onDelete, onDeleteBatch }: ExperienceListProps) {
+export function ExperienceList({ items, loading, error, filtered, listQuery, onDelete, onDeleteBatch }: ExperienceListProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const [deletingId, setDeletingId] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [batchDeleting, setBatchDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+
+  useEffect(() => {
+    const visibleIds = new Set(items.map((item) => item.id));
+    setSelected((previous) => new Set([...previous].filter((id) => visibleIds.has(id))));
+  }, [items]);
 
   const selectable = Boolean(onDeleteBatch);
 
@@ -163,9 +172,12 @@ export function ExperienceList({ items, loading, error, onDelete, onDeleteBatch 
     if (!onDeleteBatch || selected.size === 0) return;
     if (!window.confirm(`确认删除选中的 ${selected.size} 条面经？`)) return;
     setBatchDeleting(true);
+    setDeleteError("");
     try {
       await onDeleteBatch([...selected]);
       setSelected(new Set());
+    } catch {
+      setDeleteError("部分面经删除失败，列表已刷新，请重试。");
     } finally {
       setBatchDeleting(false);
     }
@@ -175,9 +187,12 @@ export function ExperienceList({ items, loading, error, onDelete, onDeleteBatch 
     if (!onDelete) return;
     if (!window.confirm("确认删除该面经？")) return;
     setDeletingId(id);
+    setDeleteError("");
     try {
       await onDelete(id);
       setSelected((prev) => { const next = new Set(prev); next.delete(id); return next; });
+    } catch {
+      setDeleteError("删除失败，请重试。");
     } finally {
       setDeletingId("");
     }
@@ -214,7 +229,7 @@ export function ExperienceList({ items, loading, error, onDelete, onDeleteBatch 
           <BookOpen className="h-6 w-6 text-muted-foreground" />
         </div>
         <p className="text-sm text-muted-foreground">
-          当前没有可展示的面经。
+          {filtered ? "没有符合筛选条件的面经，试试其他公司或岗位。" : "当前没有可展示的面经。"}
         </p>
       </div>
     );
@@ -225,6 +240,7 @@ export function ExperienceList({ items, loading, error, onDelete, onDeleteBatch 
       ref={listRef}
       className="overflow-hidden border-y border-border/70"
     >
+      {deleteError ? <p role="alert" className="py-2 text-sm text-destructive">{deleteError}</p> : null}
       {selectable && items.length > 0 && (
         <div className="flex items-center gap-3 border-b border-border/40 px-4 py-2">
           <input
@@ -267,6 +283,7 @@ export function ExperienceList({ items, loading, error, onDelete, onDeleteBatch 
             >
               <ExperienceRow
                 item={item}
+                listQuery={listQuery}
                 onDelete={onDelete ? handleDelete : undefined}
                 deleting={deletingId === item.id}
                 selectable={selectable}

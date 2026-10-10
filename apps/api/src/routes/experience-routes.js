@@ -15,6 +15,7 @@ const {
   getExperienceSyncJobById,
   getLatestActiveSyncJob,
   listExperiencePosts,
+  listExperienceFilterOptions,
   getExperiencePostDetail,
   recleanExperiencePost,
   deleteExperiencePost,
@@ -94,6 +95,7 @@ const listExperiencesResponse = async ({ req, searchParams }) => {
     query,
     company,
     role,
+    exactFilters: searchParams.get('exact_filters') === '1',
     days,
     onlyValid,
     limit: pageSize,
@@ -169,6 +171,14 @@ const previewExperienceRetrievalResponse = async ({ req, body }) => {
 };
 
 const handleExperienceRoutes = async ({ req, res, url }) => {
+  if (req.method === 'GET' && url.pathname === '/v1/experiences/filters') {
+    try {
+      json(res, 200, await listExperienceFilterOptions());
+    } catch (error) {
+      jsonError(res, error);
+    }
+    return true;
+  }
   if (req.method === 'POST' && url.pathname === '/v1/experiences/sync') {
     try {
       const body = await readBody(req);
@@ -283,6 +293,12 @@ async function registerExperienceRoutes(app) {
     });
     reply.code(result.statusCode);
     return result.payload;
+  });
+
+  app.get('/v1/experiences/filters', async (_request, reply) => {
+    const filters = await listExperienceFilterOptions();
+    reply.header('Cache-Control', 'public, max-age=30');
+    return filters;
   });
 
   app.get('/v1/experiences', async (request, reply) => {

@@ -407,6 +407,7 @@ module.exports = {
   getExperienceSyncJobById: (...args) => getExperienceStore().getExperienceSyncJobById(...args),
   getLatestActiveSyncJob: (...args) => getExperienceStore().getLatestActiveSyncJob(...args),
   listExperiencePosts: (...args) => getExperienceStore().listExperiencePosts(...args),
+  listExperienceFilterOptions: (...args) => getExperienceStore().listExperienceFilterOptions(...args),
   getExperiencePostDetail: (...args) => getExperienceStore().getExperiencePostDetail(...args),
   recleanExperiencePost,
   recleanAllExperiencePosts,

@@ -18,19 +18,7 @@ export function BankFilterControls({
   typeFilter, setTypeFilter, loading, refresh,
 }: BankFilterControlsProps) {
   return (
-    <>
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <h2 className="text-lg font-semibold text-foreground">我的训练题单</h2>
-          <p className="mt-1 text-sm leading-6 text-muted-foreground">按章节、来源和题型快速找到下一道要练的题。</p>
-        </div>
-        <button onClick={refresh} className="action-secondary gap-2 disabled:opacity-60" disabled={loading}>
-          <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />
-          {loading ? "刷新中..." : "刷新题单"}
-        </button>
-      </div>
-
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className="grid items-end gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
         <label className="text-sm">
           <span className="mb-1 block text-muted-foreground">章节</span>
           <input value={chapter} onChange={(e) => setChapter(e.target.value)} className="field-shell w-full" placeholder="全部章节" />
@@ -43,6 +31,7 @@ export function BankFilterControls({
             <option value="doc">资料文档</option>
             <option value="llm">AI 追问</option>
             <option value="official_remote">官方题库</option>
+            <option value="experience">面经</option>
             <option value="unknown">未分类</option>
           </select>
         </label>
@@ -58,7 +47,10 @@ export function BankFilterControls({
             <option value="unknown">未分类</option>
           </select>
         </label>
+        <button type="button" onClick={refresh} className="action-secondary gap-2 disabled:opacity-60" disabled={loading}>
+          <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />
+          {loading ? "刷新中..." : "刷新题单"}
+        </button>
       </div>
-    </>
   );
 }

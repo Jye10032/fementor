@@ -333,11 +333,27 @@ const updateExperiencePostWithGroups = ({ postId, post, groups = [] }) => {
   return getExperiencePostDetail(postId);
 };
 
+const listExperienceFilterOptions = () => {
+  const rows = db.prepare(`
+    SELECT DISTINCT 'company' AS kind, TRIM(company_name) AS value
+    FROM experience_post WHERE is_valid = 1 AND TRIM(company_name) <> ''
+    UNION
+    SELECT DISTINCT 'role' AS kind, TRIM(role_name) AS value
+    FROM experience_post WHERE is_valid = 1 AND TRIM(role_name) <> ''
+    ORDER BY kind, value
+  `).all();
+  return {
+    companies: rows.filter((row) => row.kind === 'company').map((row) => row.value),
+    roles: rows.filter((row) => row.kind === 'role').map((row) => row.value),
+  };
+};
+
 const listExperiencePosts = ({
   query,
   days,
   company,
   role,
+  exactFilters = false,
   onlyValid = true,
   limit = 20,
   offset = 0,
@@ -365,13 +381,13 @@ const listExperiencePosts = ({
   }
 
   if (company) {
-    where.push('p.company_name LIKE ?');
-    params.push(`%${company}%`);
+    where.push(exactFilters ? 'TRIM(p.company_name) = ?' : 'p.company_name LIKE ?');
+    params.push(exactFilters ? company : `%${company}%`);
   }
 
   if (role) {
-    where.push('p.role_name LIKE ?');
-    params.push(`%${role}%`);
+    where.push(exactFilters ? 'TRIM(p.role_name) = ?' : 'p.role_name LIKE ?');
+    params.push(exactFilters ? role : `%${role}%`);
   }
 
   if (Number(days) > 0) {
@@ -394,7 +410,7 @@ const listExperiencePosts = ({
       LEFT JOIN experience_question_item qi ON qi.post_id = p.id
       ${whereClause}
       GROUP BY p.id
-      ORDER BY datetime(substr(p.published_at, 1, 19)) DESC, p.created_at DESC
+      ORDER BY datetime(substr(p.published_at, 1, 19)) DESC, p.created_at DESC, p.id ASC
       LIMIT ? OFFSET ?
     `,
     )
@@ -572,8 +588,8 @@ module.exports = {
   listExperienceGroupEmbeddings,
   listExperiencePostIds,
   listExperiencePosts,
+  listExperienceFilterOptions,
   searchExperienceQuestionItems,
   updateExperiencePostWithGroups,
   updateExperienceSyncJob,
 };
-

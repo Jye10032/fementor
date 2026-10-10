@@ -1,8 +1,18 @@
 "use client";
 
-import { Loader2, RefreshCw, Search, ShieldCheck } from "lucide-react";
+import { Loader2, RefreshCw, Search } from "lucide-react";
+import { ExperienceFilterOptions } from "../_lib/experience.types";
 
 type ExperienceSearchBarProps = {
+  company: string;
+  role: string;
+  filters: ExperienceFilterOptions;
+  filtersLoading: boolean;
+  filtersError: string;
+  onRetryFilters: () => void;
+  onCompanyChange: (value: string) => void;
+  onRoleChange: (value: string) => void;
+  onClear: () => void;
   keyword: string;
   onKeywordChange: (value: string) => void;
   limit: number;
@@ -11,108 +21,67 @@ type ExperienceSearchBarProps = {
   onSync: () => void;
   searchQuery: string;
   onSearchQueryChange: (value: string) => void;
-  syncAllowed?: boolean;
-  syncAccessLoading?: boolean;
-  syncDisabled?: boolean;
-  searchDisabled?: boolean;
+  syncAllowed: boolean;
 };
 
 const LIMIT_OPTIONS = [1, 5, 10] as const;
 
 export function ExperienceSearchBar({
-  keyword,
-  onKeywordChange,
-  limit,
-  onLimitChange,
-  syncing,
-  onSync,
-  searchQuery,
-  onSearchQueryChange,
-  syncAllowed = true,
-  syncAccessLoading = false,
-  syncDisabled = false,
-  searchDisabled = false,
+  company, role, filters, filtersLoading, filtersError, onRetryFilters,
+  onCompanyChange, onRoleChange, onClear,
+  keyword, onKeywordChange, limit, onLimitChange, syncing, onSync,
+  searchQuery, onSearchQueryChange, syncAllowed,
 }: ExperienceSearchBarProps) {
   return (
-    <div className="border-y border-border/70 py-4">
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] lg:items-end">
-        <section className="min-w-0 space-y-2">
-          <p className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
-            <Search className="h-3.5 w-3.5 text-primary" />搜索已有面经
-          </p>
+    <div className="space-y-3">
+      <div className="grid items-end gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.5fr)_auto]">
+        <label className="min-w-0 text-sm">
+          <span className="mb-1.5 block font-medium text-foreground">公司</span>
+          <select className="field-shell w-full" value={company} onChange={(event) => onCompanyChange(event.target.value)} disabled={filtersLoading || Boolean(filtersError)}>
+            <option value="">{filtersLoading ? "正在加载公司..." : "全部公司"}</option>
+            {company && !filters.companies.includes(company) ? <option value={company}>{company}</option> : null}
+            {filters.companies.map((value) => <option key={value} value={value}>{value}</option>)}
+          </select>
+        </label>
+        <label className="min-w-0 text-sm">
+          <span className="mb-1.5 block font-medium text-foreground">岗位</span>
+          <select className="field-shell w-full" value={role} onChange={(event) => onRoleChange(event.target.value)} disabled={filtersLoading || Boolean(filtersError)}>
+            <option value="">{filtersLoading ? "正在加载岗位..." : "全部岗位"}</option>
+            {role && !filters.roles.includes(role) ? <option value={role}>{role}</option> : null}
+            {filters.roles.map((value) => <option key={value} value={value}>{value}</option>)}
+          </select>
+        </label>
+        <label className="min-w-0 text-sm">
+          <span className="mb-1.5 block text-muted-foreground">关键词（可选）</span>
           <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <input
-              value={searchQuery}
-              onChange={(event) => onSearchQueryChange(event.target.value)}
-              placeholder="搜索：虚拟列表 / Promise / 前端实习"
-              className="field-shell w-full pl-9"
-              disabled={searchDisabled}
-            />
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <input value={searchQuery} onChange={(event) => onSearchQueryChange(event.target.value)} placeholder="搜索题目或面经内容" className="field-shell w-full pl-9" />
           </div>
-        </section>
-
-        <section className="min-w-0 space-y-2">
-          <p className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
-            <RefreshCw className="h-3.5 w-3.5 text-primary" />同步新的面经
-          </p>
-          {syncAllowed ? (
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <div className="relative min-w-0 flex-1">
-                <RefreshCw className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                <input
-                  value={keyword}
-                  onChange={(event) => onKeywordChange(event.target.value)}
-                  placeholder="例如：前端实习 / React"
-                  className="field-shell w-full pl-9"
-                  disabled={syncDisabled || syncing}
-                />
-              </div>
-              <div className="flex shrink-0 gap-1 rounded-lg border border-border/70 bg-background/80 p-0.5">
-                {LIMIT_OPTIONS.map((n) => (
-                  <button
-                    key={n}
-                    type="button"
-                    onClick={() => onLimitChange(n)}
-                    disabled={syncDisabled || syncing}
-                    className={`cursor-pointer rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                      limit === n
-                        ? "bg-primary/10 text-primary"
-                        : "text-muted-foreground hover:bg-secondary"
-                    }`}
-                  >
-                    {n}条
-                  </button>
-                ))}
-              </div>
-              <button
-                type="button"
-                onClick={onSync}
-                disabled={syncDisabled || syncing || !keyword.trim()}
-                className="inline-flex cursor-pointer items-center justify-center whitespace-nowrap rounded-lg border border-border bg-background px-3 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {syncing ? (
-                  <>
-                    <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                    同步中...
-                  </>
-                ) : (
-                  "同步"
-                )}
-              </button>
-            </div>
-          ) : (
-            <div className="flex min-h-10 items-center gap-2 border border-border/70 bg-secondary/25 px-3 py-2 text-sm text-muted-foreground">
-              {syncAccessLoading ? (
-                <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" />
-              ) : (
-                <ShieldCheck className="h-4 w-4 shrink-0 text-primary" />
-              )}
-              <span>{syncAccessLoading ? "正在检查同步权限..." : "仅管理员可同步最新面经，普通用户可直接浏览和搜索。"}</span>
-            </div>
-          )}
-        </section>
+        </label>
+        <button type="button" onClick={onClear} disabled={!company && !role && !searchQuery} className="action-secondary disabled:opacity-40">清除筛选</button>
       </div>
+      {filtersError ? <p role="alert" className="text-sm text-warning">{filtersError}<button type="button" onClick={onRetryFilters} className="ml-2 underline">重新加载</button></p> : null}
+      {syncAllowed ? (
+        <details className="rounded-lg border border-border/70 px-3 py-2 text-sm">
+          <summary className="cursor-pointer text-muted-foreground">管理面经{syncing ? " · 正在同步" : ""}</summary>
+          <div className="mt-3 flex flex-wrap items-end gap-3">
+            <label className="min-w-0 flex-1 text-xs text-muted-foreground">
+              <span className="mb-1.5 block">采集关键词</span>
+              <input value={keyword} onChange={(event) => onKeywordChange(event.target.value)} placeholder="例如：前端实习 / React" className="field-shell w-full" disabled={syncing} />
+            </label>
+            <label className="text-xs text-muted-foreground">
+              <span className="mb-1.5 block">同步数量</span>
+              <select value={limit} onChange={(event) => onLimitChange(Number(event.target.value))} className="field-shell" disabled={syncing}>
+                {LIMIT_OPTIONS.map((n) => <option key={n} value={n}>{n} 条</option>)}
+              </select>
+            </label>
+            <button type="button" onClick={onSync} disabled={syncing || !keyword.trim()} className="action-secondary gap-2 disabled:opacity-50">
+              {syncing ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+              {syncing ? "同步中..." : "同步面经"}
+            </button>
+          </div>
+        </details>
+      ) : null}
     </div>
   );
 }

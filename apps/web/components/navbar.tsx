@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BookOpenCheck, GraduationCap, Home, LibraryBig, Menu, MessageSquare, Network, NotebookPen, Settings2, X } from "lucide-react";
+import { BookOpenCheck, GraduationCap, Home, Menu, MessageSquare, NotebookPen, Settings2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useAuthState } from "./auth-provider";
 import { apiRequest } from "../lib/api";
@@ -22,15 +22,14 @@ type HealthResponse = {
 
 const NAV_ITEMS = [
   { href: "/", label: "首页", icon: Home },
-  { href: "/resume", label: "档案管理", icon: NotebookPen },
   { href: "/interview", label: "模拟面试", icon: MessageSquare },
   { href: "/bank", label: "题库", icon: BookOpenCheck },
-  { href: "/experience", label: "面经库", icon: LibraryBig },
-  { href: "/graph", label: "知识图谱", icon: Network },
+  { href: "/resume", label: "我的资料", icon: NotebookPen },
 ] as const;
 
 const isActive = (pathname: string, href: string) =>
-  href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`);
+  href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`)
+    || (href === "/bank" && (pathname === "/graph" || pathname === "/experience" || pathname.startsWith("/experience/")));
 
 export function Navbar() {
   const pathname = usePathname();

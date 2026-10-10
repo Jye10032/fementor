@@ -1,9 +1,9 @@
 "use client";
 
-import { useDeferredValue, useState } from "react";
-import { BookOpen, Database, Loader2, LogIn, User } from "lucide-react";
-import { SignInButton } from "@clerk/nextjs";
+import { Suspense, useDeferredValue } from "react";
+import { useSearchParams } from "next/navigation";
 import { useAuthState } from "../../components/auth-provider";
+import { BankNavigation } from "../../components/bank-navigation";
 import { PageShell } from "../../components/page-shell";
 import { useRuntimeConfig } from "../../components/runtime-config";
 import { ExperienceList } from "./_components/ExperienceList";
@@ -12,112 +12,68 @@ import { ExperienceSyncStatus } from "./_components/ExperienceSyncStatus";
 import { useExperienceList } from "./_hooks/use-experience-list";
 import { useExperienceSync } from "./_hooks/use-experience-sync";
 
-function describePublicSourceTarget(target: string) {
-  if (target === "local_postgres") {
-    return "本地 PostgreSQL 数据库";
-  }
-  if (target === "remote_postgres") {
-    return "远程 PostgreSQL 数据库";
-  }
-  if (target === "local_sqlite") {
-    return "本地 SQLite 数据库";
-  }
-  return "当前数据库";
-}
-
-export default function ExperiencePage() {
-  const { apiBase, runtimeMode, publicSourceStorageTarget } = useRuntimeConfig();
-  const { authEnabled, authReady, isLoaded, isSignedIn, viewer, viewerLoading } = useAuthState();
-  const syncRequiresAuth = runtimeMode !== "local";
-  const canManagePublicSources = viewer?.capabilities?.can_manage_public_sources === true;
-  const syncAccessLoading = isSignedIn && (!authReady || !isLoaded || viewerLoading);
-  const canSync = authReady && isLoaded && isSignedIn && !viewerLoading && canManagePublicSources;
-  const [searchQuery, setSearchQuery] = useState("");
-  const deferredQuery = useDeferredValue(searchQuery);
-  const experienceList = useExperienceList({
-    apiBase,
-    enabled: true,
-    query: deferredQuery,
-  });
-  const experienceSync = useExperienceSync({
-    apiBase,
-    enabled: canSync,
-    authRequired: syncRequiresAuth,
-    onCompleted: () => {
-      void experienceList.refresh();
-    },
+function ExperienceContent() {
+  const { apiBase, runtimeMode } = useRuntimeConfig();
+  const { authReady, isLoaded, isSignedIn, viewer, viewerLoading } = useAuthState();
+  const canManage = viewer?.capabilities?.can_manage_public_sources === true;
+  const canSync = authReady && isLoaded && isSignedIn && !viewerLoading && canManage;
+  const params = useSearchParams();
+  const company = params.get("company") || "";
+  const role = params.get("role") || "";
+  const query = params.get("query") || "";
+  const deferredQuery = useDeferredValue(query);
+  const updateFilters = (values: Record<string, string>) => {
+    const next = new URLSearchParams(params.toString());
+    for (const [key, value] of Object.entries(values)) {
+      if (value) next.set(key, value);
+      else next.delete(key);
+    }
+    window.history.replaceState(null, "", next.size ? `/experience?${next}` : "/experience");
+  };
+  const experiences = useExperienceList({ apiBase, enabled: true, query: deferredQuery, company, role });
+  const sync = useExperienceSync({
+    apiBase, enabled: canSync, authRequired: runtimeMode !== "local",
+    onCompleted: () => { void experiences.refresh(); void experiences.refreshFilters(); },
   });
 
   return (
-    <PageShell>
-      <div className="flex flex-col gap-3 border-b border-border/70 pb-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2.5">
-          <BookOpen className="h-5 w-5 shrink-0 text-primary" />
-          <h1 className="text-xl font-semibold text-foreground">面经库</h1>
-          <span className="hidden text-sm text-muted-foreground sm:inline">·</span>
-          <p className="hidden text-sm text-muted-foreground sm:inline">抓取牛客近 7 日面经，结构化清洗后供搜索和练习</p>
-        </div>
-        <div className="flex min-w-[4.5rem] items-center gap-1.5 text-xs text-muted-foreground">
-          <Database className="h-3 w-3" />
-          <span className="font-semibold text-foreground">{experienceList.total}</span>条
-          <span className="mx-1 text-border">|</span>
-          <User className="h-3 w-3" />
-          {!isLoaded ? (
-            <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-          ) : (
-            <span className="font-semibold text-foreground">
-              {isSignedIn ? viewer?.name || viewer?.email || "已登录" : "未登录"}
-            </span>
-          )}
-        </div>
+    <>
+      <ExperienceSearchBar company={company} role={role} filters={experiences.filters}
+        filtersLoading={experiences.filtersLoading} filtersError={experiences.filtersError}
+        onRetryFilters={() => void experiences.refreshFilters()}
+        onCompanyChange={(value) => updateFilters({ company: value })}
+        onRoleChange={(value) => updateFilters({ role: value })}
+        onClear={() => updateFilters({ company: "", role: "", query: "" })}
+        searchQuery={query} onSearchQueryChange={(value) => updateFilters({ query: value })}
+        keyword={sync.keyword} onKeywordChange={sync.setKeyword} limit={sync.limit} onLimitChange={sync.setLimit}
+        syncing={sync.syncing} onSync={() => void sync.startSync()} syncAllowed={canSync} />
+      {canManage ? <ExperienceSyncStatus job={sync.job} error={sync.error} /> : null}
+      <div className="flex items-center justify-between text-sm text-muted-foreground" aria-live="polite">
+        <p>{experiences.loading ? "正在加载面经..." : experiences.error ? "面经加载失败" : `共 ${experiences.total} 篇面经`}</p>
+        {experiences.error ? <button type="button" onClick={() => void experiences.refresh()} className="text-primary hover:underline">重试</button> : null}
       </div>
-
-      {isLoaded && !isSignedIn ? (
-        <div className="flex items-center justify-between gap-4 border-y border-warning/25 bg-warning/[0.04] py-3">
-          <div className="flex items-center gap-3">
-            <LogIn className="h-4 w-4 shrink-0 text-warning" />
-            <p className="text-sm text-foreground">
-              {runtimeMode === "local"
-                ? `当前为本地开发环境，可直接浏览面经；数据写入 ${describePublicSourceTarget(publicSourceStorageTarget)}。`
-                : "未登录时可查看面经，登录管理员账号后才能同步最新内容。"}
-            </p>
-          </div>
-          {authEnabled && runtimeMode !== "local" ? (
-            <SignInButton mode="modal">
-              <button type="button" className="cursor-pointer rounded-lg bg-warning px-4 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-warning/90">登录</button>
-            </SignInButton>
-          ) : runtimeMode === "local" ? (
-            <span className="text-sm text-foreground">本地模式已放开同步权限</span>
-          ) : (
-            <span className="text-sm text-foreground">登录未启用</span>
-          )}
+      <ExperienceList key={JSON.stringify([company, role, deferredQuery])}
+        items={experiences.items} loading={experiences.loading} error={experiences.error}
+        filtered={Boolean(company || role || query)} listQuery={params.toString()}
+        onDelete={canManage ? experiences.deleteItem : undefined}
+        onDeleteBatch={canManage ? experiences.deleteItems : undefined} />
+      {!experiences.loading && experiences.items.length < experiences.total ? (
+        <div className="flex flex-col items-center gap-2">
+          {experiences.loadMoreError ? <p role="alert" className="text-sm text-warning">{experiences.loadMoreError}</p> : null}
+          <button type="button" className="action-secondary" disabled={experiences.loadingMore} onClick={() => void experiences.loadMore()}>
+            {experiences.loadingMore ? "正在加载..." : experiences.loadMoreError ? "重试加载更多" : `加载更多（${experiences.items.length} / ${experiences.total}）`}
+          </button>
         </div>
       ) : null}
+    </>
+  );
+}
 
-      <ExperienceSearchBar
-        keyword={experienceSync.keyword}
-        onKeywordChange={experienceSync.setKeyword}
-        limit={experienceSync.limit}
-        onLimitChange={experienceSync.setLimit}
-        syncing={experienceSync.syncing}
-        onSync={() => void experienceSync.startSync()}
-        searchQuery={searchQuery}
-        onSearchQueryChange={setSearchQuery}
-        syncAccessLoading={syncAccessLoading}
-        syncAllowed={canSync}
-        syncDisabled={!canSync}
-        searchDisabled={false}
-      />
-
-      <ExperienceSyncStatus job={experienceSync.job} error={experienceSync.error} />
-
-      <ExperienceList
-        items={experienceList.items}
-        loading={experienceList.loading}
-        error={experienceList.error}
-        onDelete={canManagePublicSources ? experienceList.deleteItem : undefined}
-        onDeleteBatch={canManagePublicSources ? experienceList.deleteItems : undefined}
-      />
+export default function ExperiencePage() {
+  return (
+    <PageShell>
+      <BankNavigation />
+      <Suspense fallback={<p className="text-sm text-muted-foreground">正在加载面经...</p>}><ExperienceContent /></Suspense>
     </PageShell>
   );
 }

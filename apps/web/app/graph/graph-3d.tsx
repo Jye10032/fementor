@@ -13,6 +13,8 @@ export default function Graph3D({ apiBase, onStats, onLegend, onHover }: GraphCo
     let cancelled = false;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let graph: any = null;
+    let resizeObserver: ResizeObserver | undefined;
+    let fitTimer: ReturnType<typeof setTimeout> | undefined;
 
     async function load() {
       try {
@@ -39,12 +41,16 @@ export default function Graph3D({ apiBase, onStats, onLegend, onHover }: GraphCo
 
         const SpriteText = (await import("three-spritetext")).default;
         const THREE = await import("three");
+        if (cancelled || !containerRef.current) return;
+        const container = containerRef.current;
         const getNodeRadius = (level: number) => level === 0 ? 6 : level === 1 ? 3.5 : 2;
 
         // PLACEHOLDER_3D_REST
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        graph = new ForceGraph3D(containerRef.current as any)
+        graph = new ForceGraph3D(container as any)
+          .width(container.clientWidth)
+          .height(container.clientHeight)
           .graphData({ nodes: nodes as any[], links: links as any[] })
           .nodeId("id")
           .backgroundColor("#f1f5f9")
@@ -114,7 +120,11 @@ export default function Graph3D({ apiBase, onStats, onLegend, onHover }: GraphCo
         }
 
         graphRef.current = graph;
-        setTimeout(() => graph?.zoomToFit(400, 60), 500);
+        resizeObserver = new ResizeObserver(() => {
+          if (!cancelled && graph) graph.width(container.clientWidth).height(container.clientHeight);
+        });
+        resizeObserver.observe(container);
+        fitTimer = setTimeout(() => graph?.zoomToFit(400, 60), 500);
       } catch {
         // errors handled by parent
       }
@@ -123,6 +133,8 @@ export default function Graph3D({ apiBase, onStats, onLegend, onHover }: GraphCo
     void load();
     return () => {
       cancelled = true;
+      resizeObserver?.disconnect();
+      if (fitTimer) clearTimeout(fitTimer);
       if (graphRef.current) {
         graphRef.current.pauseAnimation();
         graphRef.current._destructor?.();

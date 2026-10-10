@@ -16,11 +16,11 @@ export function BankStatsTiles({ totalCount, pendingCount, doneCount, weaknessCo
   ];
 
   return (
-    <div className="grid gap-4 md:grid-cols-4">
+    <div className="flex flex-wrap gap-x-6 gap-y-2 border-y border-border/70 py-3">
       {stats.map((stat) => (
-        <article key={stat.label} className="metric-tile">
-          <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">{stat.label}</p>
-          <p className="mt-3 text-3xl font-bold text-foreground">{stat.value}</p>
+        <article key={stat.label} className="flex items-baseline gap-2">
+          <p className="text-xs text-muted-foreground">{stat.label}</p>
+          <p className="text-lg font-semibold text-foreground">{stat.value}</p>
         </article>
       ))}
     </div>

@@ -1,10 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { ArrowLeft, Shield } from "lucide-react";
-import { SignInButton } from "@clerk/nextjs";
 import { useAuthState } from "../../../components/auth-provider";
 import { PageShell } from "../../../components/page-shell";
 import { useRuntimeConfig } from "../../../components/runtime-config";
@@ -12,12 +11,19 @@ import { apiRequest } from "../../../lib/api";
 import { ExperienceDetail } from "../_components/ExperienceDetail";
 import { ExperienceDetailResponse, ExperienceRecleanResponse } from "../_lib/experience.types";
 
-export default function ExperienceDetailPage() {
+function ExperienceDetailContent() {
   const params = useParams<{ id: string }>();
   const { apiBase } = useRuntimeConfig();
-  const { authEnabled, authReady, isLoaded, isSignedIn, viewer } = useAuthState();
+  const { authReady, isSignedIn, viewer } = useAuthState();
+  const searchParams = useSearchParams();
+  const returnParams = new URLSearchParams();
+  for (const key of ["company", "role", "query"]) {
+    const value = searchParams.get(key);
+    if (value) returnParams.set(key, value);
+  }
+  const returnHref = returnParams.size ? `/experience?${returnParams}` : "/experience";
   const [item, setItem] = useState<ExperienceDetailResponse["item"] | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [recleaning, setRecleaning] = useState(false);
@@ -84,32 +90,16 @@ export default function ExperienceDetailPage() {
   return (
     <PageShell>
       <div className="flex items-center justify-between gap-3 border-b border-border/70 pb-4">
-        <div>
-          <p className="text-xs font-medium text-muted-foreground">面经库</p>
-          <h1 className="mt-1 text-xl font-semibold text-foreground">面经详情</h1>
-        </div>
-        <Link href="/experience" className="action-secondary cursor-pointer rounded-md px-3 py-2 text-sm">
-          <ArrowLeft className="mr-1 h-3.5 w-3.5" />返回
+        <nav aria-label="面包屑" className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Link href="/bank" className="hover:text-primary">题库</Link><span>/</span>
+          <Link href={returnHref} className="hover:text-primary">面经</Link><span>/</span><span>详情</span>
+        </nav>
+        <Link href={returnHref} className="action-secondary cursor-pointer rounded-md px-3 py-2 text-sm">
+          <ArrowLeft className="mr-1 h-3.5 w-3.5" />返回面经
         </Link>
       </div>
 
-      {!isLoaded ? (
-        <div className="border-y border-border/70 py-4 text-sm text-muted-foreground">正在同步登录态...</div>
-      ) : !isSignedIn && !item ? (
-        <div className="flex items-center justify-between gap-4 border-y border-border/70 py-4">
-          <div>
-            <p className="text-base font-semibold text-foreground">查看详情前可以先直接浏览，登录管理员账号后可执行重清洗。</p>
-            <p className="mt-1 text-sm text-muted-foreground">当前页面支持公开查看；只有管理员可以重清洗并纠正题组。</p>
-          </div>
-          {authEnabled ? (
-            <SignInButton mode="modal">
-              <button type="button" className="action-primary">立即登录</button>
-            </SignInButton>
-          ) : (
-            <span className="text-sm text-muted-foreground">登录未启用</span>
-          )}
-        </div>
-      ) : loading ? (
+      {loading ? (
         <div className="border-y border-border/70 py-4 text-sm text-muted-foreground">正在加载面经详情...</div>
       ) : error && !item ? (
         <div className="border-l-2 border-destructive/60 py-3 pl-3 text-sm text-destructive">{error}</div>
@@ -142,4 +132,8 @@ export default function ExperienceDetailPage() {
       )}
     </PageShell>
   );
+}
+
+export default function ExperienceDetailPage() {
+  return <Suspense fallback={<PageShell>正在加载面经详情...</PageShell>}><ExperienceDetailContent /></Suspense>;
 }

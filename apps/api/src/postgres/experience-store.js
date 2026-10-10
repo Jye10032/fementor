@@ -445,11 +445,29 @@ async function updateExperiencePostWithGroups({ postId, post, groups = [] }) {
   });
 }
 
+async function listExperienceFilterOptions() {
+  return withClient(async (client) => {
+    const result = await client.query(`
+      SELECT DISTINCT 'company' AS kind, TRIM(company_name) AS value
+      FROM experience_post WHERE is_valid = TRUE AND TRIM(company_name) <> ''
+      UNION
+      SELECT DISTINCT 'role' AS kind, TRIM(role_name) AS value
+      FROM experience_post WHERE is_valid = TRUE AND TRIM(role_name) <> ''
+      ORDER BY kind, value
+    `);
+    return {
+      companies: result.rows.filter((row) => row.kind === 'company').map((row) => row.value),
+      roles: result.rows.filter((row) => row.kind === 'role').map((row) => row.value),
+    };
+  });
+}
+
 async function listExperiencePosts({
   query,
   days,
   company,
   role,
+  exactFilters = false,
   onlyValid = true,
   limit = 20,
   offset = 0,
@@ -480,14 +498,14 @@ async function listExperiencePosts({
     }
 
     if (company) {
-      where.push(`p.company_name ILIKE $${paramIndex}`);
-      params.push(`%${company}%`);
+      where.push(exactFilters ? `TRIM(p.company_name) = $${paramIndex}` : `p.company_name ILIKE $${paramIndex}`);
+      params.push(exactFilters ? company : `%${company}%`);
       paramIndex += 1;
     }
 
     if (role) {
-      where.push(`p.role_name ILIKE $${paramIndex}`);
-      params.push(`%${role}%`);
+      where.push(exactFilters ? `TRIM(p.role_name) = $${paramIndex}` : `p.role_name ILIKE $${paramIndex}`);
+      params.push(exactFilters ? role : `%${role}%`);
       paramIndex += 1;
     }
 
@@ -511,7 +529,7 @@ async function listExperiencePosts({
       LEFT JOIN experience_question_item qi ON qi.post_id = p.id
       ${whereClause}
       GROUP BY p.id
-      ORDER BY p.published_at DESC NULLS LAST, p.created_at DESC
+      ORDER BY p.published_at DESC NULLS LAST, p.created_at DESC, p.id ASC
       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
       `,
       [...params, Number(limit), Number(offset)],
@@ -732,6 +750,7 @@ module.exports = {
   listExperienceGroupEmbeddings,
   listExperiencePostIds,
   listExperiencePosts,
+  listExperienceFilterOptions,
   searchExperienceQuestionItems,
   updateExperiencePostWithGroups,
   updateExperienceSyncJob,

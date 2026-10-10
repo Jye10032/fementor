@@ -33,6 +33,11 @@ export type ExperienceListResponse = {
   total: number;
 };
 
+export type ExperienceFilterOptions = {
+  companies: string[];
+  roles: string[];
+};
+
 export type ExperienceQuestionItem = {
   id: string;
   group_id: string;

@@ -2,7 +2,7 @@
 
 import { SignInButton } from "@clerk/nextjs";
 import Link from "next/link";
-import { BookOpen, Check, Download, LoaderCircle, LockKeyhole, LogIn, Play, Search } from "lucide-react";
+import { BookOpen, Check, Download, LoaderCircle, LogIn, Play, Search } from "lucide-react";
 import type { ReturnTypeOfOfficialBank } from "../_lib/official-bank-view.types";
 
 type OfficialQuestionBankProps = {
@@ -27,32 +27,8 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 export function OfficialQuestionBank({ bank, authEnabled, isSignedIn }: OfficialQuestionBankProps) {
-  const available = bank.status?.configured && bank.status?.reachable;
-  const statusLabel = !bank.status
-    ? "正在检查远端题库"
-    : available
-      ? "远端题库已连接"
-      : "远端题库暂不可用";
-
   return (
     <div className="space-y-5">
-      <div className="flex flex-col gap-3 border-b border-border pb-5 md:flex-row md:items-center md:justify-between">
-        <div>
-          <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-            <span className={`size-2 rounded-full ${!bank.status ? "animate-pulse bg-muted-foreground" : available ? "bg-accent" : "bg-warning"}`} />
-            {statusLabel}
-          </div>
-          <p className="mt-1 text-sm text-muted-foreground">
-            官方内容只读，导入后会成为你的本地副本。
-          </p>
-        </div>
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <LockKeyhole className="size-4" />
-          数据库级只读
-          {bank.status?.total !== undefined ? <span>· {bank.status.total} 道题</span> : null}
-        </div>
-      </div>
-
       <form onSubmit={bank.submitSearch} className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_160px_150px_140px_auto]">
         <label className="relative">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -108,7 +84,7 @@ export function OfficialQuestionBank({ bank, authEnabled, isSignedIn }: Official
         <>
           <div className="flex items-center justify-between text-sm">
             <p className="font-medium text-foreground">找到 {bank.total} 道题</p>
-            <p className="text-muted-foreground">导入操作不会修改远端内容</p>
+            <p className="text-muted-foreground">加入题单后可随时练习</p>
           </div>
 
           {bank.loading ? (
@@ -177,7 +153,7 @@ export function OfficialQuestionBank({ bank, authEnabled, isSignedIn }: Official
                           ) : (
                             <Download className="size-4" />
                           )}
-                          {item.is_imported ? "已在我的题库" : isSignedIn ? "导入我的题库" : "正在初始化"}
+                          {item.is_imported ? "已加入题单" : isSignedIn ? "加入我的题单" : "正在初始化"}
                         </button>
                       )}
                       {item.is_imported ? (

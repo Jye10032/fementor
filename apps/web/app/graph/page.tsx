@@ -2,6 +2,8 @@
 
 import { useState, useCallback } from "react";
 import { useRuntimeConfig } from "../../components/runtime-config";
+import { BankNavigation } from "../../components/bank-navigation";
+import { PageShell } from "../../components/page-shell";
 import type { SimNode } from "./graph-shared";
 import Graph2D from "./graph-2d";
 import Graph3D from "./graph-3d";
@@ -28,9 +30,11 @@ export default function GraphPage() {
   const hint = mode === "3d" ? "拖拽旋转 / 滚轮缩放 / 点击高亮" : "拖拽节点 / 滚轮缩放 / 点击高亮";
 
   return (
-    <div className="relative h-[calc(100vh-57px)] w-full overflow-hidden bg-secondary">
+    <PageShell>
+      <BankNavigation />
+    <div className="relative h-[calc(100dvh-240px)] min-h-[480px] w-full overflow-hidden rounded-xl bg-secondary">
       <div className="absolute top-5 left-5 z-10">
-        <h1 className="text-lg font-semibold text-foreground">前端知识图谱</h1>
+        <h2 className="text-lg font-semibold text-foreground">前端知识图谱</h2>
         <p className="mt-1 text-xs text-muted-foreground">
           {loading ? "加载中..." : error ? error : `${stats.nodes} 节点 · ${stats.edges} 条边 | ${hint}`}
         </p>
@@ -85,5 +89,6 @@ export default function GraphPage() {
         <Graph2D apiBase={apiBase} onStats={handleStats} onLegend={handleLegend} onHover={handleHover} />
       )}
     </div>
+    </PageShell>
   );
 }

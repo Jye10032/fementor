@@ -15,6 +15,7 @@ const SOURCE_LABELS: Record<string, string> = {
   doc: "资料文档",
   llm: "AI 追问",
   official_remote: "官方题库",
+  experience: "面经",
   unknown: "未分类",
 };
 const TYPE_LABELS: Record<string, string> = {
