@@ -818,7 +818,8 @@ async function getNextInterviewQuestionRecord(sessionId) {
       `
       SELECT id, session_id, order_no, source, question_type, difficulty, stem, expected_points_json, resume_anchor, source_ref, status, keyword, created_at, updated_at
       FROM interview_question
-      WHERE session_id = $1 AND status != 'answered'
+      WHERE session_id = $1 AND status IN ('asked', 'pending')
+        AND EXISTS (SELECT 1 FROM interview_session s WHERE s.id = interview_question.session_id AND s.status = 'in_progress')
       ORDER BY order_no ASC
       LIMIT 1
       `,

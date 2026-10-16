@@ -1,190 +1,151 @@
-# FEMentor DSH-first Agent Runtime 与 OpenViking 方案
+# FEMentor 多 Agent Runtime、Railway Sandbox 与共享能力方案
 
-- 版本：v1.0
-- 日期：2026-08-26
-- 状态：方向已确认，待分阶段实施
+- 版本：v2.5
+- 日期：2026-10-15
+- 状态：自主主 Agent + 串行专家测试链路已验收；生产灰度、多副本恢复、Claude 与自研 Loop 待实施
+- 实施清单：[多 Runtime 与共享能力分阶段实施清单](todolists/agent-runtime-openviking-implementation-todolist.md)
+- 执行环境细化：[Railway Sandbox 运行与生命周期设计](railway-agent-sandbox-design.md)
 
-## 1. 目标
+## 1. 决策与当前实现
 
-FEMentor 保持开源、自部署和线上托管两种使用方式，同时避免把面试业务绑定到某个模型、Agent CLI 或尚未稳定的 Agent Harness。
+FEMentor 将 Agent 执行器与业务 Workflow 分开。用户可以选择产品已开放的 Codex、Claude Code 或自研 FEMentor Agent；服务端根据任务、权限、认证和可用能力决定是否接受选择。执行器选择与 Agent 分工独立：用户已确认新增一个自主面试主 Agent，可串行选择评分和出题专家；各角色使用的 Runtime/模型/权限仍由服务端 Profile 固定。
 
-本方案确定五个边界：
+2026-10-10 确认以下变更，取代 v1 的 DSH-first 路线：
 
-1. FEMentor 自己负责面试 Workflow、业务状态、评分契约、配额、审计和持久化；PostgreSQL 是唯一业务关系库。
-2. OpenViking 负责面试所需知识、记忆、资源和 Skill 的组织与检索。
-3. DSH、Codex、Claude Code 和直接 API 调用属于可替换的 Agent 执行能力。
-4. 线上托管版与开源本地版都以 DSH 为默认 Agent Runtime，但使用不同的配置、认证和权限策略，并共享相同的业务协议。
-5. SQLite 仅作为历史数据迁移源，不再作为新功能或运行时 fallback；本地开发通过 Docker Compose 使用 PostgreSQL。
+1. Codex、Claude Code、自研 FEMentor Agent 是同级 Runtime，不再以 DSH 为必经入口或仅以其 subagent 形式接入。
+2. Railway 托管版采用“FEMentor 主服务 + 按需 Railway Sandbox”。主服务通过 Railway SDK 管理远程进程，无需为了调用 Agent 再部署一套内部 HTTP Worker Server。
+3. 外层环境隔离覆盖整个 Agent 进程及其子进程。Prompt、规则、Skill 和 Hook 用于任务指导或辅助控制，不能替代文件、进程、网络与凭证的权限边界。
+4. Agent 在获准环境内分析材料、使用分析工具、提交候选结果。正式业务写入与状态流转由 FEMentor 校验后执行。
+5. 领域方法、规则、Skill、工具契约和记忆访问能力共享；各 Runtime 只维护加载、协议和生命周期差异。
+6. 保留已有 `native-api` 与 `dsh` 实现作为迁移基线；本次不删除代码、不变更部署默认值，也不自动切换现有请求。
 
-第一阶段已经确认：
+2026-10-15 进一步确认自主面试方向，实施规格见 [主 Agent v1](../specs/interview-director-v1.md)，执行计划见 [实施计划](../superpowers/plans/2026-10-15-interview-director.md)：
 
-1. 线上托管版使用服务端固定配置的 `DshRuntime`，由 DSH provider 调用固定模型 API。
-2. 开源本地版同样使用 DSH 原生 Agent，通过部署者维护的 provider 配置接入不同模型。
-3. 第一阶段不接入 OpenViking 和 Codex/Claude Code subagent，先完成 DSH 原生 Agent、插件、Skill、Workflow 和单轮评分切片。
-4. Codex/Claude Code 作为后续可选 Worker，只在评测证明有收益的任务上启用。
+- 主 Agent 首版使用隔离的 Codex。宿主明确注入面试角色、共享 Skill、业务状态和工具说明；Codex 自主选择澄清、追问、换题、跳过、结束及专家调用。
+- `run_expert` 是唯一业务工具入口，首版允许评分/出题专家，每轮最多串行调用 2 次。专家不能派生其他 Agent；主模型最多请求 4 次。
+- 工具定义、输入归属、产物引用、预算与最终写入由程序检查。Prompt 决定任务方法，不能授予权限。主 Agent 不填写分数，只能引用当前 attempt 的合法专家产物。
+- 主 Agent 每次用户提交启动一轮，可在该轮内连续调用专家后决策。主/子分别使用一次性沙箱，最多同时 2 个；面试连续性由数据库中的回答、对话、专家产物和提交结果恢复。
+- 新路径用服务端 `INTERVIEW_ORCHESTRATOR=director` 显式启用；已验收单轮评分保留为 `workflow` 回退。具体完成状态以实施清单为准。
 
-“DSH-first”限定的是 Agent 能力主线，不表示所有基础设施都必须等待 DSH 完成。PostgreSQL 单库收敛可以与 DSH 基础能力并行实施，但必须在 OpenViking 资源映射和同步前完成。
+### 1.1 代码基线
 
-### 1.1 方案选择
+本表仅反映 2026-10-10 对仓库 `c804e72` 的源码核对，不代表已验证线上部署：
 
-| 方案 | 结论 | 原因 |
+| 项目 | 当前事实 | 本方案新增目标 |
 | --- | --- | --- |
-| DSH 原生 Agent + 多模型 Provider | 采用 | 先复用 Agent Loop、插件、Skill 和 Workflow 基础设施，同时用 adapter 隔离 RC 版本变化 |
-| 直接自研 FEMentor 专属 Agent Loop | 暂缓 | 领域 Workflow 仍由 FEMentor 持有，但首期没有必要重复实现通用 runtime、工具循环和扩展机制 |
-| 首期直接把 Codex/Claude Code 当主 Agent | 不采用 | 两者在 DSH 中当前更适合 one-shot Worker；会话状态、成本和权限边界不适合直接承载整场面试 |
-| 立即迁移到“万物皆插件”的完整平台 | 不采用 | 当前最需要验证的是一个评分纵向切片，不先建设泛化插件平台 |
+| Runtime ID | `contracts.js` 只定义 `native-api`、`dsh` | 增加 `codex`、`claude-code`、`fementor`，逐个验收启用 |
+| 选择入口 | 服务端 `AGENT_RUNTIME`；代码缺省 `native-api`，`.env.example` 配置 `dsh` | 用户提交获准选项 ID，服务端解析固定 Runtime Profile |
+| 生命周期 | `executeRuntimeTask()` 每个任务 start，finally close | 业务会话映射执行会话，支持租约、超时、重连和环境销毁 |
+| DSH 并发 | API 共享 `DshRuntime`，最多一个 active run，忙时拒绝 | 有界持久化调度，不把多个租户放入一个共享执行环境 |
+| 权限 | DSH 有环境变量筛选及受限 profile | 新增整个实例的外层隔离，不能把 cwd/env 筛选视为沙箱 |
+| 审计 Schema | migration 003 有 `agent_runtime_session`、`agent_run` | 扩展环境、租约、幂等和提交记录；不能假设现有表已支持新状态 |
+| 证据检索 | `retrieveEvidence()` 仍返回空引用；面经召回另有 embedding/图谱链路 | 后续受限 evidence bundle 与 OpenVikingGateway |
 
-这不是永久排除自研 Agent 或 Codex/Claude Code。只有 DSH 原生能力无法满足明确任务，且后续评测能证明收益时，才增加新的 Runtime 或 subagent provider。
+源码入口：[契约](../../apps/api/src/agent-runtime/contracts.js)、[执行生命周期](../../apps/api/src/agent-runtime/execute-task.js)、[运行时选择](../../apps/api/src/agent-runtime/interview-runtime.js)、[DSH 配置](../../apps/api/src/agent-runtime/dsh-config.js)、[审计 migration](../../apps/api/migrations/003_agent_runtime_audit.sql)、[检索入口](../../apps/api/src/retrieval/index.js)。
 
-## 2. 总体架构
+随后实施的首个切片新增 [CodexSandboxRuntime](../../apps/api/src/agent-runtime/codex/runtime.js) 和 [合成评分入口](../../apps/api/scripts/codex-sandbox-smoke.js)：真实 Sandbox 中 Codex 返回评分，宿主校验后确认销毁。随后已加入服务端 `AGENT_RUNTIME=codex` 选择，并用 `CODEX_SANDBOX_ENABLED=1` 显式启用。真实面试接口复用现有 turn service，在 Codex 分支先规划、后原子提交，使用独立合成数据验证；线上默认配置未切换。版本、运行 ID、网络检查与未完成边界见 [第二个切片记录](railway-agent-sandbox-design.md#10-2026-10-10-出站隔离与面试接口接入)。
 
-```text
-                         FEMentor Domain Workflow
-                出题 / 回答 / 评分 / 追问 / 复盘 / 练习
-                                      |
-                    +-----------------+-----------------+
-                    |                                   |
-             AgentRuntime                      OpenVikingGateway
-                    |                                   |
-          +---------+---------+               OpenViking TypeScript SDK
-          |                   |             确定性导入 / 检索 / 证据读取
-  NativeApiRuntime        DshRuntime
-                              |
-                       DSH Native Agent -------- OpenViking DSH Memory Plugin
-                              |
-                  +-----------+-----------+
-                  |           |           |
-              fast model  balanced model  quality model
+第四个切片已在独立 Railway 测试环境完成运行中 SIGKILL → 自动重启 → 已知 Sandbox 回收 → 同一回答重新提交的实际验证。回收器依赖单 API owner 与持久化日志，保留未知创建结果的人工核对，尚无多副本租约或业务重放；证据见 [异常退出回收记录](railway-agent-sandbox-design.md#12-2026-10-10-异常退出后的资源回收)。
 
-                  后续阶段按需增加：
-                    Codex / Claude Code subagent
+## 2. 职责边界
+
+| 层 | FEMentor 应持有的能力 | 不应放入这一层的能力 |
+| --- | --- | --- |
+| 业务状态与提交程序 | 身份/归属、题目队列、评分契约、配额、复盘、候选校验与正式提交 | 外部 Agent 的私有线程对象 |
+| 面试主 Agent | 理解本轮回答、自主选择面试动作与获准专家、解释合法结果 | 自选 Runtime/权限、直接填写正式分数或写库 |
+| 运行宿主 | Runtime 选择、TaskBundle、调度、deadline、租约、校验、审计、环境回收 | 让另一个 LLM 代替程序实施权限 |
+| SandboxManager | 创建/连接/销毁隔离环境，文件交付，进程通道，资源策略验证 | 面试评分和题库写入 |
+| AgentRuntime Adapter | Codex/Claude/自研协议、事件归一化、认证配置引用、能力协商 | 直接改变业务数据库 |
+| Agent Harness | 模型与工具循环、内部上下文、局部规划和恢复 | 跨用户访问及最终业务裁决 |
+| 共享能力包 | 评分 rubric、任务 Skill、规则、输入输出 Schema、工具定义和加载素材 | 数据库密码、运行时租约、可绕过的业务检查副本 |
+| 记忆/检索服务 | 主服务持有的权限过滤、范围检索、证据读取、记忆候选审核 | 让插件自动覆盖正式评分或能力画像 |
+
+这里的 FEMentor 运行宿主是可信程序模块；面试主 Agent 是由该程序装配角色和工具的 Codex 实例。自研 `FEMentorAgentRuntime` 则是未来可替换 Codex 的 Agent Loop，三者职责不同，可独立演进。稳定业务约束必须在程序中执行；Skill 中可保留分析方法和无特权辅助脚本，同一脚本也可被自研 Runtime 调用。
+
+PostgreSQL 是目标架构的唯一结构化业务真源，文件/对象存储保存原始材料。OpenViking 是可重建的上下文与索引层。单库收敛的完成情况以其专项清单和实际验证为准，不因本次方案更新视为完成。
+
+## 3. 总体架构与部署
+
+```mermaid
+flowchart TB
+    User[候选人提交回答] --> API[FEMentor 主服务]
+    API --> DB[PostgreSQL / 业务快照与正式提交]
+    API --> Host[可信宿主：权限 / 预算 / 校验 / 回收]
+    Host <-->|固定角色与受控协议| Main[主 Agent Sandbox：Codex]
+    Main -->|run_expert 候选请求| Host
+    Host <-->|串行单任务| Expert[专家 Sandbox：评分或出题]
+    Host --> Model[固定模型服务]
+    Host --> Context[材料与可选 OpenViking 检索]
 ```
 
-核心原则：**Workflow-first，Agent-as-runtime，OpenViking-as-context workspace**。
+图中“受控模型入口”在合成原型中已实现为通过 SDK 控制通道回传的宿主模型转发；现已通过独立 network/PID namespace、仅 loopback 接口和无特权身份阻断 Agent 直接出站，模型走同一 stdio 中继；Railway 默认联网本身不提供这一约束。
 
-OpenViking 不是一个只返回相似文本片段的向量数据库。它提供 `resources / memories / skills / sessions` 统一上下文文件系统、L0/L1/L2 渐进读取、检索、会话归档、长期记忆提炼和版本能力。向量索引是其检索镜像，不是 FEMentor 的事实源。
+### 3.1 Railway 托管版
 
-模型或 Agent 可以提出评分、检索和追问建议，但最终的状态流转、数据库写入、配额检查、重复题检查和审计记录必须由 FEMentor 服务端完成。
+- 主服务继续承载 API、业务权限、数据访问和调度模块。首期不增加独立 HTTP Worker 服务，也不在 API 容器内嵌套启动 Docker 来隔离 Agent。
+- 通过 Railway SDK 创建独立 Sandbox，将已安装执行器和依赖的干净模板用于启动；用户材料、凭证和会话日志不进入共享模板。
+- Codex 在 Sandbox 内运行 App Server，主服务经 SDK 的进程输入输出通道交互。跨网络通信由平台承载，不等于本机 `spawn()`，也不要求开放 Sandbox 公网端口。
+- 默认 `ISOLATED`，不发布 Sandbox 域名。主服务查询数据后投递任务包；结果沿原通道返回。首期不要求 Sandbox 直接连接数据库、OpenViking 或主服务内网。
+- Railway 管理凭证、数据库密钥、对象存储管理密钥留在主服务。模型认证使用已验证的专用服务配置，长期凭证优先由模型网关保管；不得复用当前开发者桌面登录态。
+- 本方案的网络目标是只允许必要模型入口；默认 `ISOLATED` 仍有公网出站，完整出网限制作为托管启用前的必验项，详见执行环境设计。
 
-## 3. 部署形态
+### 3.2 本地自部署
 
-### 3.1 线上托管版
+- 使用相同 Runtime、TaskBundle、Skill 和提交契约，替换为本地容器/虚拟机实现的 SandboxManager。
+- 本地直接子进程只可作为明确标注的开发模式，不宣称具有与托管沙箱相同的隔离能力。
+- 部署者通过服务端配置管理可用执行器和认证。浏览器不读取 Agent 凭证，不提交任意命令、镜像、MCP 地址或模型 Base URL。
+- 平台隔离实现不同，不改变 PostgreSQL、文件及派生索引的权威边界。
 
-调用链：
+## 4. 执行器选择与能力共享
 
-```text
-Web -> FEMentor API -> DshRuntime -> DSH Native Agent -> 固定模型 API
-                      -> OpenViking Service
-```
+### 4.1 执行器路线
 
-约束：
+| Runtime | 集成方式 | 计划定位 |
+| --- | --- | --- |
+| `codex` | Sandbox 内 App Server，Adapter 收发其协议 | 首个沙箱评分切片 |
+| `claude-code` | Sandbox 内运行官方 Agent SDK/CLI 及 FEMentor 适配进程 | 第二个执行器；须单独验证取消、会话、Skill、认证和输出协议 |
+| `fementor` | 自研模型/工具循环，以同一任务协议运行 | 按需建设，可在程序中实现专属上下文、工具调度和步骤策略 |
+| `native-api` | 现有受限模型 API 调用 | 保留比较及显式回退路径，不等于完整自研 Agent Harness |
+| `dsh` | 现有适配器 | 兼容路径；不再是其他执行器或记忆接入的前置条件 |
 
-1. 模型 provider、API endpoint、模型白名单和降级策略由服务端固定配置。
-2. Runtime、Cordis Profile、Skill、Tool、Workflow 和 subagent 均由服务端固定，前端不提供选择或上传入口。
-3. 不向普通用户暴露自定义 LLM Base URL、API Key 或模型覆盖能力。
-4. 不接收或复用用户本机 Codex、Claude Code、DSH 的认证信息。
-5. 服务端统一控制超时、重试、结构化输出、成本和调用审计。
+首期接通 Codex 不等于其余执行器已经可选。UI 仅展示服务端确认可用的 Profile；用户可选执行器不代表可自定义权限。运行中的任务固定 Profile 版本，切换执行器从下一个合法任务边界开始，按业务快照重建上下文，不搬运私有线程对象。失败时明确返回错误，不能未经明确策略跨执行器重试。
 
-### 3.2 开源本地版
+### 4.2 共用插件与自研 Harness
 
-优先调用链：
+共享能力以一个版本化源包维护，各平台生成自己的安装配置；不假设一份插件 manifest 能直接跨平台运行。
 
-```text
-Web -> Local FEMentor API -> DshRuntime -> DSH Native Agent -> 不同模型 Provider
-                             -> Local OpenViking
-```
+| 共用内容 | 外部 Agent 如何接入 | 自研 Agent 如何接入 |
+| --- | --- | --- |
+| 任务方法、评分 rubric、输出说明 | Skill 与规则素材 | 同源 Prompt/SkillLoader |
+| 输入输出 Schema、工具定义 | Adapter 转换为对应协议 | 直接使用同源定义 |
+| 记忆与证据查询 | 首期由 TaskBundle 提供；后续由经校验的工具桥接提供 | 同一受限查询接口 |
+| 分析辅助脚本 | 在沙箱临时目录执行，无业务写凭证 | 可直接调用相同模块或脚本 |
+| 配额、状态流转、落库、审批条件 | FEMentor 服务端执行 | 仍由 FEMentor 服务端执行 |
 
-初步策略：
+共享记忆指共享访问契约和同一用户的已审核资料，不是多个用户共用可读写文件夹。记忆写入采用候选提交，审核/校验后由主服务持久化；不让每种 Agent 各自沉淀一套不可追踪的正式画像。
 
-1. 默认使用 DSH 原生 Agent；模型通过代码、环境变量或 DSH provider 配置接入。
-2. DSH 未安装或配置不可用时明确返回 `runtime_unavailable`，不静默退化到 `NativeApiRuntime`。
-3. 浏览器不得直接读取本机 Agent 凭证；本机 Agent 的认证由 DSH、Codex 或 Claude Code 官方机制负责。
-4. FEMentor 不解析、不上传 Codex/Claude 的私有凭证和会话文件。
-5. DSH 当前仍处于 RC 阶段，因此只能位于适配层，不能成为 FEMentor 业务事件和存储格式的一部分。
-6. 第一阶段保持 Agent Loop、Skill、工具和权限策略一致，为后续模型评测保留可比较基础。
+## 5. Runtime 与任务契约
 
-本地版与托管版共享 PostgreSQL schema 和 migration。缺少 `DATABASE_URL` 时 API 必须明确报错，不能静默切换到 SQLite，避免同一套功能因部署配置不同而写入不同数据库。
+以下为目标契约，未修改现有代码。保留 `startSession/runTurn/resumeSession/cancelTurn/closeSession` 的概念；把会话结束和 Sandbox 销毁分别交给 Runtime 与 SandboxManager 管理。
 
-“DSH 是否为开源版必选依赖”暂未最终决定。当前倾向是默认使用但不强制依赖。
+| 契约 | 关键字段/约束 |
+| --- | --- |
+| RuntimeProfile | `runtimeId`、固定版本、模型配置引用、共享能力包版本、工具策略、输出 Schema 版本；由服务端登记 |
+| TaskBundle | `runId`、`taskType`、输入、必要业务快照、证据/记忆子集、资源 hash、Skill refs、Schema、预算；不带管理凭证 |
+| RunPolicy | 服务端绑定 owner、业务 session、资源范围、允许工具、deadline、并发和提交权限；不由模型输出覆盖 |
+| ExecutionSession | FEMentor ID 映射 sandbox ID、远程进程会话 ID、Agent thread ID、owner、租约及 generation；仅后台可见 |
+| CandidateResult | `runId`、任务 Schema 内的数据、证据引用；由主服务从已绑定通道接收，不信任结果自报的身份 |
+| Commit | 服务端校验 Schema、业务版本、归属、证据和幂等后提交；Agent 完成与业务提交分开记录 |
 
-## 4. DSH 与 Codex 的关系
+预算字段要区分“配置了”与“实际可强制执行”。无法精确限制内部步骤或 Token 的执行器必须报告能力差异，至少执行外层 deadline、并发、输出大小和资源上限，不把估算成本冒充硬预算。
 
-DSH 不只是把 Codex 当作一个模型。当前 DSH 包中存在：
+事件继续归一为 FEMentor 业务可消费的事件。`completed` 仅表示执行器产出候选结果；面向用户的成功结果必须在提交完成后发出。原始工具输出、内部推理、系统指令和未校验评价不直接转发给浏览器。
 
-- `@deepseek-ai/dsh-subagent-codex`：通过 Codex 官方 app-server 协议执行一次性 Codex subagent。
-- `@deepseek-ai/dsh-subagent-claude-code`：通过 Claude Agent SDK 执行一次性 Claude Code subagent。
+首期业务工具集可以为空：只给任务包，接收候选结果。后续需要主动查询时，由 Adapter 将执行器工具请求转给主服务的 ToolGateway。Codex 动态工具通道属于实验能力，须单独验证；不支持的执行器继续使用任务包，不为兼容而开放任意 HTTP/数据库权限。
 
-因此从 FEMentor 外部看，DSH 是一个 Agent Runtime；从 DSH 内部看，Codex 和 Claude Code 是可选择的 Subagent Provider。
+## 6. OpenViking 与上下文设计（后续阶段）
 
-第一阶段不启用 Codex/Claude Code subagent，也不维护对应的直连接口。只实现：
-
-1. `DshRuntime`
-2. `NativeApiRuntime`
-
-完成 DSH 原生 Agent 的模型评测后，再判断哪些任务需要 Codex/Claude Code one-shot subagent。只有在 DSH 无法提供所需能力或稳定性不足时，才考虑增加 `CodexRuntime`、`ClaudeCodeRuntime` 直连适配器。
-
-## 5. AgentRuntime 初步契约
-
-```ts
-type AgentRuntimeId = "native-api" | "dsh" | "codex" | "claude-code";
-
-type AgentCapabilities = {
-  tools: boolean;
-  skills: boolean;
-  openViking: boolean;
-  filesystem: boolean;
-  sandbox: boolean;
-  structuredOutput: boolean;
-  sessionResume: boolean;
-};
-
-type AgentSessionRef = {
-  id: string; // FEMentor internal ID
-  runtimeId: AgentRuntimeId;
-};
-
-type AgentSessionRequest = {
-  interviewSessionId: string;
-  runtimeConfigRef: string;
-};
-
-type AgentRunRequest = {
-  runId: string;
-  session: AgentSessionRef;
-  taskType: "evaluate-answer" | "generate-questions" | "suggest-follow-up" | "retrospect";
-  input: unknown;
-  contextRefs: string[];
-  skillRefs: string[];
-  outputSchema: unknown;
-  budget: { deadlineMs: number; maxSteps: number; maxTokens?: number };
-};
-
-interface AgentRuntime {
-  id: AgentRuntimeId;
-  capabilities(): Promise<AgentCapabilities>;
-  startSession(request: AgentSessionRequest): Promise<AgentSessionRef>;
-  runTurn(request: AgentRunRequest): AsyncIterable<AgentEvent>;
-  resumeSession(session: AgentSessionRef): Promise<void>;
-  cancelTurn(runId: string): Promise<void>;
-  closeSession(session: AgentSessionRef): Promise<void>;
-}
-```
-
-`AgentSessionRef` 是 FEMentor 生成的稳定引用，内部映射 DSH session ID；它不向领域层暴露 DSH 对象。`NativeApiRuntime` 也实现同一生命周期，但可以使用无状态的轻量 session。`AgentRunRequest` 只包含 session ref、任务类型、业务输入、上下文引用、Skill 引用、输出 Schema 和执行预算，不透传 DSH 内部对象。
-
-`AgentEvent` 应收敛为 FEMentor 稳定事件，例如：
-
-- `started`
-- `status`
-- `tool_call`
-- `tool_result`
-- `output_delta`
-- `completed`
-- `failed`
-
-会话恢复只恢复 Agent 执行上下文，不直接恢复或推进面试业务状态。FEMentor 必须先从 PostgreSQL 读取 `interview_session` 和待处理 turn，再决定是否允许调用 `resumeSession()`。
-
-## 6. OpenViking 官方集成方案
+本节保留原方案的资源映射与证据边界，消除对 DSH 插件的依赖。URI/API 示例源于 2026-08 的设计调研，进入该阶段时须重新核对安装版本；不作为已实现能力清单。
 
 ### 6.1 采用的官方使用模式
 
@@ -210,21 +171,13 @@ OpenViking 官方视频与 Coding 方案采用的是同一条上下文闭环：
 
 沿用官方 Coding 方案的职责表述：**记忆负责发生过什么，检索负责去哪里找，FEMentor 的业务库和对象存储负责现在是什么**。
 
-### 6.2 双通道接入
+### 6.2 主服务统一接入
 
-目标架构不自建一套包含自动召回、消息捕获和 commit 的 `OpenVikingContextProvider`，而是拆成两条边界清晰的官方接入通道：
+由 `OpenVikingGateway` 统一处理身份、限定范围检索、资源导入、会话投影和异步状态。各种 Runtime 消费相同的 evidence/memory bundle；以后开放主动查询时，仍通过 FEMentor 的受限工具契约。
 
-```text
-FEMentor Backend -> @openviking/sdk -> OpenViking
-  负责资源导入、处理状态、限定范围检索、L0/L1/L2 读取和证据引用
+记忆与证据是两个用途：正式评分引用必须能够回查权威材料；偏好和历史经验只作辅助上下文。由主服务确定每个业务会话/任务对应的 OV session 映射和唯一写入者，按消息/事件 ID 幂等同步。运行时插件不能再独立重复捕获、自动 commit 同一份正式记忆。
 
-DSH Native Agent -> OpenViking 官方 DSH Memory Plugin -> OpenViking
-  负责会话开场注入、每步自动召回、消息捕获、阈值/teardown commit 和模型工具面
-```
-
-这两条通道在 DSH 基础能力和业务切片完成后再分阶段接入。FEMentor 侧只保留一个薄的 `OpenVikingGateway`，封装身份、超时、范围校验、SDK 错误和观测字段，不重复实现 OV 的分层检索器、Session 归档或记忆提炼逻辑。
-
-官方 DSH 插件会把每个 DSH session 映射为独立 OV session，subagent 也会创建独立 session。因此 DSH 路径下 FEMentor 不应再次把同一批消息写入另一个 OV session；只保存 DSH session、OV session URI 与业务 `interview_session.id` 的映射。
+OpenViking 可选且后置；Runtime、共享 Skill 和 Sandbox 生命周期都不依赖它先上线。原 DSH Memory Plugin 双通道仅保留为历史研究，不再作为本方案默认实现。
 
 ### 6.3 权威存储边界
 
@@ -234,7 +187,7 @@ DSH Native Agent -> OpenViking 官方 DSH Memory Plugin -> OpenViking
 | 简历、JD 原文件和解析结果 | 对象存储或本地文件 + 数据库元数据 | 用户私有 `resources` 镜像 |
 | 公开面经原文、清洗结果、题目结构 | PostgreSQL | 公共 `resources` 镜像，供语义导航和证据读取 |
 | 用户可见的能力画像和复盘结论 | FEMentor 结构化记录 | 可投影为 `memories`，用于辅助召回 |
-| DSH 会话归档和自动提炼记忆 | OpenViking | Agent 的辅助长期上下文，不直接覆盖业务画像 |
+| Agent 会话投影和自动提炼记忆 | OpenViking | 辅助上下文；由主服务管理同步，不直接覆盖业务画像 |
 | 面试策略、评分规则、Workflow Skill | Git 中的版本化 Skill 文件 | 部署到 `skills` 的运行时副本 |
 | L0/L1 摘要、向量、检索分数 | OpenViking | 派生索引，可重建 |
 | 检索结果 | 非权威临时数据 | 返回 URI、层级、分数、来源和按需正文 |
@@ -273,7 +226,7 @@ viking://user/{ov_user_id}/skills/{skill_name}/
 viking://agent/skills/{shared_skill_name}/
 ```
 
-面试场次不复制简历和 JD 原文。现有简历/JD 没有独立业务表 ID，因此由派生同步表的 `context_resource_id` 映射当前文件或对象存储路径；面经直接使用现有 `experience_post.id`。`interview_session` 保存本次使用的资源引用、允许的面经集合和对应 `viking://` URI。这样同一资源只导入一次，场次通过不可变引用固定证据范围。
+面试场次不复制简历和 JD 原文。现有简历/JD 没有独立业务表 ID，因此由稳定的 `context_resource.id` 映射当前文件或对象存储路径，再关联目标索引同步记录；面经直接使用现有 `experience_post.id`。`interview_session` 保存本次使用的资源引用、允许的面经集合和对应 `viking://` URI。这样同一资源只导入一次，场次通过不可变引用固定证据范围。
 
 公共面经只放已审核、允许所有租户访问的内容。用户上传、私有面经和未公开材料必须放在用户 namespace，不能放入 `viking://resources`。
 
@@ -284,8 +237,8 @@ viking://agent/skills/{shared_skill_name}/
 1. ROOT Key 只用于创建 account/user、轮换 Key 和运维，不用于普通数据请求。
 2. Backend 为每个业务请求解析出固定 `ov_user_id`，再以该用户身份调用 OV；OV Key 不下发浏览器。
 3. `ov_user_id` 使用稳定的内部 ID，禁止让客户端自行传入。
-4. 每个 FEMentor Agent run 映射到独立 OV session，并在数据库记录双向关联。
-5. 若一个 OV User 下需要隔离多个工作区或外部参与者，再使用 `peer_id`；DSH 进程按 run 显式设置 peer，召回使用 `peer_scope=actor`。
+4. 明确业务会话与 OV session 的映射，每个 Agent run 记录所用映射；不按每次进程启动重复创建并提交同一批消息。
+5. 若一个 OV User 下需要隔离多个工作区或外部参与者，再使用 `peer_id`；Gateway 按任务显式设置 peer，召回使用 `peer_scope=actor`。
 
 第一阶段不把 `peer_id` 当作用户隔离手段。用户隔离必须由 OV User/API 身份完成，Peer 只是在同一用户内部进一步限定工作区。开源单用户版可以使用一个本地 User，但仍沿用相同 URI 结构，避免以后迁移时重写数据。
 
@@ -321,13 +274,13 @@ FEMentor 生成 query 和允许的 target URIs
 | `read()` | 只读取通过 URI 前缀校验的少量候选；目录先读 L1，必要时再读 L2 |
 | `grep/glob` | 精确术语、题号、公司名或文件定位的补充路径，不替代语义检索 |
 
-`search(mode="context")` 当前不支持 `target_uri`，所以不能满足“本次只允许访问指定简历/JD/面经”的硬约束。DSH 插件可以在用户/Peer 隔离后将其用于记忆自动召回，但该结果不能直接作为正式评分证据。正式评分必须保留可审计的资源 URI、读取层级、source hash/revision 和引用正文。
+`search(mode="context")` 当前不支持 `target_uri`，所以不能满足“本次只允许访问指定简历/JD/面经”的硬约束。Backend 可以在用户/Peer 隔离后将其用于辅助记忆召回，但该结果不能直接作为正式评分证据。正式评分必须保留可审计的资源 URI、读取层级、source hash/revision 和引用正文。
 
 Agent 可以建议 query 或请求加深读取，但不能传入任意 `target_uri`。目标 URI 由 FEMentor 根据本次 session 的资源引用在服务端生成。
 
 ### 6.8 Session、commit 与长期记忆
 
-Native API 路径：
+所有 Runtime 共用主服务管理的同步路径：
 
 1. 每个 Agent run 创建或复用一个明确映射的 OV session。
 2. 只写入对后续理解有价值的 user/assistant 消息和必要的上下文引用；原始大工具输出留在业务日志或对象存储，以 URI 引用进入 OV。
@@ -335,101 +288,86 @@ Native API 路径：
 4. 在 `retrospect` 完成、正常关闭或达到明确阈值时 commit。
 5. commit 的 Phase 1 会立即归档，Phase 2 的摘要和记忆提炼异步执行；需要记录 `task_id` 并观测完成/失败，不能把 accepted 当作已提炼完成。
 
-DSH 路径由官方 Memory Plugin 捕获消息并在 token 阈值或 teardown 时 commit，FEMentor 不重复写入和提交。异常退出可能留下未 commit 的尾部消息，pending queue 会在后续会话重放，但 `SIGHUP`、强制终止等路径不能视为已持久化成功。
+Agent 退出或 Sandbox 被销毁不代表记忆已提交。主服务只同步已确认的消息和业务结果，用 outbox 重试与核对任务状态；不依赖 Agent 的 teardown hook 完成正式记录。
 
 OV 自动提炼的记忆只用于后续 Agent 召回。用户可见的 `stable_strengths / stable_weaknesses / recommended_focus` 仍由 FEMentor retrospect 流程生成、校验和持久化，不能被 OV 自动记忆直接覆盖。
 
-### 6.9 DSH Agent 的 OV 工具策略
+### 6.9 Agent 的记忆与证据工具策略
 
-官方 DSH 插件会向模型提供统一 MCP 工具面。FEMentor 必须在真实工具层做白名单控制，不能只靠 prompt 约束：
+首期评分只接收 Backend 预取的 bundle。后续最多开放 `retrieve_interview_evidence`、`read_allowed_memory` 等业务工具，资源身份与范围由主服务绑定；Agent 不能传任意用户、路径或 OV URI。
 
-| 策略 | 工具 |
-| --- | --- |
-| 默认允许 | `find`、`search`、`read`、`list`、`tree`、`grep`、`glob`、`health` |
-| 仅在显式复盘/学习任务允许 | `remember` |
-| 仅 Backend 允许 | `write`、`edit`、`add_resource`、`list_watches`、`cancel_watch` |
-| Agent 永不允许 | `forget` |
+资源导入、编辑、删除、Watch 管理、Skill 发布和正式记忆写入均由 Backend 执行。`propose_memory` 只提交候选，不直接调用 OV 写接口。即使通过 MCP 分发，也必须由服务端鉴权与校验；MCP 协议本身不提供业务权限保证。
 
-`forget` 是不可恢复删除，而且 MCP 层不区分 memory/resource/skill，风险不能通过命名约定消除。MCP 也不能新增 Skill，Skill 发布应走部署脚本、REST 或 `ov add-skill`。
+## 7. 结果校验与业务提交
 
-上述“默认允许”只适用于通用助理任务。正式评分 Worker 不直接获得通用 `find/search/read` MCP 工具，而是接收 Backend 已限定范围并读取完成的 evidence bundle，或只获得 FEMentor 自己封装的 `retrieve_interview_evidence` 工具。这个工具的输入不包含 `target_uri`，目标范围只能由服务端根据 `interview_session` 生成。
+1. 身份和资源范围从已授权请求解析；候选人回答、简历/JD、面经、工具结果和记忆作为不可信内容处理。
+2. 各执行器共用输入输出 Schema 和业务 Validator。评分校验枚举、条件必填、长度、总分范围、维度范围与总分一致性；证据引用只能来自获准 bundle。
+3. 追问数量、关键词轮次、题目重复、面试状态和配额由程序检查；Agent 只能建议下一步。
+4. 候选结果通过后，在事务内检查业务版本与幂等键，再写评分/题目队列和提交记录；进程正常退出不等于结果可提交。
+5. 正式面试中的参考答案披露策略、Prompt Injection 处置和 SSE 输出校验沿用统一服务端策略。只发送安全状态进度；未经校验的评价、答案和内部工具内容不直接流向候选人。
+6. 无效输出可在预算内修复一次；仍不合法则明确失败，不把占位值或另一个模型的临时回复当作已验收评分。
+7. 失败、超时、取消、版本冲突和租约失效不得推进面试状态。重复结果只可读回原提交，不重复扣配额或写入。
 
-如果当前 DSH profile 无法按工具名过滤，则接入 OV Agent 工具面时应增加 FEMentor 控制的 MCP allowlist proxy，或关闭 Agent 主动 OV 工具面，仅保留 Backend SDK 的确定性检索。不能在全量 15 工具暴露的情况下依赖模型自律。
+## 8. 隔离与凭证策略
 
-## 7. Skill 与 Workflow
+外层隔离负责限制影响范围，服务端校验负责决定业务提交能否生效。Agent 内部在临时目录进行无特权分析，不需要 FEMentor 审核每一条 Python/Shell 指令；所有可访问或改变业务数据的入口则必须由主服务掌握。
 
-Skill 用于封装可版本化、可审查的面试能力，例如：
+- 不将整个 FEMentor 仓库、宿主 HOME、Docker 管理 socket、数据库网络凭证或 Railway 管理凭证放入 Agent 环境。
+- 任务输入和共享包以只读方式提供，临时目录可写；该权限必须对 Agent 的实际 OS 身份生效，Agent 不得拥有可撤销限制的提权或网络管理能力。
+- `ISOLATED` 只解决项目私网隔离，不等于公网 allowlist。必须验证不可绕过的出网路径；代理环境变量、Prompt 和插件工具列表均不能单独证明隔离完成。
+- 不连接在沙箱外拥有广泛执行或写入权限的 MCP/宿主工具。远程工具的副作用不受本地文件沙箱约束。
+- 只向 Agent 提供短期、限用途身份。真实模型凭证的代理转发需验证协议兼容性与部署支持；网关限制上游、模型、路由、请求大小和额度，不能是任意地址转发器。
+- 不以当前桌面账户的 auth/session 文件替代托管产品认证。外部执行器的服务端使用方式和可用模型需在接入阶段单独确认。
+- Codex 内层沙箱可保留为额外限制；`externalSandbox` 只表示由外部承担隔离，不能通过设置该字段凭空获得沙箱。启用前必须验证外层策略，失败时拒绝新任务。
 
-- `resume-grounded-question`
-- `frontend-answer-evaluation`
-- `evidence-retrieval`
-- `follow-up-suggestion`
-- `interview-retrospect`
+具体网络验证、租约、取消和销毁标准见 [Railway Sandbox 运行设计](railway-agent-sandbox-design.md)。
 
-Skill 负责告诉 Agent 如何完成一个有边界的任务；FEMentor Workflow 负责决定何时调用、调用次数、输入范围和结果是否生效。
+## 9. 迁移策略
 
-Skill 的 Git 仓库版本是权威源，OpenViking 中的是部署副本。官方 `add_skill` 当前始终写入 user-scoped Skill 根，因此接入 OV Skill 时把产品 Skill 通过部署任务同步到各运行用户的 `viking://~/skills`。`viking://agent/skills` 只作为未来的共享只读根，必须先验证官方支持的管理写入机制。任何 Skill 更新都必须经过校验、版本记录和回滚，不允许面试 Agent 自行改写。
+本次只更新文档。代码基线中的 DSH/native 配置、依赖和数据库 Schema 保持原样，新 Runtime 必须完成验收后才加入服务端可选列表。
 
-不采用“让 Agent 自由决定整个面试流程”的方式。第一阶段由 FEMentor Workflow 调用 DSH 原生 Agent 完成有边界的任务，不启用 subagent。后续只把 Codex/Claude Code subagent 用于代码分析、项目仓库核查或复杂证据复核等局部 Worker。
-
-## 8. 安全与失败降级
-
-1. 所有 Agent 调用必须有超时、最大轮数、最大并发和取消机制。
-2. DSH/Codex/Claude Code 的文件系统权限应默认限制在 FEMentor 工作目录和显式资源目录。
-3. OpenViking 不可用时，面试主流程可以继续，但结果标记为“无外部证据”。
-4. DSH 不可用时明确提示运行时不可用，不自动切换到 `NativeApiRuntime` 或未知模型；Native 路径只允许部署者显式配置用于迁移和调试。
-5. Agent 输出必须通过 FEMentor Schema 校验，失败时重试一次或进入确定性 fallback。
-6. 工具白名单、追问次数、重复题检查、数据写入和审计始终由 FEMentor 控制。
-7. 只有启用 DSH Memory Plugin 后才做有界 OV 健康探测；连续失败时跳过插件自动召回并降级，避免官方插件的同步 pre-step 健康检查反复阻塞请求。
-8. `/health` 只证明服务进程存活；部署和启动时还需要 `openviking-server doctor` 验证模型、存储和鉴权配置。
-9. OpenViking 的 ROOT Key、外部资源凭证和用户 Key 不进入 prompt、Agent 工具结果或浏览器响应。
-
-## 9. 待社区调研的问题
-
-1. DSH 官方建议宿主应用通过什么稳定接口启动任务、消费流式事件和取消任务？
-2. `dsh-subagent-codex` 是否复用本机 Codex 登录态，部署时有哪些认证约束？
-3. Codex/Claude Code subagent 的工作目录、权限、沙箱和超时如何配置？
-4. one-shot subagent 是否适合面试场景，还是应由 DSH 主 Agent 保持会话、按任务调用 subagent？
-5. DSH 的 Skill、Workflow 和 OpenViking/MCP 类上下文工具应如何组合？
-6. DSH RC 版本的协议稳定性、升级兼容策略和生产使用建议是什么？
-7. 是否已有将 DSH 嵌入 Web/API 产品、而不是直接作为交互式 Agent 使用的参考实现？
+- 首个任务为 `evaluate-answer`，先验证无业务工具的任务包输入与结构化候选输出。
+- 复用现有 Runtime 边界、评分流程和审计记录，不复制整套面试逻辑；新增 SandboxManager 和 Codex Adapter。
+- 原 `executeRuntimeTask()` 的逐任务关闭语义需要改造或增加新的执行宿主，不能直接把 closeSession 等同销毁整场面试环境。
+- 旧 [DSH Worker Pool 设计](dsh-worker-pool-design.md) 标为历史方案；其有界调度、幂等和恢复目标迁入通用运行设计，不继续建设 DSH 专属进程池作为前置步骤。
+- 自研 Agent 与外部 Agent 同级接入。只有出现明确的专属循环、上下文或成本需求时，才实现自研 Loop；固定业务逻辑先收敛为共享后端服务。
+- 新路径按任务灰度，保留可追踪的显式回退。Runtime 切换与业务 pipeline、LLM client、数据库迁移分别配置，避免一个开关改变多个边界。
 
 ## 10. 实施顺序
 
-具体任务与验收条件见 [分阶段实施清单](todolists/agent-runtime-openviking-implementation-todolist.md)。执行分为两条主线，并在 OV 接入前汇合：
-
-1. Agent 主线先定义 `AgentRuntime`、`AgentEvent` 和 capability contract。
-2. 固定 DSH 版本，通过官方 subprocess SDK 实现 `DshRuntime`。
-3. 验证 DSH 插件、Skill、Workflow 和工具白名单。
-4. 先把单轮回答评分作为纵向切片接入 DSH，再逐个迁移出题、追问建议和复盘 Worker。
-5. 数据主线并行按 [PostgreSQL 单库收敛设计](postgresql-single-database-convergence-design.md) 结束运行时双驱动，稳定业务 ID 与 migration。
-6. 两条主线均通过各自验收后，在 PostgreSQL 中建立资源、outbox、OV 同步状态和 Session 映射。
-7. 接入 `@openviking/sdk`，实现薄 `OpenVikingGateway` 和异步资源同步。
-8. 保留现有面经 embedding 与知识图谱召回，用 OV 补充长文档语义定位和证据读取。
-9. Backend RAG 稳定后，再安装官方 DSH Memory Plugin 完成长记忆闭环。
-10. 评测、模型路由和 Codex/Claude Code one-shot subagent 作为后置独立阶段。
-
 ```text
-Agent 主线: Runtime contract -> DshRuntime -> 插件/Skill/Workflow -> 评分切片 -> 其他 Worker
-                                                                  \
-                                                                   -> OV 映射/同步 -> 混合 RAG -> Memory Plugin
-                                                                  /
-数据主线: PostgreSQL 基线 -> repository 收敛 -> SQLite 导入/切换 -> graph 回归
+代码基线与契约
+  -> Railway Sandbox 进程通道和权限验证（合成材料）
+  -> Codex Adapter + 共享 Skill + 单轮评分 + 结果提交
+  -> 回答持久化 / 取消回收 / token 预算
+  -> 主 Codex 自主决策 + 串行评分/出题专家 + 受控提交
+  -> Claude Adapter + 用户可选 Runtime
+  -> 按任务扩展 / 按需自研 FEMentor Agent
+
+并行数据主线：PostgreSQL 单库收敛
+  -> 稳定资源身份与 outbox
+  -> OpenViking 同步与受限证据检索
+  -> 共用记忆候选与审核闭环
 ```
 
-## 11. 当前未决项
+无需等待 Claude、自研 Agent 或全部面试任务迁移完成，才开始独立的数据工作；正式 OV 接入仍须通过数据主线与所接业务任务的验收。详见 [实施清单](todolists/agent-runtime-openviking-implementation-todolist.md)。
 
-- 开源版是否强制安装 DSH。
-- 托管版具体使用哪家模型 API 和模型白名单。
-- 托管版 OpenViking 采用同机服务还是独立服务部署，以及备份、扩容和恢复目标。
-- Skill 的仓库位置、版本协议和分发方式。
-- Codex/Claude Code subagent 的启用门槛和候选任务。
-- 本地版如何展示运行时发现、认证状态和 capability 差异。
-- DSH profile 是否支持可靠的 MCP 工具级 allowlist；若不支持，采用哪种只读代理。
-- DSH Memory Plugin 能否按 FEMentor 需要限制 memory policy；在验证前，自动记忆只作辅助上下文。
-- 公共面经从业务库同步到 OV 的更新粒度、删除传播和 source revision 协议。
+## 11. 核实事项与资料
 
-## 12. DSH GitHub 调研结论
+已确认产品方向。合成验收已验证当前账户创建/销毁、指定版本协议、身份/只读目录、内核出站隔离和真实面试 HTTP/SQLite 提交；以下涉及生产使用的完整条件仍需逐项验收：
+
+- Railway 当前账户的 Sandbox 可用性、区域、并发和预算；SDK 对 Node.js 的要求及现有部署兼容性。
+- SDK 远程 stdin/stdout 对所选 Codex 版本的兼容性，断线后协议重连能否正确恢复。
+- 已实测的 loopback-only、文件只读和非特权策略需在部署环境逐 run 验证；真实用户灰度仍须通过可靠性、披露和生产 PostgreSQL 验收。
+- Codex App Server 实验性接口及托管认证支持；Claude SDK/CLI 的版本、服务部署认证与输出契约。
+- 具体模型入口、费用归属、日志脱敏、会话保留周期；预算未知字段保留 unknown，不记为零。
+- OpenViking 的 SDK/URI/commit 行为按进入该阶段时的实际版本复核。
+
+2026-10-10 核对的官方资料：[Railway Sandbox](https://docs.railway.com/sandboxes)、[Railway 私有网络](https://docs.railway.com/networking/private-networking)、[Codex App Server](https://learn.chatgpt.com/docs/app-server)、[Codex 容器与权限说明](https://learn.chatgpt.com/docs/agent-approvals-security)。官方资料与本仓库原型实测的范围分开记录，不能将单轮评分通过视为全部隔离及生产可靠性通过。
+
+## 12. 历史附录：DSH GitHub 调研结论（不再决定实施顺序）
+
+以下保存 v1 的调研依据和当时结论，均不代表 v2 当前选型；涉及 DSH-first、one-shot subagent 和自动 Memory Plugin 的决策已由第 1—11 节取代。
 
 调研基线：`deepseek-ai/deepseek-harness` `master@b150a55`，版本 `0.1.1-rc.2`；2026-08-26 已重新确认 master commit 和关键文档链接仍有效。以下结论来自官方文档、当前源码契约和 GitHub Discussions，仍需在 FEMentor 原型中验证。
 
@@ -493,7 +431,7 @@ Skill 负责提供按需加载的任务说明；官方插件负责 DSH 的通用
 - [Skills subsystem](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/subsystems/skills.md)
 - [Skill registry](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/skill/skill/README.md)
 
-### 12.5 对最终方案的影响
+### 12.5 当时对 v1 方案的影响（已取代）
 
 第一阶段只维护：
 

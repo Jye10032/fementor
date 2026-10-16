@@ -1,10 +1,12 @@
-# DSH Worker Pool 并发与故障恢复设计
+# DSH Worker Pool 并发与故障恢复设计（历史方案）
 
 - 版本：v1.0
 - 日期：2026-08-27
-- 状态：设计中，当前未实现
-- 关联方案：[DSH-first Agent Runtime 与 OpenViking 方案](agent-runtime-openviking-preliminary-design.md)
-- 关联清单：[DSH-first 与 OpenViking 分阶段实施清单](todolists/agent-runtime-openviking-implementation-todolist.md)
+- 状态：未实现；2026-10-10 已由通用 Sandbox 运行设计取代
+- 当前方案：[多 Agent Runtime 与共享能力方案](agent-runtime-openviking-preliminary-design.md)
+- 当前清单：[多 Runtime 分阶段实施清单](todolists/agent-runtime-openviking-implementation-todolist.md)
+
+> 下文保存当时的 DSH 专属进程池设计，不是当前待执行任务。新方向使用 FEMentor 主服务管理按需 Railway Sandbox；有界调度、会话顺序、幂等、租约和故障回收的要求已迁入 [Railway Sandbox 运行设计](railway-agent-sandbox-design.md)。旧 `DshRuntime` 代码仍保留，本次仅更新方案。
 
 ## 1. 文档边界
 

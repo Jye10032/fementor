@@ -22,6 +22,7 @@ type InterviewPanelDrawerProps = {
   queueLoading: boolean;
   retrospecting: boolean;
   finishing: boolean;
+  sessionClosed: boolean;
   canRetrospect: boolean;
   onRefresh: () => void;
   onRetrospect: () => void;
@@ -46,6 +47,7 @@ export function InterviewPanelDrawer({
   queueLoading,
   retrospecting,
   finishing,
+  sessionClosed,
   canRetrospect,
   onRefresh,
   onRetrospect,
@@ -99,6 +101,7 @@ export function InterviewPanelDrawer({
                 queueLoading={queueLoading}
                 retrospecting={retrospecting}
                 finishing={finishing}
+                sessionClosed={sessionClosed}
                 canRetrospect={canRetrospect}
                 onRefresh={onRefresh}
                 onRetrospect={onRetrospect}

@@ -1,5 +1,7 @@
 const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '../.env'), quiet: true });
+const { getInterviewOrchestrator } = require('./interview/director/config');
+const { AgentRuntimeError } = require('./agent-runtime/contracts');
 const http = require('http');
 const { URL } = require('url');
 const { initPostgres, isPostgresEnabled } = require('./postgres');
@@ -33,6 +35,9 @@ const routeHandlers = [
 ];
 
 async function bootstrap() {
+  if (getInterviewOrchestrator() === 'director') {
+    throw new AgentRuntimeError('invalid_config', 'Interview director requires the Fastify server entrypoint (npm start); start:legacy is unsupported');
+  }
   if (isPostgresEnabled()) {
     await initPostgres();
   } else {

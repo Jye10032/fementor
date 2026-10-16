@@ -154,3 +154,29 @@ test('dsh evaluation result validation rejects incomplete answer scores', () => 
     (error) => error instanceof AgentRuntimeError && error.code === 'invalid_output',
   );
 });
+
+test('Codex is opt-in, server-owned and incompatible with the legacy interview pipeline', async () => {
+  assert.equal(getConfiguredRuntimeId({ AGENT_RUNTIME: 'codex' }), AGENT_RUNTIME_IDS.CODEX);
+  assert.equal(getAgentRuntimeHealth({ AGENT_RUNTIME: 'codex', CODEX_SANDBOX_ENABLED: '1', INTERVIEW_PIPELINE_VERSION: 'legacy' }).available, false);
+  const health = getAgentRuntimeHealth({ AGENT_RUNTIME: 'codex' });
+  assert.equal(health.available, false);
+  assert.equal(health.selected_runtime, 'codex');
+  assert.equal(health.user_configurable, false);
+});
+
+test('Codex resource recovery starts with control credentials when scoring is misconfigured', async () => {
+  const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'fementor-startup-recovery-'));
+  const env = { AGENT_RUNTIME: 'codex', CODEX_SANDBOX_ENABLED: '1', RAILWAY_API_TOKEN: 'fixture',
+    RAILWAY_ENVIRONMENT_ID: 'staging', CODEX_RUN_JOURNAL_DIR: directory };
+  try {
+    await prepareConfiguredInterviewRuntime(env);
+    const health = getAgentRuntimeHealth(env);
+    assert.equal(health.available, false);
+    assert.equal(health.error_code, 'missing_config');
+    assert.equal(health.recovery.state, 'ready');
+  } finally {
+    await disposeInterviewRuntimes();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});

@@ -1,10 +1,13 @@
 const AGENT_RUNTIME_IDS = Object.freeze({
   NATIVE_API: 'native-api',
   DSH: 'dsh',
+  CODEX: 'codex',
 });
 
 const AGENT_TASK_TYPES = Object.freeze({
   EVALUATE_ANSWER: 'evaluate-answer',
+  DIRECT_INTERVIEW: 'direct-interview',
+  DESIGN_QUESTION: 'design-question',
   GENERATE_QUESTIONS: 'generate-questions',
   SUGGEST_FOLLOW_UP: 'suggest-follow-up',
   RETROSPECT: 'retrospect',

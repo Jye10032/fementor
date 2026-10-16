@@ -1,0 +1,17 @@
+**
+!Dockerfile
+!package.json
+!package-lock.json
+!src/
+!src/**
+!config/
+!config/**
+!skills/
+!skills/**
+!migrations/
+!migrations/**
+!scripts/
+!scripts/migrate.js
+!scripts/codex-cloud-fixture.js
+!data/
+!data/knowledge-graph-skeleton.json

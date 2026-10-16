@@ -11,6 +11,9 @@ const { getDshRuntimeConfig } = require('./dsh-config');
 const { DshRuntime } = require('./dsh-runtime');
 const { executeRuntimeTask } = require('./execute-task');
 const { NativeApiRuntime } = require('./native-api-runtime');
+const { CodexSandboxRuntime } = require('./codex/runtime');
+const { assertInterviewConfig, assertNoPendingCleanup, evaluateCodexInterviewAnswer, cancelActiveCodexRuns,
+  startCodexRecovery, getCodexRecoveryStatus } = require('./codex/interview-runner');
 
 let sharedDshRuntime = null;
 
@@ -136,6 +139,19 @@ const getAgentRuntimeHealth = (env = process.env) => {
   const configuredRuntime = String(env.AGENT_RUNTIME || AGENT_RUNTIME_IDS.NATIVE_API).trim().toLowerCase();
   try {
     const selectedRuntime = getConfiguredRuntimeId(env);
+    const orchestrator = require('../interview/director/config').getInterviewOrchestrator(env);
+    if (selectedRuntime === AGENT_RUNTIME_IDS.CODEX) {
+      const config = assertInterviewConfig(env);
+      assertNoPendingCleanup(env);
+      return { configured_runtime: configuredRuntime, selected_runtime: selectedRuntime, available: true,
+        state: 'configured', orchestrator,
+        profile_id: orchestrator === 'director' ? require('./codex/config').DIRECTOR_PROFILE_ID : config.profileId,
+        network: 'loopback-only', verification: 'before-each-run',
+        max_concurrent_runs: orchestrator === 'director' ? 2 : 1, max_concurrent_interviews: 1,
+        max_concurrent_sandboxes: orchestrator === 'director' ? 2 : 1,
+        ...(orchestrator === 'director' ? { max_experts_per_turn: 2 } : {}),
+        user_configurable: false, recovery: getCodexRecoveryStatus() };
+    }
     if (selectedRuntime === AGENT_RUNTIME_IDS.NATIVE_API) {
       return {
         configured_runtime: configuredRuntime,
@@ -170,6 +186,7 @@ const getAgentRuntimeHealth = (env = process.env) => {
       state: 'unavailable',
       error_code: error.code || 'runtime_unavailable',
       error_message: error.message,
+      ...(configuredRuntime === AGENT_RUNTIME_IDS.CODEX ? { recovery: getCodexRecoveryStatus() } : {}),
       user_configurable: false,
     };
   }
@@ -177,6 +194,9 @@ const getAgentRuntimeHealth = (env = process.env) => {
 
 const prepareConfiguredInterviewRuntime = async (env = process.env) => {
   const runtimeId = getConfiguredRuntimeId(env);
+  // Recovery only needs control credentials; invalid scoring configuration is
+  // exposed by health/admission without taking read endpoints or cleanup down.
+  if (runtimeId === AGENT_RUNTIME_IDS.CODEX) { await startCodexRecovery(env); return; }
   if (runtimeId !== AGENT_RUNTIME_IDS.DSH) return;
 
   assertDshProviderCredential(env);
@@ -194,6 +214,7 @@ const prepareConfiguredInterviewRuntime = async (env = process.env) => {
 
 const getInterviewRuntime = ({ env = process.env, sessionContext } = {}) => {
   const runtimeId = getConfiguredRuntimeId(env);
+  if (runtimeId === AGENT_RUNTIME_IDS.CODEX) return new CodexSandboxRuntime({ config: assertInterviewConfig(env) });
   return runtimeId === AGENT_RUNTIME_IDS.DSH
     ? getDshInterviewRuntime(env)
     : createNativeInterviewRuntime(sessionContext);
@@ -203,8 +224,13 @@ const evaluateInterviewAnswerWithRuntime = async ({
   interviewSessionId,
   sessionContext,
   onToken,
+  signal,
+  onPhase,
   ...input
 }) => {
+  if (getConfiguredRuntimeId() === AGENT_RUNTIME_IDS.CODEX) {
+    return evaluateCodexInterviewAnswer({ interviewSessionId, input, signal, onPhase });
+  }
   const runtime = getInterviewRuntime({ sessionContext });
   const contentSplitter = runtime.id === AGENT_RUNTIME_IDS.DSH
     ? createContentStreamSplitter({ onContentToken: onToken })
@@ -251,6 +277,7 @@ const evaluateInterviewAnswerWithRuntime = async ({
 };
 
 const disposeInterviewRuntimes = async () => {
+  await cancelActiveCodexRuns();
   const runtime = sharedDshRuntime;
   sharedDshRuntime = null;
   if (runtime) await runtime.dispose();

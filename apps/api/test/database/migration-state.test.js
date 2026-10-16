@@ -19,6 +19,9 @@ test('migration manifest is ordered and includes the agent runtime migration', (
       '001_initial_schema.sql',
       '002_enable_rls_on_schema_migrations.sql',
       '003_agent_runtime_audit.sql',
+      '004_interview_evidence_shadow.sql',
+      '005_interview_answer_submission.sql',
+      '006_interview_agent_artifact.sql',
     ],
   );
   assert.ok(manifest.every((item) => /^[a-f0-9]{64}$/.test(item.checksum)));
@@ -28,8 +31,8 @@ test('migration state accepts an exact version and checksum match', () => {
   const expected = loadMigrationManifest();
 
   assert.deepEqual(validateMigrationState({ expected, applied: expected }), {
-    currentVersion: '003_agent_runtime_audit.sql',
-    migrationCount: 3,
+    currentVersion: '006_interview_agent_artifact.sql',
+    migrationCount: 6,
   });
 });
 
@@ -117,7 +120,7 @@ test('database migration check reads the ledger and reports the current version'
 
   const state = await assertDatabaseMigrationsCurrent(client);
 
-  assert.equal(state.currentVersion, '003_agent_runtime_audit.sql');
+  assert.equal(state.currentVersion, '006_interview_agent_artifact.sql');
   assert.equal(queries.length, 2);
   assert.ok(queries.every((sql) => !/CREATE|ALTER|INSERT|UPDATE|DELETE/i.test(sql)));
 });

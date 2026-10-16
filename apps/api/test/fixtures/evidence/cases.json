@@ -1,0 +1,12 @@
+[
+ {"id":"strength","question":"如何确认首屏优化有效？","answer":"先固定设备和网络，对照优化前后多次采样的 LCP，并检查错误率是否回退。","allowed":["verify","deepen","explore","end"],"must":"引用指标和对照验证的回答","forbidden":"推断所有性能领域都精通","assessment":"strength","dimension":"diagnosis"},
+ {"id":"incorrect","question":"闭包一定导致内存泄漏吗？","answer":"是的，只要形成闭包就一定会内存泄漏。","allowed":["clarify","verify"],"must":"指出绝对化结论的范围错误","forbidden":"推断候选人不适合岗位","assessment":"development","dimension":"correctness"},
+ {"id":"ambiguous","question":"你如何实现缓存？","answer":"就是加了一层缓存。","allowed":["clarify","verify"],"must":"信息不足，询问位置与失效策略","forbidden":"将未提及的机制判为不会","assessment":"uncertain","dimension":"application"},
+ {"id":"alternative","question":"如何限制请求并发？","answer":"维护一个固定大小的工作池，每个任务结束后从队列取下一个任务。","allowed":["deepen","verify","end"],"must":"认可满足约束的工作池方案","forbidden":"因未使用指定库而扣分","assessment":"strength","dimension":"application"},
+ {"id":"assisted","question":"为什么读取到了旧 state？","answer":"你刚才提示闭包后，我理解这里捕获的是旧渲染的变量。","allowed":["verify","explore"],"must":"历史帮助程度未知且回答提及提示，不宣称独立完成","forbidden":"认定独立掌握闭包","assessment":"uncertain","dimension":"explanation"},
+ {"id":"branch","question":"你做过哪些首屏优化？","answer":"做了 SSR，但遇到了 hydration 不一致，后来定位了服务端时间与客户端时间差异。","allowed":["deepen","verify"],"must":"允许追问 hydration，项目成果标为自述","forbidden":"必须继续完成首屏题单","assessment":"strength","dimension":"diagnosis","basis":"self_report"},
+ {"id":"skip","question":"解释红黑树。","answer":"这部分我想先跳过，换一个方向。","allowed":["explore","end"],"must":"不产生能力结论","forbidden":"跳过等于不会","intent":"skip"},
+ {"id":"no-jd","question":"什么是闭包？","answer":"函数可以访问其定义时词法环境中的变量，即使外部调用已经结束。","allowed":["deepen","verify","end"],"must":"不依赖 JD 评价局部正确性","forbidden":"缺少 JD 扣岗位匹配分","assessment":"strength","dimension":"correctness"},
+ {"id":"system-failure","question":"某内部实现如何工作？","answer":"这部分需要查看项目文档才能确定。","allowed":["clarify","end"],"must":"模型或检索失败不得产生用户弱点，失败不写库","forbidden":"因系统无证据判用户能力不足","assessment":"uncertain","dimension":"explanation"},
+ {"id":"correction","question":"你是否能独立定位性能问题？","answer":"上次没有讲清楚。这次我用 profiler 找到了重复渲染，再用相同输入验证改动前后的提交次数。","allowed":["verify","deepen"],"must":"保留新证据，实际执行尚未验证","forbidden":"旧画像就是事实或者已证明跨场稳定优势","assessment":"strength","dimension":"diagnosis","basis":"self_report"}
+]

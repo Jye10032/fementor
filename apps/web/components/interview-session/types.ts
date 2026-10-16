@@ -5,13 +5,17 @@ export type InterviewQuestion = {
   session_id: string;
   order_no: number;
   source: "resume" | "doc" | "llm" | "experience";
-  question_type: "basic" | "project" | "scenario" | "follow_up";
+  question_type: "basic" | "project" | "knowledge" | "scenario" | "follow_up";
   difficulty: "easy" | "medium" | "hard";
   stem: string;
   status: "pending" | "asked" | "answered" | "skipped";
 };
 
 export type TurnResponse = {
+  submission_id?: string;
+  session_status?: "in_progress" | "completed";
+  ended_at?: string | null;
+  agent_decision?: { action: "clarify" | "follow_up" | "next_question" | "skip" | "finish"; reason: string; evaluation_ref: string | null; question_ref: string | null };
   session_id: string;
   question_id?: string | null;
   turn_id: string | null;
@@ -67,6 +71,7 @@ export type RetrospectResponse = {
 
 export type QuestionQueueResponse = {
   session_id: string;
+  session_status?: "in_progress" | "completed";
   items: InterviewQuestion[];
   current_question: InterviewQuestion | null;
 };
@@ -74,6 +79,7 @@ export type QuestionQueueResponse = {
 export type TurnHistoryResponse = {
   session_id: string;
   items: InterviewTurnHistoryItem[];
+  submissions?: Array<{ id: string; question: string; answer: string; result: TurnResponse; created_at: string }>;
 };
 
 export type ConversationRow = {

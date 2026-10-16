@@ -1,7 +1,7 @@
 # 公共题源运行模式与权限方案
 
-- 版本：v0.2
-- 日期：2026-08-26
+- 版本：v0.3
+- 日期：2026-10-10
 - 状态：权限模型保留，存储方案已更新为 PostgreSQL 单库
 
 ## 1. 目标
@@ -44,7 +44,7 @@
 
 1. `APP_RUNTIME_MODE=cloud|local`
 
-推荐组合：
+现有 DSH 路径的配置示例（不代表新架构已经实现）：
 
 ### 线上
 
@@ -60,7 +60,11 @@ APP_RUNTIME_MODE=local
 AGENT_RUNTIME=dsh
 ```
 
-`APP_RUNTIME_MODE` 决定产品形态和用户配置权限，`AGENT_RUNTIME` 由部署环境决定 Agent 执行器；二者相互独立。线上和本地默认都使用 DSH，前端不能覆盖 Runtime、provider、模型、Base URL、API Key、Cordis Profile、官方 Skill、Tool、Workflow 或 subagent。`PUBLIC_SOURCE_DRIVER` 不再参与运行时选库。本地和线上都使用 PostgreSQL，区别仅在连接目标、身份和权限策略。
+`APP_RUNTIME_MODE` 决定产品形态和用户配置权限，现有 `AGENT_RUNTIME` 由部署环境选择执行器；二者相互独立。当前代码只接受 `native-api|dsh`，代码缺省为 `native-api`，环境模板配置为 `dsh`。
+
+2026-10-10 的 [多 Runtime 方案](agent-runtime-openviking-preliminary-design.md) 取代“线上/本地均默认 DSH”的长期选型：未来用户可以选择服务端已开放的 Codex、Claude 或 FEMentor Agent Profile，不能覆盖其命令、模型入口、凭证、工具、网络与资源权限。该选择能力待实现，不改变公共题源的 admin/user 权限，也不在本次修改部署环境变量。
+
+存储目标保持 PostgreSQL 单库，`PUBLIC_SOURCE_DRIVER` 不再作为目标架构中的运行时选库入口；迁移状态以单库专项清单和源码验证为准。本地和线上区别在连接目标、身份和权限策略。
 
 ## 4. 权限模型
 

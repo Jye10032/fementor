@@ -6,10 +6,12 @@ import {
   StageStep,
   TurnRecord,
   TurnResponse,
+  TurnHistoryResponse,
 } from "./types";
 
 export const questionTypeLabel: Record<InterviewQuestion["question_type"], string> = {
   basic: "基础题",
+  knowledge: "知识题",
   project: "项目题",
   scenario: "场景题",
   follow_up: "追问题",
@@ -104,12 +106,59 @@ export function buildConversationRowsFromTurns(turns: TurnRecord[]): Conversatio
   ]);
 }
 
+export function restoreServerHistory(data: TurnHistoryResponse) {
+  const submissions = data.submissions || [];
+  const completed = new Map(submissions.filter((item) => item.result.turn_id).map((item) => [item.result.turn_id, item]));
+  const turns = data.items.map((item) => {
+    const saved = completed.get(item.id);
+    return saved ? normalizeTurnRecord(saved.result, saved.question, saved.answer) : normalizePersistedTurnRecord(item);
+  });
+  const events = [
+    ...data.items.filter((item) => !completed.has(item.id)).map((item) => ({
+      created_at: item.created_at, complete: false,
+      rows: buildConversationRowsFromTurns([normalizePersistedTurnRecord(item)]),
+    })),
+    ...submissions.map((item) => ({ created_at: item.created_at, complete: true, rows: [
+      { id: `submission-answer-${item.id}`, role: "user", kind: "answer", content: item.answer },
+      { id: `submission-evaluation-${item.id}`, role: "assistant", kind: "evaluation",
+        content: item.result.evaluation_text || item.result.reply_text || buildEvaluationNarration(normalizeTurnRecord(item.result, item.question, item.answer)) },
+    ] as ConversationRow[] })),
+  ].sort((a, b) => a.created_at.localeCompare(b.created_at));
+  return { turns, events };
+}
+
+// Keep older cached dialogue (including clarification), while reconciling saved
+// responses by stable IDs. The content fallback migrates pre-submission caches.
+export function mergeHistoryRows(previous: ConversationRow[], events: ReturnType<typeof restoreServerHistory>["events"]) {
+  const rows = [...previous];
+  const matched = new Set<number>();
+  for (const event of events) {
+    const [answer, evaluation] = event.rows;
+    let index = rows.findIndex((row) => row.id === answer.id);
+    if (index < 0) index = rows.findIndex((row, i) => !matched.has(i)
+      && !/^(submission|history)-answer-/.test(row.id)
+      && row.kind === "answer" && row.content === answer.content && rows[i + 1]?.kind === "evaluation");
+    if (index < 0) {
+      index = rows.length;
+      rows.push(answer, evaluation);
+    } else {
+      rows[index] = answer;
+      // Old turn rows contain only score summaries; retain the richer cache.
+      if (rows[index + 1]?.kind === "evaluation") {
+        rows[index + 1] = event.complete ? evaluation : { ...evaluation, content: rows[index + 1].content };
+      } else rows.splice(index + 1, 0, evaluation);
+    }
+    matched.add(index);
+  }
+  return rows;
+}
+
 export function reconcileQueueItems(
   previousItems: InterviewQuestion[],
   currentQuestion: InterviewQuestion,
   data: TurnResponse,
 ) {
-  const insertedFollowUp = data.next_question?.question_type === "follow_up";
+  const insertedFollowUp = Boolean(data.next_question && !previousItems.some((item) => item.id === data.next_question!.id));
 
   const nextItems = previousItems.map((item) => {
     if (item.id === currentQuestion.id) {

@@ -1,7 +1,7 @@
 # 项目文档索引
 
-- 版本：v1.1
-- 日期：2026-08-26
+- 版本：v1.2
+- 日期：2026-10-10
 
 ## 目录约定
 
@@ -41,16 +41,21 @@
 5. [简历解析架构](architecture/resume-parsing.md)
 6. [面试编排架构](architecture/interview-orchestrator.md)
 7. [上下文与长期记忆架构](architecture/context-and-memory.md)
-8. [Agent 化改造路线图](architecture/agent-modernization-roadmap.md)
-9. [DSH-first Agent Runtime 与 OpenViking 方案](architecture/agent-runtime-openviking-preliminary-design.md)
-10. [DSH-first 与 OpenViking 分阶段实施清单](architecture/todolists/agent-runtime-openviking-implementation-todolist.md)
-11. [DSH Worker Pool 并发与故障恢复设计](architecture/dsh-worker-pool-design.md)
+8. [Agent 化改造历史路线图](architecture/agent-modernization-roadmap.md)
+9. [多 Agent Runtime、Railway Sandbox 与共享能力方案](architecture/agent-runtime-openviking-preliminary-design.md)
+10. [多 Runtime 与共享能力分阶段实施清单](architecture/todolists/agent-runtime-openviking-implementation-todolist.md)
+11. [Railway Sandbox Agent 运行与生命周期设计](architecture/railway-agent-sandbox-design.md)
 12. [PostgreSQL 单库收敛设计](architecture/postgresql-single-database-convergence-design.md)
 13. [PostgreSQL 单库收敛实施清单](architecture/todolists/postgresql-single-database-convergence-todolist.md)
 14. [简历解析页](pages/resume-page.md)
 15. [模拟面试页](pages/interview-page.md)
 16. [模拟面试会话页优化 Spec](specs/interview-session-optimization-spec.md)
 17. [最小API契约](database/最小API契约.md)
+18. [岗位分析与面试准备页设计](specs/job-interview-preparation-spec.md)：结合 JD、近期面经与个人能力证据生成面试准备快照，设计草案，尚未实现。
+19. [动态面试与能力画像全链路设计](specs/adaptive-interview-evidence-profile-spec.md)：动态探索、优势证据、评价与长期记忆的演进方案，设计草案，尚未实现。
+20. [动态面试与能力画像分阶段实施计划](todolists/adaptive-interview-phased-implementation-plan.md)：阶段 0 已建立工程基线，阶段 1 已实现本地影子切片；完整验收仍待完成，见[验收记录](reports/evidence-phase01/README.md)。
+
+Agent 接入以第 9—11 项的 2026-10-10 方案为准；新增能力仍待实现。原 [DSH Worker Pool 设计](architecture/dsh-worker-pool-design.md) 保留为历史参考，不再作为当前实施顺序。
 
 ## 现有根目录文档说明
 

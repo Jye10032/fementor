@@ -11,7 +11,8 @@ const {
   generateInterviewerReply,
   shouldInsertFollowUp,
 } = require('./llm-service');
-const { evaluateInterviewAnswerWithRuntime } = require('../agent-runtime/interview-runtime');
+const { evaluateInterviewAnswerWithRuntime, getConfiguredRuntimeId } = require('../agent-runtime/interview-runtime');
+const { createInterviewTurnPlan } = require('./turn-commit');
 const { selectOrGenerateFollowUp, rankFollowUpByRelevance, adaptFollowUp } = require('../experience/follow-up-reuse');
 const { recallQuestionForKeyword } = require('../experience/recall');
 const { createHttpError } = require('../http');
@@ -31,7 +32,13 @@ const pickCandidateFollowUp = (queuedQuestion) => {
 };
 
 // --- Unified pipeline (1 LLM call) ---
-const submitInterviewTurnUnified = async ({ sessionId, body, onPhase, onToken, sessionContext }) => {
+const submitInterviewTurnUnified = async ({ sessionId, body, onPhase, onToken, sessionContext, signal, submission }) => {
+  const isCodex = getConfiguredRuntimeId() === 'codex';
+  if (isCodex && signal?.aborted) throw Object.assign(createHttpError(409, '评分已取消'), { code: 'run_cancelled' });
+  const plan = isCodex ? await createInterviewTurnPlan(sessionId, { signal, submission }) : null;
+  const { getInterviewSession, getInterviewQuestionById, listInterviewTurns, listInterviewQuestions,
+    getSessionKeywordQueue, getNextInterviewQuestion, updateInterviewQuestionStatus,
+    updateSessionKeywordQueue, addInterviewTurn, insertInterviewQuestionAfter } = plan || require('../db');
   const turnStartedAt = Date.now();
   const emitPhase = async (phase, message) => {
     if (typeof onPhase === 'function') await onPhase(phase, message);
@@ -51,20 +58,21 @@ const submitInterviewTurnUnified = async ({ sessionId, body, onPhase, onToken, s
   if (!sessionId) throw new Error('session_id is required');
   if (!question) throw new Error('question is required');
   if (questionId && (!queuedQuestion || queuedQuestion.session_id !== sessionId)) throw new Error('question_id is invalid');
-  if (queuedQuestion?.status === 'answered') throw new Error('question already answered');
+  if (queuedQuestion?.status === 'answered') throw createHttpError(409, 'question already answered');
+  if (isCodex && (!queuedQuestion || !['asked', 'pending'].includes(queuedQuestion.status)
+      || queuedQuestion.id !== (await getNextInterviewQuestion(sessionId))?.id
+      || (body.question && question !== queuedQuestion.stem))) {
+    throw createHttpError(409, '请提交当前面试题目的回答');
+  }
   if (!answer) throw new Error('answer is required');
 
   const session = await getInterviewSession(sessionId);
   if (!session) throw createHttpError(404, 'session not found');
+  if (isCodex && session.user_id !== sessionContext?.userId) throw createHttpError(403, 'forbidden');
   if (session.status !== 'in_progress') throw new Error('session is not in progress');
 
   const turns = await listInterviewTurns(sessionId);
   const turnIndex = turns.length + 1;
-  const interviewContext = await buildInterviewContextWindow({
-    turns,
-    currentQuestion: question,
-    sessionContext,
-  });
   const user = await getUserById(session.user_id);
   const activeJd = user?.active_jd_file
     ? await readJdDoc({ userId: session.user_id, fileName: user.active_jd_file })
@@ -86,10 +94,17 @@ const submitInterviewTurnUnified = async ({ sessionId, body, onPhase, onToken, s
     maxTurns: keywordQueue.max_turns_per_keyword || 3,
   } : null;
 
+  const interviewContext = require('./turn-context').buildBudgetedTurnContext({
+    input: { question, answer, resumeSummary, jobDescription, evidenceRefs,
+      questionTypeHint: queuedQuestion?.question_type || '', candidateFollowUp, keywordContext },
+    turns, codex: isCodex,
+  });
+
   // 3. Unified LLM call
   await emitPhase('evaluation', '评估回答');
   const llmResult = await evaluateInterviewAnswerWithRuntime({
     interviewSessionId: sessionId,
+    contextBudget: interviewContext.metadata,
     question,
     answer,
     interviewContext: interviewContext.contextText,
@@ -100,6 +115,8 @@ const submitInterviewTurnUnified = async ({ sessionId, body, onPhase, onToken, s
     candidateFollowUp,
     keywordContext,
     onToken,
+    onPhase,
+    signal,
     sessionContext,
   });
 
@@ -113,7 +130,9 @@ const submitInterviewTurnUnified = async ({ sessionId, body, onPhase, onToken, s
       await updateInterviewQuestionStatus({ questionId: nextQuestion.id, status: 'asked' });
       nextQuestion = { ...nextQuestion, status: 'asked' };
     }
-    return {
+    const result = {
+      ...(submission ? { submission_id: submission.id } : {}),
+      ...(llmResult.agent_runtime ? { agent_runtime: llmResult.agent_runtime } : {}),
       session_id: sessionId,
       question_id: queuedQuestion?.id || null,
       turn_id: null,
@@ -135,6 +154,11 @@ const submitInterviewTurnUnified = async ({ sessionId, body, onPhase, onToken, s
         status: nextQuestion.status,
       } : null,
     };
+    if (plan) {
+      await plan.commit(result);
+      if (typeof onToken === 'function') await onToken(llmResult.content);
+    }
+    return result;
   }
 
   // 5. Persist answer turn
@@ -311,8 +335,9 @@ const submitInterviewTurnUnified = async ({ sessionId, body, onPhase, onToken, s
     nextQuestion = { ...nextQuestion, status: 'asked' };
   }
   await emitPhase('persist', '数据整理入库');
-
-  return {
+  const result = {
+    ...(submission ? { submission_id: submission.id } : {}),
+    ...(llmResult.agent_runtime ? { agent_runtime: llmResult.agent_runtime } : {}),
     session_id: sessionId,
     question_id: queuedQuestion?.id || null,
     turn_id: turnId,
@@ -329,7 +354,7 @@ const submitInterviewTurnUnified = async ({ sessionId, body, onPhase, onToken, s
     strengths: llmResult.strengths,
     weaknesses: llmResult.weaknesses,
     feedback: llmResult.feedback,
-    standard_answer: llmResult.standard_answer,
+    standard_answer: isCodex ? '' : llmResult.standard_answer,
     evaluation_text: llmResult.content,
     next_question: nextQuestion ? {
       id: nextQuestion.id,
@@ -341,6 +366,11 @@ const submitInterviewTurnUnified = async ({ sessionId, body, onPhase, onToken, s
       status: nextQuestion.status,
     } : null,
   };
+  if (plan) {
+    await plan.commit(result);
+    if (typeof onToken === 'function') await onToken(llmResult.content);
+  }
+  return result;
 };
 
 // --- Legacy pipeline (5+ LLM calls) ---
@@ -624,11 +654,48 @@ const submitInterviewTurnLegacy = async ({ sessionId, body, onPhase, onToken, se
   };
 };
 
-// --- Dispatcher ---
-const submitInterviewTurn = USE_UNIFIED_PIPELINE
-  ? submitInterviewTurnUnified
-  : submitInterviewTurnLegacy;
-
-module.exports = {
-  submitInterviewTurn,
+// One API owner; the durable row survives process loss. Resume is explicit and
+// authenticated, so startup never spends model budget on abandoned work.
+const activeSubmissions = new Set();
+const submitInterviewTurn = async (options) => {
+  const orchestrator = require('./director/config').getInterviewOrchestrator();
+  if (getConfiguredRuntimeId() !== 'codex' || !USE_UNIFIED_PIPELINE) {
+    return (USE_UNIFIED_PIPELINE ? submitInterviewTurnUnified : submitInterviewTurnLegacy)(options);
+  }
+  const { sessionId, body, sessionContext, signal, onToken, onPhase } = options;
+  const db = require('../db');
+  const store = require('./answer-submission');
+  const session = await db.getInterviewSession(sessionId);
+  if (!session || session.user_id !== sessionContext?.userId) throw createHttpError(403, 'forbidden');
+  if (activeSubmissions.has(sessionId)) throw createHttpError(429, '评分服务忙，请稍后重试');
+  activeSubmissions.add(sessionId);
+  let claimed;
+  try {
+    let saved = body.submission_id ? await store.getSubmission(sessionId, body.submission_id) : null;
+    if (saved) saved = await store.saveSubmission({ sessionId, body }); // immutable input check
+    if (saved?.status === 'completed') {
+      const result = JSON.parse(saved.result_json);
+      await onToken?.(result.evaluation_text);
+      return { ...result, replayed: true };
+    }
+    if (session.status !== 'in_progress') throw createHttpError(409, '本场面试已结束');
+    const question = await db.getInterviewQuestionById(saved?.question_id || body.question_id);
+    const questions = await db.listInterviewQuestions(sessionId);
+    const current = questions.find((q) => ['asked', 'pending'].includes(q.status));
+    if (!question || question.session_id !== sessionId || question.id !== current?.id
+      || (!saved && body.question && body.question !== question.stem)) throw createHttpError(409, '请提交当前面试题目的回答');
+    if (!saved) saved = await store.saveSubmission({ sessionId, body, question });
+    await onPhase?.('saved', '回答已保存，正在准备评分');
+    if (signal?.aborted) throw createHttpError(409, '评分已取消，回答已保存');
+    require('../agent-runtime/codex/interview-runner').assertNoPendingCleanup();
+    claimed = await store.claimSubmission(saved);
+    const submit = orchestrator === 'director' ? require('./director/service').submitInterviewTurnDirector : submitInterviewTurnUnified;
+    return await submit({ ...options, submission: claimed,
+      body: { question_id: saved.question_id, question: saved.question, answer: saved.answer } });
+  } catch (error) {
+    if (claimed) await store.failSubmission(claimed, error);
+    throw error;
+  } finally { activeSubmissions.delete(sessionId); }
 };
+
+module.exports = { submitInterviewTurn };

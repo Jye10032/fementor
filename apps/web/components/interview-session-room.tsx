@@ -8,6 +8,7 @@ import { Composer } from "./interview-session/Composer";
 import { ConversationTranscript } from "./interview-session/ConversationTranscript";
 import { CurrentQuestionCard } from "./interview-session/CurrentQuestionCard";
 import { InterviewCompletionReport } from "./interview-session/InterviewCompletionReport";
+import { EvidenceEvaluation } from "./interview-session/EvidenceEvaluation";
 import { InterviewPanelDrawer } from "./interview-session/InterviewPanelDrawer";
 import {
   buildConversationRowsFromTurns,
@@ -15,6 +16,8 @@ import {
   getStageDisplay,
   normalizePersistedTurnRecord,
   normalizeTurnRecord,
+  restoreServerHistory,
+  mergeHistoryRows,
   reconcileQueueItems,
 } from "./interview-session/copy";
 import { SessionTopBar } from "./interview-session/SessionTopBar";
@@ -99,6 +102,7 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
   const [queueLoading, setQueueLoading] = useState(false);
   const [submittingTurn, setSubmittingTurn] = useState(false);
   const [finishing, setFinishing] = useState(false);
+  const [hasClosedSession, setHasClosedSession] = useState(false);
   const [retrospecting, setRetrospecting] = useState(false);
   const [startedAt] = useState(() => Date.now());
   const [now, setNow] = useState(() => Date.now());
@@ -110,12 +114,29 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const autoAdvanceTimerRef = useRef<number | null>(null);
   const restoredHistoryRef = useRef(false);
+  const pendingSubmissionRef = useRef<{ id: string; question_id: string; answer: string } | null>(null);
+  const closedSessionRef = useRef(false);
 
   const currentQuestion = useMemo(
     () => queueItems.find((item) => item.id === currentQuestionId) ?? null,
     [queueItems, currentQuestionId],
   );
   const latestTurn = useMemo(() => turns[turns.length - 1] ?? null, [turns]);
+  useEffect(() => {
+    if (!currentQuestion?.id || !isLoaded) return;
+    let cancelled = false;
+    void apiRequest<{ items: Array<{ id: string; question_id: string; answer: string; status: string }> }>(
+      apiBase, `/v1/interview/sessions/${sessionId}/submissions`, { auth: "required" },
+    ).then(({ items }) => {
+      if (cancelled || closedSessionRef.current || pendingSubmissionRef.current) return;
+      const pending = items.find((item) => item.question_id === currentQuestion.id);
+      if (!pending) return;
+      pendingSubmissionRef.current = pending;
+      setAnswer((previous) => previous || pending.answer);
+      setStageLabel(pending.status === "running" ? "回答已保存，正在处理" : "已恢复上次回答，可直接重新提交");
+    }).catch(() => { /* Existing deployments may not support saved submissions yet. */ });
+    return () => { cancelled = true; };
+  }, [apiBase, sessionId, currentQuestion?.id, isLoaded, isSignedIn]);
   const averageScore = useMemo(() => {
     if (turns.length === 0) return null;
     return Math.round(turns.reduce((sum, turn) => sum + (turn.score ?? 0), 0) / turns.length);
@@ -125,15 +146,15 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
     [queueItems],
   );
   const interviewCompleted = useMemo(() => {
-    if (showCompletionReport) return true;
+    if (showCompletionReport || sessionDetail?.status === "completed") return true;
     if (queueItems.length === 0) return false;
     return (
       queueItems.every((item) => item.status === "answered" || item.status === "skipped") &&
       !currentQuestion &&
       !pendingNextQuestion
     );
-  }, [currentQuestion, pendingNextQuestion, queueItems, showCompletionReport]);
-  const sessionClosed = sessionDetail?.status === "completed";
+  }, [currentQuestion, pendingNextQuestion, queueItems, showCompletionReport, sessionDetail?.status]);
+  const sessionClosed = hasClosedSession || sessionDetail?.status === "completed";
   const elapsedMs = useMemo(() => {
     if (sessionClosed && sessionDetail?.started_at) {
       const startedTime = new Date(sessionDetail.started_at).getTime();
@@ -154,6 +175,24 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
     }
   }, []);
 
+  const markSessionCompleted = useCallback((endedAt?: string | null) => {
+    // Completion is irreversible for this mounted session, including across late GET responses.
+    closedSessionRef.current = true;
+    setHasClosedSession(true);
+    clearAutoAdvanceTimer();
+    pendingSubmissionRef.current = null;
+    setAnswer("");
+    setSessionDetail((previous) => previous ? {
+      ...previous, status: "completed", ended_at: endedAt || previous.ended_at,
+    } : previous);
+    setCurrentQuestionId(null);
+    setPendingNextQuestion(null);
+    setShowCompletionReport(true);
+    setQuestionCardMode("completed");
+    setStageStep("completed");
+    setStageLabel("本场面试已结束");
+  }, [clearAutoAdvanceTimer]);
+
   const updateEvaluationRow = (evaluationId: string, content: string) => {
     setConversationRows((previousRows) =>
       previousRows.map((row) => (row.id === evaluationId ? { ...row, content } : row)),
@@ -171,18 +210,22 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
         { auth: "required" },
       );
 
+      if (closedSessionRef.current && data.session_status !== "completed") return;
       const items = data.items || [];
-      const fallbackQuestion =
+      const fallbackQuestion = data.session_status === "completed" ? null : (
         data.current_question ||
-        items.find((item) => item.status !== "answered" && item.status !== "skipped") ||
-        null;
+        items.find((item) => item.status === "asked" || item.status === "pending") ||
+        null);
 
       setQueueItems(items);
       setCurrentQuestionId((previousId) => {
+        if (data.session_status === "completed") return null;
         if (options?.preserveDisplayedQuestion && previousId) return previousId;
         return fallbackQuestion?.id || null;
       });
-      if (options?.resetStageToIdle) {
+      if (data.session_status === "completed") {
+        markSessionCompleted();
+      } else if (options?.resetStageToIdle) {
         setStageStep("idle");
         setStageLabel(getInitialStageLabel(fallbackQuestion));
       }
@@ -201,7 +244,7 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
     } finally {
       setQueueLoading(false);
     }
-  }, [apiBase, sessionId]);
+  }, [apiBase, sessionId, markSessionCompleted]);
 
   const loadSessionDetail = useCallback(async () => {
     if (!sessionId) return;
@@ -212,15 +255,15 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
         `/v1/interview/sessions/${sessionId}`,
         { auth: "required" },
       );
+      if (closedSessionRef.current && data.status !== "completed") return;
       setSessionDetail(data);
       if (data.status === "completed") {
-        setStageStep("completed");
-        setStageLabel("本场面试已结束，请返回重新开始");
+        markSessionCompleted(data.ended_at);
       }
     } catch (error) {
       setOutput(String(error));
     }
-  }, [apiBase, sessionId]);
+  }, [apiBase, sessionId, markSessionCompleted]);
 
   const loadTurnHistory = useCallback(async () => {
     if (!sessionId) return;
@@ -231,9 +274,9 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
         `/v1/interview/sessions/${sessionId}/turns`,
         { auth: "required" },
       );
-      const historyTurns = (data.items || []).map(normalizePersistedTurnRecord);
-      setTurns(historyTurns);
-      setConversationRows(buildConversationRowsFromTurns(historyTurns));
+      const history = restoreServerHistory(data);
+      setTurns(history.turns);
+      setConversationRows((previous) => mergeHistoryRows(previous, history.events));
     } catch (error) {
       setOutput(String(error));
     } finally {
@@ -242,6 +285,7 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
   }, [apiBase, sessionId]);
 
   const advanceToNextQuestion = useCallback((nextQuestion?: InterviewQuestion | null) => {
+    if (closedSessionRef.current) return;
     const targetQuestion = nextQuestion ?? pendingNextQuestion;
     if (!targetQuestion) return;
 
@@ -340,11 +384,9 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
 
     void loadSessionDetail();
     void loadQuestionQueue({ resetStageToIdle: true });
-    if (!restoredHistoryRef.current) {
-      void loadTurnHistory();
-      return;
-    }
-    setHistoryLoaded(true);
+    // Cached rows are only the first paint; server commits may have completed
+    // while the response connection was lost.
+    void loadTurnHistory();
   }, [loadQuestionQueue, loadSessionDetail, loadTurnHistory, sessionId]);
 
   useEffect(() => {
@@ -390,7 +432,7 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
   }, [isPanelOpen]);
 
   const onAddTurn = async () => {
-    if (!sessionId || !currentQuestion || !answer.trim()) return;
+    if (submittingTurn || !sessionId || !currentQuestion || !answer.trim()) return;
     if (sessionClosed) {
       setStageStep("completed");
       setStageLabel("本场面试已结束，请返回重新开始");
@@ -415,19 +457,24 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
       clearAutoAdvanceTimer();
 
       const submittedAnswer = answer.trim();
+      const previousSubmission = pendingSubmissionRef.current;
+      const submissionId = previousSubmission?.question_id === currentQuestion.id && previousSubmission.answer === submittedAnswer
+        ? previousSubmission.id : crypto.randomUUID();
+      pendingSubmissionRef.current = { id: submissionId, question_id: currentQuestion.id, answer: submittedAnswer };
       const requestPayload = {
+        submission_id: submissionId,
         question_id: currentQuestion.id,
         question: currentQuestion.stem,
         answer: submittedAnswer,
       };
-      const evaluationId = `evaluation-pending-${Date.now()}`;
+      const evaluationId = `submission-evaluation-${submissionId}`;
+      const answerId = `submission-answer-${submissionId}`;
 
       setConversationRows((previousRows) => [
-        ...previousRows,
-        { id: `answer-${Date.now()}`, role: "user", kind: "answer", content: submittedAnswer },
+        ...previousRows.filter((row) => row.id !== answerId && row.id !== evaluationId),
+        { id: answerId, role: "user", kind: "answer", content: submittedAnswer },
         { id: evaluationId, role: "assistant", kind: "evaluation", content: "正在接收回答..." },
       ]);
-      setAnswer("");
 
       const token = await getToken();
       const response = await fetch(`${apiBase}/v1/interview/sessions/${sessionId}/turns/stream`, {
@@ -458,6 +505,7 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
           : {};
 
         if (eventName === "stage") {
+          if (closedSessionRef.current) return;
           const stage = getStageDisplay(payload as InterviewTurnStageEvent);
           setStageStep(stage.step);
           setStageLabel(stage.label);
@@ -475,6 +523,8 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
 
         if (eventName === "result") {
           finalData = payload as TurnResponse;
+          pendingSubmissionRef.current = null;
+          setAnswer("");
           finalTurnRecord = normalizeTurnRecord(finalData, currentQuestion.stem, submittedAnswer);
           updateEvaluationRow(
             evaluationId,
@@ -483,7 +533,7 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
               "当前 LLM 服务不可用，未能生成评价文本。",
           );
           if (finalData.handled_as === "answer") {
-            setTurns((previousTurns) => [...previousTurns, finalTurnRecord!]);
+            setTurns((previousTurns) => [...previousTurns.filter((turn) => turn.turn_id !== finalTurnRecord!.turn_id), finalTurnRecord!]);
           }
           return;
         }
@@ -494,7 +544,10 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
       };
 
       while (true) {
-        const { done, value } = await reader.read();
+        const { done, value } = await reader.read().catch((error) => {
+          if (finalData) return { done: true as const, value: undefined };
+          throw error;
+        });
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
@@ -520,9 +573,29 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
       }
 
       const data = finalData as TurnResponse;
+      pendingSubmissionRef.current = null;
+      setAnswer("");
+      if (closedSessionRef.current && data.session_status !== "completed") return;
       const reconciledItems = reconcileQueueItems(queueItems, currentQuestion, data);
       setQueueItems(reconciledItems);
       setOutput(JSON.stringify(data, null, 2));
+
+      if (data.session_status === "completed") {
+        markSessionCompleted(data.ended_at);
+        await loadSessionDetail();
+        return;
+      }
+      if (closedSessionRef.current) return;
+
+      if (data.agent_decision?.action === "clarify") {
+        clearAutoAdvanceTimer();
+        setPendingNextQuestion(null);
+        setCurrentQuestionId(currentQuestion.id);
+        setQuestionCardMode("active");
+        setStageStep("idle");
+        setStageLabel("题意已说明，请继续回答");
+        return;
+      }
 
       if (data.next_question) {
         setPendingNextQuestion(data.next_question);
@@ -553,8 +626,10 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
       }
     } catch (error) {
       const message = String(error);
-      setStageStep("idle");
-      setStageLabel("处理失败，请稍后重试");
+      if (!closedSessionRef.current) {
+        setStageStep("idle");
+        setStageLabel("处理失败，请稍后重试");
+      }
       setOutput(message);
       setConversationRows((previousRows) => [
         ...previousRows,
@@ -566,6 +641,7 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
   };
 
   const onFinish = async () => {
+    if (closedSessionRef.current || finishing) return;
     try {
       setFinishing(true);
       const data = await apiRequest<Record<string, unknown>>(
@@ -577,7 +653,9 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
           auth: "required",
         },
       );
+      markSessionCompleted(typeof data.ended_at === "string" ? data.ended_at : null);
       setOutput(JSON.stringify(data, null, 2));
+      await loadSessionDetail();
     } catch (error) {
       setOutput(String(error));
     } finally {
@@ -674,6 +752,7 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
           queueLoading={queueLoading}
           retrospecting={retrospecting}
           finishing={finishing}
+          sessionClosed={sessionClosed}
           canRetrospect={turns.length > 0}
           onRefresh={() => {
             void loadQuestionQueue({
@@ -690,9 +769,12 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
           debugOutput={process.env.NODE_ENV === "development" ? output : undefined}
         />
 
+        {latestTurn?.turn_id && <EvidenceEvaluation key={latestTurn.turn_id} apiBase={apiBase} sessionId={sessionId} turnId={latestTurn.turn_id} />}
+
         {showCompletionReport ? (
           <section className="flex min-h-0 flex-1 items-center justify-center overflow-auto rounded-2xl border border-border/70 bg-card/92 p-5 shadow-[var(--shadow-soft)]">
             <InterviewCompletionReport
+              sessionClosed={sessionClosed}
               answeredCount={answeredCount}
               averageScore={averageScore}
               latestTurn={latestTurn}

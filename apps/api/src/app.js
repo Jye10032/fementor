@@ -13,6 +13,7 @@ const { registerSystemRoutes } = require('./routes/system-routes');
 const { registerChatRoutes } = require('./routes/chat-routes');
 const { registerDocumentRoutes } = require('./routes/document-routes');
 const { registerInterviewRoutes } = require('./routes/interview-routes');
+const { registerInterviewEvidenceRoutes } = require('./routes/interview-evidence-routes');
 const { registerPracticeRoutes } = require('./routes/practice-routes');
 const { registerExperienceRoutes } = require('./routes/experience-routes');
 const { registerPublicQuestionSourceRoutes } = require('./routes/public-question-source-routes');
@@ -23,6 +24,7 @@ const { requestContextPlugin } = require('./plugins/request-context');
 const {
   disposeInterviewRuntimes,
   prepareConfiguredInterviewRuntime,
+  getConfiguredRuntimeId,
 } = require('./agent-runtime/interview-runtime');
 
 const MULTIPART_LIMIT_BYTES = 8 * 1024 * 1024;
@@ -35,6 +37,7 @@ async function buildApp() {
   } else {
     init();
   }
+  if (getConfiguredRuntimeId() === 'codex') await require('./interview/answer-submission').recoverSubmissions();
 
   try {
     const store = getExperienceStore();
@@ -68,6 +71,7 @@ async function buildApp() {
   await app.register(registerSystemRoutes);
   await app.register(registerChatRoutes);
   await app.register(registerInterviewRoutes);
+  await app.register(registerInterviewEvidenceRoutes);
   await app.register(registerPracticeRoutes);
   await app.register(registerExperienceRoutes);
   await app.register(registerPublicQuestionSourceRoutes);

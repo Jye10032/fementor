@@ -367,6 +367,12 @@ const init = () => {
   registerExperienceTables();
   ensureLegacyColumns();
   registerQuestionSourceTables();
+  for (const migration of ['005_interview_answer_submission.sql', '006_interview_agent_artifact.sql']) {
+    const sql = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../migrations', migration), 'utf8');
+    db.exec(sql.replace(/CREATE TABLE /g, 'CREATE TABLE IF NOT EXISTS ')
+      .replace(/CREATE (UNIQUE )?INDEX /g, 'CREATE $1INDEX IF NOT EXISTS ')
+      .replace(/ALTER TABLE \w+ ENABLE ROW LEVEL SECURITY;/g, ''));
+  }
 };
 
 module.exports = {

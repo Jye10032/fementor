@@ -532,16 +532,16 @@ const buildUnifiedTurnUserContent = ({
   keywordContext,
 }) => {
   const payload = {
-    question: String(question || '').slice(0, 300),
+    question: String(question || ''),
     question_type_hint: String(questionTypeHint || ''),
-    answer: String(answer || '').slice(0, 3000),
-    resume_summary: String(resumeSummary || '').slice(0, 800),
-    job_description: String(jobDescription || '').slice(0, 1800),
-    interview_context: String(interviewContext || '').slice(0, 1800),
+    answer: String(answer || ''),
+    resume_summary: String(resumeSummary || ''),
+    job_description: String(jobDescription || ''),
+    interview_context: String(interviewContext || ''),
     evidence_refs: (evidenceRefs || []).slice(0, 6).map((item) => ({
       source_type: item.source_type,
       source_uri: item.source_uri,
-      quote: String(item.quote || '').slice(0, 220),
+      quote: String(item.quote || ''),
       confidence: item.confidence,
     })),
   };
@@ -556,7 +556,7 @@ const buildUnifiedTurnUserContent = ({
 
   if (candidateFollowUp) {
     payload.candidate_follow_up = {
-      stem: String(candidateFollowUp.stem || '').slice(0, 200),
+      stem: String(candidateFollowUp.stem || ''),
       knowledge_points: (candidateFollowUp.knowledge_points || []).slice(0, 5),
       difficulty: candidateFollowUp.difficulty || 'medium',
       follow_up_intent: candidateFollowUp.follow_up_intent || '',

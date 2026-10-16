@@ -9,6 +9,7 @@ type InterviewCompletionReportProps = {
   retrospect: RetrospectResponse | null;
   retrospecting: boolean;
   finishing: boolean;
+  sessionClosed?: boolean;
   onRetrospect: () => void;
   onFinish: () => void;
 };
@@ -20,6 +21,7 @@ export function InterviewCompletionReport({
   retrospect,
   retrospecting,
   finishing,
+  sessionClosed = false,
   onRetrospect,
   onFinish,
 }: InterviewCompletionReportProps) {
@@ -31,7 +33,7 @@ export function InterviewCompletionReport({
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary">Interview Summary</p>
             <h2 className="mt-3 text-3xl font-semibold text-foreground">本场模拟面试已完成</h2>
             <p className="mt-3 max-w-2xl text-sm leading-7 text-muted-foreground">
-              题目作答与评分流程已经结束。先看本场结论，再决定是继续生成复盘沉淀，还是直接结束本次会话。
+              {sessionClosed ? "本场面试已结束，可以查看已完成回答的评价与复盘。" : "题目作答与评分流程已经结束。可以先生成复盘，也可以直接结束本次会话。"}
             </p>
           </div>
           <div className="rounded-xl border border-accent/30 bg-accent/8 px-4 py-3 text-sm font-medium text-accent">
@@ -57,7 +59,7 @@ export function InterviewCompletionReport({
             </div>
             <p className="mt-3 text-3xl font-semibold text-foreground">{latestTurn ? "已完成" : "-"}</p>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              最近一轮回答已完成评分
+              {latestTurn ? "最近一轮回答已完成评分" : "本场尚无已评分的回答"}
             </p>
           </article>
           <article className="rounded-2xl border border-border/70 bg-background/80 p-4">
@@ -66,7 +68,7 @@ export function InterviewCompletionReport({
               <Sparkles className="h-4 w-4 text-primary" />
             </div>
             <p className="mt-3 text-lg font-semibold text-foreground">
-              {retrospect ? "复盘结果已生成" : "可继续生成复盘"}
+              {retrospect ? "复盘结果已生成" : latestTurn ? "可继续生成复盘" : "暂无可复盘的回答"}
             </p>
           </article>
         </div>
@@ -74,17 +76,17 @@ export function InterviewCompletionReport({
         <div className="mt-6 flex flex-wrap gap-3">
           <button
             onClick={onRetrospect}
-            disabled={retrospecting}
+            disabled={retrospecting || !latestTurn}
             className="action-primary px-5 py-3 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {retrospecting ? "生成中..." : "生成复盘"}
           </button>
           <button
             onClick={onFinish}
-            disabled={finishing}
+            disabled={finishing || sessionClosed}
             className="action-secondary px-5 py-3 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {finishing ? "结束中..." : "结束面试"}
+            {sessionClosed ? "已结束" : finishing ? "结束中..." : "结束面试"}
           </button>
         </div>
       </div>

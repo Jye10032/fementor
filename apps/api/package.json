@@ -15,9 +15,14 @@
     "dsh:smoke": "node scripts/dsh-smoke.js",
     "dsh:smoke:live": "node scripts/dsh-smoke.js --live",
     "dsh:workflow:smoke": "node scripts/dsh-workflow-smoke.js",
+    "codex:sandbox:check": "node scripts/codex-sandbox-smoke.js",
+    "codex:sandbox:smoke": "node scripts/codex-sandbox-smoke.js --live",
+    "codex:sandbox:cleanup": "node scripts/codex-sandbox-smoke.js --cleanup",
     "test": "node --test test/**/*.test.js",
     "crawl:niuke": "node scripts/niuke-crawler.js",
-    "reclean:experiences": "node scripts/reclean-experiences.js"
+    "reclean:experiences": "node scripts/reclean-experiences.js",
+    "codex:interview:check": "node scripts/codex-interview-smoke.js",
+    "codex:interview:smoke": "node scripts/codex-interview-smoke.js --live"
   },
   "dependencies": {
     "@clerk/backend": "^3.2.2",
@@ -37,12 +42,15 @@
     "@deepseek-ai/dsh-workflow-worker-thread": "0.1.1-rc.2",
     "@fastify/cors": "^11.2.0",
     "@fastify/multipart": "^9.4.0",
+    "ajv": "8.18.0",
     "better-sqlite3": "^12.6.2",
     "dotenv": "^17.3.1",
     "fastify": "^5.8.4",
     "formidable": "^3.5.4",
     "mammoth": "^1.11.0",
     "pdf-parse": "^2.4.5",
-    "pg": "^8.20.0"
+    "pg": "^8.20.0",
+    "railway": "3.13.1",
+    "tiktoken": "1.0.22"
   }
 }

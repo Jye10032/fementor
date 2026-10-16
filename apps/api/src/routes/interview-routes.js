@@ -16,7 +16,7 @@ const {
 } = require('../db');
 const { readJdDoc } = require('../doc');
 const { appendMemoryEntry } = require('../memory');
-const { json, jsonError, parseNumberOrFallback, readBody, writeSse, flushSseFrame, getErrorMessage } = require('../http');
+const { json, jsonError, parseNumberOrFallback, readBody, writeSse, flushSseFrame, getErrorMessage, getErrorStatusCode } = require('../http');
 const {
   getAppRuntimeMode,
   getResolvedUserContext,
@@ -279,7 +279,21 @@ const startInterviewSessionResponse = async ({ req, body }) => {
   };
 };
 
+const turnRequestLifetime = (req, res) => {
+  const controller = new AbortController();
+  const abort = () => { if (!res.writableEnded) controller.abort(); };
+  req.once('aborted', abort);
+  res.once('close', abort);
+  if (req.aborted || res.destroyed) controller.abort();
+  return { signal: controller.signal, dispose: () => {
+    req.removeListener('aborted', abort);
+    res.removeListener('close', abort);
+  } };
+};
+
 const handleInterviewTurnStream = async ({ req, res, body, corsHeaders }) => {
+  const lifetime = turnRequestLifetime(req, res);
+  let heartbeat;
   let sessionId = '';
   let closed = false;
   let streamRequestStartedAt = 0;
@@ -302,19 +316,21 @@ const handleInterviewTurnStream = async ({ req, res, body, corsHeaders }) => {
     });
     res.flushHeaders?.();
 
-    req.on('aborted', () => { if (!closed) { closed = true; } });
-    res.on('close', () => { if (!closed) { closed = true; } });
+    heartbeat = setInterval(() => {
+      if (!closed && !lifetime.signal.aborted) res.write(': keep-alive\n\n');
+    }, 15000);
+    heartbeat.unref();
 
     writeSse(res, 'meta', { session_id: sessionId, mode: 'interview_turn_stream' });
     await flushSseFrame();
 
     const writeStage = async (step, message) => {
-      if (closed) return;
+      if (closed || lifetime.signal.aborted) return;
       writeSse(res, 'stage', { step, message });
       await flushSseFrame();
     };
     const writeToken = async (textChunk) => {
-      if (closed || !textChunk) return;
+      if (closed || lifetime.signal.aborted || !textChunk) return;
       if (firstTokenSentAt === null) firstTokenSentAt = Date.now();
       writeSse(res, 'token', { textChunk, timestamp: new Date().toISOString() });
       await flushSseFrame();
@@ -322,11 +338,11 @@ const handleInterviewTurnStream = async ({ req, res, body, corsHeaders }) => {
 
     await writeStage('preparing', '已接收回答，正在准备...');
     const result = await submitInterviewTurn({
-      sessionId, body,
+      sessionId, body, signal: lifetime.signal,
       onPhase: writeStage, onToken: writeToken,
       sessionContext: { userId: ownership.context.userId, token: ownership.context.token },
     });
-    if (!closed) {
+    if (!closed && !lifetime.signal.aborted) {
       writeSse(res, 'result', result);
       await flushSseFrame();
       writeSse(res, 'done', { turn_id: result.turn_id, next_question_id: result.next_question?.id || null });
@@ -334,14 +350,18 @@ const handleInterviewTurnStream = async ({ req, res, body, corsHeaders }) => {
       res.end();
     }
   } catch (error) {
+    if (lifetime.signal.aborted) return;
     if (!res.headersSent) {
-      res.writeHead(500, { 'Content-Type': 'application/json', ...corsHeaders });
+      res.writeHead(getErrorStatusCode(error, 500), { 'Content-Type': 'application/json', ...corsHeaders });
       res.end(JSON.stringify({ error: getErrorMessage(error, 'stream failed') }));
     } else {
       closed = true;
       writeSse(res, 'error', { error: getErrorMessage(error, 'stream failed') });
       res.end();
     }
+  } finally {
+    clearInterval(heartbeat);
+    lifetime.dispose();
   }
 };
 
@@ -662,13 +682,14 @@ const handleInterviewRoutes = async ({ req, res, url, corsHeaders }) => {
     && /^\/v1\/interview\/sessions\/[^/]+\/questions$/.test(url.pathname)
   ) {
     try {
-      const { sessionId } = await ensureSessionOwner({ req, pathname: url.pathname });
+      const { sessionId, session } = await ensureSessionOwner({ req, pathname: url.pathname });
       const items = await listInterviewQuestions(sessionId);
-      const currentQuestion = items.find((item) => item.status !== 'answered') || null;
+      const currentQuestion = session.status === 'completed' ? null : items.find((item) => ['asked', 'pending'].includes(item.status)) || null;
       json(res, 200, {
         session_id: sessionId,
         items,
         current_question: currentQuestion,
+        session_status: session.status,
       });
     } catch (error) {
       jsonError(res, error);
@@ -680,120 +701,9 @@ const handleInterviewRoutes = async ({ req, res, url, corsHeaders }) => {
     req.method === 'POST'
     && /^\/v1\/interview\/sessions\/[^/]+\/turns\/stream$/.test(url.pathname)
   ) {
-    let sessionId = '';
-    let closed = false;
-    let streamRequestStartedAt = 0;
-    let firstTokenSentAt = null;
     try {
-      const body = await readBody(req);
-      streamRequestStartedAt = Date.now();
-      const ownership = await ensureSessionOwner({
-        req,
-        pathname: url.pathname,
-        bodyUserId: String(body.user_id || '').trim(),
-      });
-      ({ sessionId } = ownership);
-
-      res.writeHead(200, {
-        'Content-Type': 'text/event-stream; charset=utf-8',
-        'Cache-Control': 'no-cache, no-transform',
-        Connection: 'keep-alive',
-        'X-Accel-Buffering': 'no',
-        ...corsHeaders,
-      });
-      res.flushHeaders?.();
-
-      req.on('aborted', () => {
-        if (closed) return;
-        closed = true;
-        console.warn('[interview.turn.stream.aborted]', { session_id: sessionId });
-      });
-      res.on('close', () => {
-        if (closed) return;
-        closed = true;
-        console.warn('[interview.turn.stream.closed]', { session_id: sessionId });
-      });
-
-      console.log('[interview.turn.stream.start]', {
-        session_id: sessionId,
-        question_id: String(body.question_id || '').trim() || null,
-        started_at: new Date(streamRequestStartedAt).toISOString(),
-      });
-      writeSse(res, 'meta', { session_id: sessionId, mode: 'interview_turn_stream' });
-      await flushSseFrame();
-
-      const writeStage = async (step, message) => {
-        if (closed) return;
-        console.log('[interview.turn.stream.stage]', { session_id: sessionId, step, message });
-        writeSse(res, 'stage', { step, message });
-        await flushSseFrame();
-      };
-
-      const writeToken = async (textChunk) => {
-        if (closed || !textChunk) return;
-        if (firstTokenSentAt === null) {
-          firstTokenSentAt = Date.now();
-          console.log('[interview.turn.stream.first_token_sent]', {
-            session_id: sessionId,
-            latency_ms: firstTokenSentAt - streamRequestStartedAt,
-            length: String(textChunk).length,
-            preview: String(textChunk).slice(0, 80),
-          });
-        }
-        console.log('[interview.turn.stream.token]', {
-          session_id: sessionId,
-          length: String(textChunk).length,
-          preview: String(textChunk).slice(0, 40),
-        });
-        writeSse(res, 'token', {
-          textChunk,
-          timestamp: new Date().toISOString(),
-        });
-        await flushSseFrame();
-      };
-
-      await writeStage('preparing', '已接收回答，正在准备...');
-      const result = await submitInterviewTurn({
-        sessionId,
-        body,
-        onPhase: writeStage,
-        onToken: writeToken,
-        sessionContext: {
-          userId: ownership.context.userId,
-          token: ownership.context.token,
-        },
-      });
-      console.log('[interview.turn.stream.result]', {
-        session_id: sessionId,
-        turn_id: result.turn_id,
-        score: result.score,
-        next_question_id: result.next_question?.id || null,
-        elapsed_ms: Date.now() - streamRequestStartedAt,
-        first_token_latency_ms: firstTokenSentAt === null ? null : firstTokenSentAt - streamRequestStartedAt,
-      });
-      if (!closed) {
-        writeSse(res, 'result', result);
-        await flushSseFrame();
-        writeSse(res, 'done', {
-          turn_id: result.turn_id,
-          next_question_id: result.next_question?.id || null,
-        });
-        closed = true;
-        res.end();
-      }
-    } catch (error) {
-      if (!res.headersSent) {
-        jsonError(res, error);
-      } else {
-        closed = true;
-        console.error('[interview.turn.stream.error]', {
-          session_id: sessionId,
-          error: getErrorMessage(error, 'stream failed'),
-        });
-        writeSse(res, 'error', { error: getErrorMessage(error, 'stream failed') });
-        res.end();
-      }
-    }
+      await handleInterviewTurnStream({ req, res, body: await readBody(req), corsHeaders });
+    } catch (error) { jsonError(res, error); }
     return true;
   }
 
@@ -817,6 +727,7 @@ const handleInterviewRoutes = async ({ req, res, url, corsHeaders }) => {
     req.method === 'POST'
     && /^\/v1\/interview\/sessions\/[^/]+\/turns$/.test(url.pathname)
   ) {
+    const lifetime = turnRequestLifetime(req, res);
     try {
       const body = await readBody(req);
       const ownership = await ensureSessionOwner({
@@ -825,6 +736,7 @@ const handleInterviewRoutes = async ({ req, res, url, corsHeaders }) => {
         bodyUserId: String(body.user_id || '').trim(),
       });
       json(res, 200, await submitInterviewTurn({
+        signal: lifetime.signal,
         sessionId: ownership.sessionId,
         body,
         sessionContext: {
@@ -833,8 +745,8 @@ const handleInterviewRoutes = async ({ req, res, url, corsHeaders }) => {
         },
       }));
     } catch (error) {
-      jsonError(res, error);
-    }
+      if (!lifetime.signal.aborted) jsonError(res, error);
+    } finally { lifetime.dispose(); }
     return true;
   }
 
@@ -1012,31 +924,42 @@ async function registerInterviewRoutes(app) {
 
   // GET /v1/interview/sessions/:id/questions
   app.get('/v1/interview/sessions/:id/questions', async (request) => {
-    const { sessionId } = await ensureSessionOwner({ req: request.raw, pathname: `/v1/interview/sessions/${request.params.id}` });
+    const { sessionId, session } = await ensureSessionOwner({ req: request.raw, pathname: `/v1/interview/sessions/${request.params.id}` });
     const items = await listInterviewQuestions(sessionId);
-    const currentQuestion = items.find((item) => item.status !== 'answered') || null;
-    return { session_id: sessionId, items, current_question: currentQuestion };
+    const currentQuestion = session.status === 'completed' ? null : items.find((item) => ['asked', 'pending'].includes(item.status)) || null;
+    return { session_id: sessionId, session_status: session.status, items, current_question: currentQuestion };
   });
 
   // GET /v1/interview/sessions/:id/turns
   app.get('/v1/interview/sessions/:id/turns', async (request) => {
     const { sessionId } = await ensureSessionOwner({ req: request.raw, pathname: `/v1/interview/sessions/${request.params.id}` });
-    return { session_id: sessionId, items: await listInterviewTurns(sessionId) };
+    return { session_id: sessionId, items: await listInterviewTurns(sessionId),
+      submissions: await require('../interview/answer-submission').listCompletedSubmissions(sessionId) };
+  });
+
+  // GET saved, unfinished answers for recovery.
+  app.get('/v1/interview/sessions/:id/submissions', async (request) => {
+    const { sessionId } = await ensureSessionOwner({ req: request.raw, pathname: `/v1/interview/sessions/${request.params.id}` });
+    return { session_id: sessionId, items: await require('../interview/answer-submission').listPendingSubmissions(sessionId) };
   });
 
   // POST /v1/interview/sessions/:id/turns (non-streaming)
-  app.post('/v1/interview/sessions/:id/turns', async (request) => {
-    const body = request.body || {};
-    const ownership = await ensureSessionOwner({
-      req: request.raw,
-      pathname: `/v1/interview/sessions/${request.params.id}`,
-      bodyUserId: String(body.user_id || '').trim(),
-    });
-    return submitInterviewTurn({
-      sessionId: ownership.sessionId,
-      body,
-      sessionContext: { userId: ownership.context.userId, token: ownership.context.token },
-    });
+  app.post('/v1/interview/sessions/:id/turns', async (request, reply) => {
+    const lifetime = turnRequestLifetime(request.raw, reply.raw);
+    try {
+      const body = request.body || {};
+      const ownership = await ensureSessionOwner({
+        req: request.raw,
+        pathname: `/v1/interview/sessions/${request.params.id}`,
+        bodyUserId: String(body.user_id || '').trim(),
+      });
+      return await submitInterviewTurn({
+        signal: lifetime.signal,
+        sessionId: ownership.sessionId,
+        body,
+        sessionContext: { userId: ownership.context.userId, token: ownership.context.token },
+      });
+    } finally { lifetime.dispose(); }
   });
 
   // POST /v1/interview/sessions/:id/turns/stream (SSE)

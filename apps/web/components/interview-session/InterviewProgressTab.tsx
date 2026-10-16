@@ -10,6 +10,7 @@ type InterviewProgressTabProps = {
   queueLoading: boolean;
   retrospecting: boolean;
   finishing: boolean;
+  sessionClosed: boolean;
   canRetrospect: boolean;
   onRefresh: () => void;
   onRetrospect: () => void;
@@ -25,6 +26,7 @@ export function InterviewProgressTab({
   queueLoading,
   retrospecting,
   finishing,
+  sessionClosed,
   canRetrospect,
   onRefresh,
   onRetrospect,
@@ -88,10 +90,10 @@ export function InterviewProgressTab({
         </button>
         <button
           onClick={onFinish}
-          disabled={finishing}
+          disabled={finishing || sessionClosed}
           className="inline-flex items-center justify-center rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-2 text-sm font-semibold text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {finishing ? "结束中..." : "结束面试"}
+          {sessionClosed ? "面试已结束" : finishing ? "结束中..." : "结束面试"}
         </button>
       </div>
     </div>

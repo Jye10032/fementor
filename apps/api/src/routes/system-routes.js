@@ -225,8 +225,12 @@ const getViewerResponse = async ({ req }) => {
   });
 };
 
-const upsertUserResponse = async ({ body }) => {
+const upsertUserResponse = async ({ req, body }) => {
   const id = String(body.id || '').trim();
+  if (getAppRuntimeMode() === 'cloud') {
+    const context = await getResolvedUserContext({ req, requireAuth: true, allowDevFallback: false });
+    if (id !== context.userId) throw createHttpError(403, 'forbidden');
+  }
   const name = String(body.name || '').trim();
   const resumeSummary = String(body.resume_summary || '').trim();
   if (!id) {
@@ -428,7 +432,7 @@ const handleSystemRoutes = async ({ req, res, url }) => {
   if (req.method === 'POST' && url.pathname === '/v1/users/upsert') {
     try {
       const body = await readBody(req);
-      const result = await upsertUserResponse({ body });
+      const result = await upsertUserResponse({ req, body });
       json(res, result.statusCode, result.payload);
     } catch (error) {
       jsonError(res, error);
@@ -515,7 +519,7 @@ async function registerSystemRoutes(app) {
   });
 
   app.post('/v1/users/upsert', async (request, reply) => {
-    const result = await upsertUserResponse({ body: request.body || {} });
+    const result = await upsertUserResponse({ req: request.raw, body: request.body || {} });
     reply.code(result.statusCode);
     return result.payload;
   });

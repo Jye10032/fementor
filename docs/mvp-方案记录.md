@@ -1,5 +1,25 @@
 # MVP 方案记录
 
+## 2026-10-10 Codex + Railway 单轮评分原型
+
+新增独立合成数据入口与 Codex Sandbox Runtime，复用现有评分 rubric/Skill/标准化结果，主程序通过 Railway SDK 驱动 Sandbox 内 App Server，模型密钥留在宿主。真实单轮获得 93 分并通过 Schema/四维总分校验，Sandbox 确认销毁；本次 7 个临时实例全部清理，47 项 Runtime 测试通过。
+
+入口为 `apps/api/scripts/codex-sandbox-smoke.js`，运行与回收指引、版本和成功 run ID 见 [实施记录](architecture/railway-agent-sandbox-design.md#9-2026-10-10-首个实施切片)。代码尚未提交/部署，生产 Runtime 选择未切换；真实材料、出站 allowlist、评分事务和可靠调度继续按清单实施。
+
+## 2026-10-10 Agent Runtime 方案 v2
+
+### 本次调整
+
+1. [主方案](architecture/agent-runtime-openviking-preliminary-design.md) 从 DSH-first 改为可选择 Codex、Claude Code、自研 FEMentor Agent 的同级 Runtime；现有 DSH/native 实现保留作为迁移基线。
+2. 新增 [Railway Sandbox 运行设计](architecture/railway-agent-sandbox-design.md)：主服务经 SDK 管理隔离环境与进程通道，首期不新增内部 HTTP Worker Server。
+3. 明确外层沙箱限制文件、进程、网络和凭证；Skill/规则提供分析方法，结果经 FEMentor 校验后才写入业务数据。Railway `ISOLATED` 不等于公网 allowlist，需单独验收。
+4. 更新 [实施清单](architecture/todolists/agent-runtime-openviking-implementation-todolist.md)，按契约、沙箱原型、Codex 评分、可靠性、Claude 与可选 Runtime、任务扩展分阶段实施；检索与记忆不再依赖 DSH 插件。
+5. 更新文档入口与权限方案，将 DSH Worker Pool 和旧 Agent 路线图标为历史参考。
+
+### 验证与交付边界
+
+本次仅更新方案文档。源码核对基线为 `c804e72`，官方接口核对日期为 2026-10-10；未新增 Runtime 代码、迁移或依赖，未创建 Railway Sandbox，也未变更线上配置。新能力均需按清单验证后启用。
+
 ## 2026-03-30 v0.27
 
 ### 本次调整

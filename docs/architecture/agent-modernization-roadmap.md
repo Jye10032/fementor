@@ -2,7 +2,9 @@
 
 - 版本：v1.1
 - 日期：2026-07-29
-- 状态：方案讨论稿，尚未执行
+- 状态：历史讨论稿；Runtime 选型与实施顺序已于 2026-10-10 更新
+
+> Agent Runtime 以 [多 Runtime、Railway Sandbox 与共享能力方案](agent-runtime-openviking-preliminary-design.md) 及其 [实施清单](todolists/agent-runtime-openviking-implementation-todolist.md) 为准。下文保留旧调研背景，其代码现状、工期和“默认不做 Worker”的判断不作为当前实现结论；支持多个执行器也不意味着引入多 Agent 协作。Monorepo/UI 等独立议题未在本次更新中实施。
 
 ## 0. 背景与目标
 
