@@ -8,41 +8,65 @@ import { PageShell } from "../components/page-shell";
 import { apiRequest } from "../lib/api";
 import { useRuntimeConfig } from "../components/runtime-config";
 
-function useHomeStats(apiBase: string, isSignedIn: boolean) {
-  const [stats, setStats] = useState({ resumes: 0, jds: 0, sessions: 0, experiences: 0 });
+const EMPTY_STATS = { resumes: 0, jds: 0, sessions: 0, completedSessions: 0, inProgressSessions: 0, experiences: 0 };
+
+function useHomeStats(apiBase: string, authLoaded: boolean, isSignedIn: boolean) {
+  const [stats, setStats] = useState(EMPTY_STATS);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!isSignedIn || !apiBase) {
-      setStats({ resumes: 0, jds: 0, sessions: 0, experiences: 0 });
+    if (!authLoaded) {
+      setLoading(true);
       return;
     }
+    if (!isSignedIn || !apiBase) {
+      setStats(EMPTY_STATS);
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
     Promise.all([
       apiRequest<{ files: unknown[] }>(apiBase, "/v1/resume/library", { auth: "required" }).catch(() => ({ files: [] })),
       apiRequest<{ files: unknown[] }>(apiBase, "/v1/jd/library", { auth: "required" }).catch(() => ({ files: [] })),
-      apiRequest<{ items: unknown[] }>(apiBase, "/v1/interview/sessions", { auth: "required" }).catch(() => ({ items: [] })),
+      apiRequest<{ items: Array<{ status?: string }> }>(apiBase, "/v1/interview/sessions", { auth: "required" }).catch(() => ({ items: [] })),
       apiRequest<{ total: number }>(apiBase, "/v1/experiences", { auth: "required" }).catch(() => ({ total: 0 })),
     ]).then(([resume, jd, sessions, experiences]) => {
+      if (cancelled) return;
+      const sessionItems = sessions.items ?? [];
       setStats({
         resumes: resume.files?.length ?? 0,
         jds: jd.files?.length ?? 0,
-        sessions: sessions.items?.length ?? 0,
+        sessions: sessionItems.length,
+        completedSessions: sessionItems.filter((item) => item.status === "completed").length,
+        inProgressSessions: sessionItems.filter((item) => item.status === "in_progress").length,
         experiences: experiences.total ?? 0,
       });
+      setLoading(false);
     });
-  }, [apiBase, isSignedIn]);
+    return () => { cancelled = true; };
+  }, [apiBase, authLoaded, isSignedIn]);
 
-  return stats;
+  return { stats, loading };
 }
 
 export default function HomePage() {
-  const { isSignedIn } = useAuthState();
+  const { isLoaded, isSignedIn } = useAuthState();
   const { apiBase } = useRuntimeConfig();
-  const stats = useHomeStats(apiBase, !!isSignedIn);
+  const { stats, loading } = useHomeStats(apiBase, isLoaded, !!isSignedIn);
   const hasMaterials = stats.resumes > 0 && stats.jds > 0;
-  const nextTaskTitle = hasMaterials ? "资料已经准备好" : "先准备一份简历和目标 JD";
-  const nextTaskDescription = hasMaterials
-    ? "现在可以直接开始一次针对性模拟面试。"
-    : "面试题目会围绕你的项目经历和岗位要求生成。";
+  const nextTaskTitle = loading ? "正在读取训练进度..." : hasMaterials ? "资料已经准备好" : "先准备一份简历和目标 JD";
+  const nextTaskDescription = loading
+    ? "稍等片刻，马上告诉你下一步该做什么。"
+    : hasMaterials
+      ? "现在可以直接开始一次针对性模拟面试。"
+      : "面试题目会围绕你的项目经历和岗位要求生成。";
+  const sessionSummary = stats.sessions === 0
+    ? "还没有开始"
+    : [
+      `${stats.completedSessions} 场已完成`,
+      stats.inProgressSessions > 0 ? `${stats.inProgressSessions} 场进行中` : null,
+    ].filter(Boolean).join(" · ");
   const nextTaskHref = hasMaterials ? "/interview" : "/resume";
   const nextTaskLabel = hasMaterials ? "开始模拟面试" : "去准备资料";
 
@@ -59,7 +83,7 @@ export default function HomePage() {
           </div>
           <div className="flex items-center gap-2 text-xs text-muted-foreground lg:pt-2">
             <span className="h-2 w-2 rounded-full bg-primary" />
-            <span>{hasMaterials ? "已完成资料准备" : "当前在资料准备阶段"}</span>
+            <span>{loading ? "正在同步" : hasMaterials ? "已完成资料准备" : "当前在资料准备阶段"}</span>
           </div>
         </div>
 
@@ -71,17 +95,19 @@ export default function HomePage() {
                 <h2 className="text-xl font-semibold text-foreground sm:text-2xl">{nextTaskTitle}</h2>
                 <p className="mt-1.5 text-sm text-muted-foreground">{nextTaskDescription}</p>
               </div>
-              <Link href={nextTaskHref} className="action-primary shrink-0 gap-2 self-start sm:self-auto">
-                {hasMaterials ? <MessageSquare className="h-4 w-4" /> : <UploadCloud className="h-4 w-4" />}
-                {nextTaskLabel}
-                <ArrowRight className="h-4 w-4" />
-              </Link>
+              {loading ? null : (
+                <Link href={nextTaskHref} className="action-primary shrink-0 gap-2 self-start sm:self-auto">
+                  {hasMaterials ? <MessageSquare className="h-4 w-4" /> : <UploadCloud className="h-4 w-4" />}
+                  {nextTaskLabel}
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              )}
             </div>
           </div>
 
           <div className="border-t border-border/70 pt-4 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
             <p className="text-xs font-semibold text-foreground">训练流程</p>
-            <ol className="mt-3 space-y-2.5 text-sm">
+            <ol className={`mt-3 space-y-2.5 text-sm transition-opacity ${loading ? "opacity-40" : ""}`} aria-busy={loading}>
               <li className={`flex items-center gap-2 ${hasMaterials ? "text-accent" : "text-foreground"}`}>
                 {hasMaterials ? <CheckCircle2 className="h-4 w-4" /> : <UploadCloud className="h-4 w-4 text-primary" />}
                 <span>准备资料</span>
@@ -116,15 +142,15 @@ export default function HomePage() {
           <div className="mt-4 divide-y border-y border-border/70">
             <div className="flex items-center justify-between gap-4 py-3.5 text-sm">
               <span className="flex items-center gap-2 text-muted-foreground"><FileText className="h-4 w-4" />资料</span>
-              <span className="text-foreground">{stats.resumes} 份简历 · {stats.jds} 个 JD</span>
+              <span className="text-foreground">{loading ? "—" : `${stats.resumes} 份简历 · ${stats.jds} 个 JD`}</span>
             </div>
             <div className="flex items-center justify-between gap-4 py-3.5 text-sm">
               <span className="flex items-center gap-2 text-muted-foreground"><MessageSquare className="h-4 w-4" />模拟面试</span>
-              <span className="text-foreground">{stats.sessions > 0 ? `${stats.sessions} 场已完成` : "还没有开始"}</span>
+              <span className="text-foreground">{loading ? "—" : sessionSummary}</span>
             </div>
             <div className="flex items-center justify-between gap-4 py-3.5 text-sm">
               <span className="flex items-center gap-2 text-muted-foreground"><BookOpen className="h-4 w-4" />面经参考</span>
-              <span className="text-foreground">{stats.experiences} 条公开资料</span>
+              <span className="text-foreground">{loading ? "—" : `${stats.experiences} 条公开资料`}</span>
             </div>
           </div>
         </div>

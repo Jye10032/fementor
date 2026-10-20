@@ -93,9 +93,6 @@ export function InterviewCompletionReport({
 
       <section className="rounded-2xl border border-border/70 bg-card/92 p-5 shadow-[var(--shadow-card)]">
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">复盘结论</p>
-        <p className="mt-2 text-sm leading-6 text-muted-foreground">
-          这里和抽屉中的“复盘”保持同一套结构，优先展示可行动结论，而不是原始字段堆叠。
-        </p>
         <div className="mt-4">
           <RetrospectSummary retrospect={retrospect} variant="report" />
         </div>

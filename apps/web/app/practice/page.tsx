@@ -69,12 +69,14 @@ export default function PracticePage() {
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [output, setOutput] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
 
   const currentItem = useMemo(() => items[currentIndex] ?? null, [items, currentIndex]);
 
   const loadChapters = async () => {
     try {
       setChaptersLoading(true);
+      setErrorMessage("");
       const data = await apiRequest<QuestionBankResponse>(apiBase, "/v1/question-bank?limit=200", {
         auth: "required",
       });
@@ -91,6 +93,7 @@ export default function PracticePage() {
       setChapter((prev) => prev || nextChapters[0]?.name || "");
     } catch (error) {
       setOutput(String(error));
+      setErrorMessage("章节加载失败，请稍后重试。");
       setChapters([]);
     } finally {
       setChaptersLoading(false);
@@ -102,6 +105,7 @@ export default function PracticePage() {
     if (!targetChapter) return;
     try {
       setLoading(true);
+      setErrorMessage("");
       const data = await apiRequest<PracticeResponse>(
         apiBase,
         `/v1/practice/next?chapter=${encodeURIComponent(targetChapter)}&limit=20&include_future=${includeFuture ? "1" : "0"}`,
@@ -114,6 +118,7 @@ export default function PracticePage() {
       setOutput(JSON.stringify({ chapter: targetChapter, count: data.items.length, include_future: data.include_future }, null, 2));
     } catch (error) {
       setOutput(String(error));
+      setErrorMessage("练习题加载失败，请稍后重试。");
     } finally {
       setLoading(false);
     }
@@ -138,6 +143,7 @@ export default function PracticePage() {
     if (!currentItem || !answer.trim()) return;
     try {
       setSubmitting(true);
+      setErrorMessage("");
       const data = await apiRequest<ScoreResponse>(apiBase, "/v1/scoring/evaluate", {
         method: "POST",
         body: JSON.stringify({ mode: "practice", question: currentItem.question, answer }),
@@ -147,6 +153,7 @@ export default function PracticePage() {
       setOutput(JSON.stringify({ attempt_id: data.attempt_id, score: data.score, evidence_refs_count: data.evidence_refs_count }, null, 2));
     } catch (error) {
       setOutput(String(error));
+      setErrorMessage("评分失败，回答已保留，请稍后重新提交。");
     } finally {
       setSubmitting(false);
     }
@@ -171,6 +178,7 @@ export default function PracticePage() {
       setOutput(JSON.stringify({ question_id: currentItem.id, review_status: reviewStatus, next_review_at: nextReviewAt }, null, 2));
     } catch (error) {
       setOutput(String(error));
+      setErrorMessage("复习安排保存失败，请稍后重试。");
     }
   };
 
@@ -237,6 +245,7 @@ export default function PracticePage() {
               loading={loading} isSignedIn={isSignedIn}
               onLoad={() => void load()}
             />
+            {errorMessage ? <p role="alert" className="mt-4 text-sm text-warning">{errorMessage}</p> : null}
             {/* Inner two-column: queue + active question */}
             <div className="mt-4 grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
               <QuestionQueue
@@ -274,10 +283,12 @@ export default function PracticePage() {
               </section>
             </div>
 
-            <section className="mt-4 rounded-2xl border border-border bg-background p-4">
-              <p className="text-xs uppercase tracking-wider text-muted-foreground">调试输出</p>
-              <pre className="mt-3 max-h-64 overflow-auto rounded-xl bg-secondary p-3 text-xs">{output || "暂无输出"}</pre>
-            </section>
+            {process.env.NODE_ENV === "development" ? (
+              <details className="mt-4 rounded-2xl border border-border bg-background p-4">
+                <summary className="cursor-pointer text-xs uppercase tracking-wider text-muted-foreground">开发调试信息</summary>
+                <pre className="mt-3 max-h-64 overflow-auto rounded-xl bg-secondary p-3 text-xs">{output || "暂无输出"}</pre>
+              </details>
+            ) : null}
           </PagePanel>
         </section>
       </div>
