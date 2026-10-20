@@ -11,6 +11,7 @@ type InterviewProgressTabProps = {
   retrospecting: boolean;
   finishing: boolean;
   sessionClosed: boolean;
+  turnBusy: boolean;
   canRetrospect: boolean;
   onRefresh: () => void;
   onRetrospect: () => void;
@@ -27,6 +28,7 @@ export function InterviewProgressTab({
   retrospecting,
   finishing,
   sessionClosed,
+  turnBusy,
   canRetrospect,
   onRefresh,
   onRetrospect,
@@ -36,8 +38,8 @@ export function InterviewProgressTab({
     {
       icon: Timer,
       label: "已完成题目",
-      value: `${answeredCount}/${totalCount || 0}`,
-      hint: "当前会话进度",
+      value: `${answeredCount}`,
+      hint: `当前题目队列共 ${totalCount} 题，可随面试调整`,
     },
     {
       icon: Trophy,
@@ -59,7 +61,7 @@ export function InterviewProgressTab({
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">当前状态</p>
         <p className="mt-2 text-base font-semibold text-foreground">{stageLabel}</p>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">
-          面试会优先保持主作答路径稳定，详细状态与统计信息集中放在这里查看。
+          面试官会根据你的回答决定澄清、追问、换题或结束。
         </p>
       </section>
 
@@ -83,19 +85,20 @@ export function InterviewProgressTab({
         </button>
         <button
           onClick={onRetrospect}
-          disabled={retrospecting || !canRetrospect}
+          disabled={retrospecting || !canRetrospect || turnBusy}
           className="action-secondary px-4 py-2 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {retrospecting ? "生成中..." : "生成复盘"}
         </button>
         <button
           onClick={onFinish}
-          disabled={finishing || sessionClosed}
+          disabled={finishing || sessionClosed || turnBusy}
           className="inline-flex items-center justify-center rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-2 text-sm font-semibold text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {sessionClosed ? "面试已结束" : finishing ? "结束中..." : "结束面试"}
         </button>
       </div>
+      {turnBusy && <p className="text-xs leading-5 text-muted-foreground">请等待本轮处理完成，或先在作答区停止本轮，再结束面试。</p>}
     </div>
   );
 }

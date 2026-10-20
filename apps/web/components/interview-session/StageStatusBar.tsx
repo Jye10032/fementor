@@ -1,110 +1,51 @@
-import { Check, LoaderCircle, Sparkles, Waypoints } from "lucide-react";
-import { StageStep } from "./types";
-
-const stageItems = [
-  { id: "receiving", label: "接收回答" },
-  { id: "evaluating", label: "评估回答" },
-  { id: "transition", label: "准备下一题" },
-  { id: "completed", label: "数据整理入库" },
-] as const;
-
-function getStageTone(step: StageStep) {
-  if (step === "transition" || step === "completed") {
-    return {
-      icon: Waypoints,
-      textClassName: "text-primary",
-      badgeClassName: "bg-primary/10 text-primary",
-      badgeLabel: step === "completed" ? "已完成" : "处理中",
-    };
-  }
-
-  if (step === "idle") {
-    return {
-      icon: Sparkles,
-      textClassName: "text-muted-foreground",
-      badgeClassName: "bg-secondary text-muted-foreground",
-      badgeLabel: "等待作答",
-    };
-  }
-
-  return {
-    icon: LoaderCircle,
-    textClassName: "text-warning",
-    badgeClassName: "bg-warning/10 text-warning",
-    badgeLabel: "处理中",
-  };
-}
-
-function getActiveStageIndex(step: StageStep) {
-  if (step === "receiving") return 0;
-  if (step === "evaluating" || step === "deciding" || step === "retrieving" || step === "generating_followup") return 1;
-  if (step === "transition") return 2;
-  if (step === "completed") return 3;
-  return -1;
-}
+import { Check, Clock3, LoaderCircle, Sparkles } from "lucide-react";
+import { formatElapsed } from "./copy";
+import { ActivityStep } from "./useInterviewSubmission";
 
 type StageStatusBarProps = {
   stageLabel: string;
-  stageStep: StageStep;
+  busy: boolean;
+  saved: boolean;
+  elapsedMs: number;
+  steps: ActivityStep[];
+  message: string;
+  canRefresh: boolean;
+  onRefresh: () => void;
 };
 
-export function StageStatusBar({ stageLabel, stageStep }: StageStatusBarProps) {
-  const tone = getStageTone(stageStep);
-  const Icon = tone.icon;
-  const activeIndex = getActiveStageIndex(stageStep);
-
+export function StageStatusBar({
+  stageLabel, busy, saved, elapsedMs, steps, message, canRefresh, onRefresh,
+}: StageStatusBarProps) {
+  const Icon = busy ? LoaderCircle : saved ? Check : Sparkles;
   return (
-    <div className="pt-2">
-      <div className={`flex items-center gap-2 text-xs ${tone.textClassName}`}>
-        <Icon className={`h-3.5 w-3.5 shrink-0 ${stageStep === "idle" || stageStep === "completed" ? "" : "animate-spin"}`} />
-        <span className="font-medium">{stageLabel}</span>
-        <span className={`ml-auto rounded-full px-2.5 py-0.5 text-xs font-medium ${tone.badgeClassName}`}>
-          {tone.badgeLabel}
-        </span>
+    <div className="mt-3 rounded-xl border border-border/70 bg-card/70 px-3 py-2.5">
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <Icon aria-hidden className={`h-3.5 w-3.5 shrink-0 text-primary ${busy ? "animate-spin" : ""}`} />
+        <span role="status" className="font-medium text-foreground">{message || stageLabel}</span>
+        {busy && <span className="ml-auto inline-flex items-center gap-1 text-muted-foreground">
+          <Clock3 className="h-3.5 w-3.5" />本次等待 {formatElapsed(elapsedMs)}
+        </span>}
+        {saved && <span className="rounded-full bg-accent/10 px-2 py-0.5 text-accent">回答已保存</span>}
+        {canRefresh && <button onClick={onRefresh} className="font-medium text-primary underline underline-offset-4">同步处理状态</button>}
       </div>
-
-      <div className="mt-2 flex items-center gap-0">
-        {stageItems.map((item, index) => {
-          const isDone = activeIndex > index;
-          const isCurrent = activeIndex === index;
-
-          return (
-            <div key={item.id} className="flex flex-1 items-center">
-              {/* dot */}
-              <div className="flex flex-col items-center">
-                <span
-                  className={`relative inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold transition-colors ${
-                    isCurrent
-                      ? "bg-primary text-primary-foreground shadow-[0_0_0_3px_color-mix(in_oklab,var(--primary)_25%,transparent)]"
-                      : isDone
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-secondary text-muted-foreground"
-                  }`}
-                >
-                  {isDone ? (
-                    <Check className="h-3 w-3" />
-                  ) : isCurrent ? (
-                    <LoaderCircle className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <span>{index + 1}</span>
-                  )}
-                </span>
-                <span className={`mt-1 text-[10px] leading-tight ${
-                  isCurrent ? "font-medium text-warning" : isDone ? "text-primary" : "text-muted-foreground"
-                }`}>
-                  {item.label}
-                </span>
-              </div>
-              {/* connector line */}
-              {index < stageItems.length - 1 ? (
-                <div className={`mx-1 h-0.5 flex-1 rounded-full transition-colors ${
-                  isDone ? "bg-primary" : "bg-border"
-                }`} />
-              ) : null}
-            </div>
-          );
-        })}
-      </div>
+      {busy && elapsedMs >= 60000 && (
+        <p className="mt-2 text-xs leading-5 text-muted-foreground">
+          本轮分析时间较长，你可以继续等待。离开或刷新页面会中断当前连接，返回后将重新确认处理结果。
+        </p>
+      )}
+      {steps.length > 0 && (
+        <details className="mt-2 text-xs text-muted-foreground">
+          <summary className="w-fit cursor-pointer select-none py-1">查看处理进度</summary>
+          <ol className="mt-1 max-h-32 space-y-1.5 overflow-auto border-l border-border pl-3">
+            {steps.map((step, index) => (
+              <li key={`${step.at}-${index}`} className="flex gap-2">
+                <span className="shrink-0 tabular-nums">{formatElapsed(step.at - steps[0].at)}</span>
+                <span>{step.label}</span>
+              </li>
+            ))}
+          </ol>
+        </details>
+      )}
     </div>
   );
 }

@@ -496,3 +496,65 @@ unified 路径移除本轮题目、回答、已有简历摘要、JD 与历史内
 这里验证了功能链路，不代表实时体验已达标：本次评分加追问耗时约 4 分 42 秒，仍需针对启动与多次模型请求做耗时优化。这是单次观测，不是负载或稳定性保证。主子同时活动时强制退出、云端 next_question/skip 专项、多副本恢复仍未实测；相关取消/动作边界有本地检查。网页改动完成本地类型和历史恢复检查，尚未部署独立测试前端或做浏览器登录验收。
 
 验收入口：本地 `scripts/codex-director-smoke.js` 经公网 HTTPS 验证动作/鉴权/回放；容器内管理脚本 `scripts/codex-cloud-fixture.js verify-director <testId>` 验证数据库/父子日志，再由 Railway Sandbox 列表独立核对销毁。证据保存在忽略提交的 `apps/api/data/codex-director/`，包括最终 `artifact.json`、`deployment-source.tar.gz`、`source-verification.json`、`cloud-smoke.json`、`cloud-verification.json`、`platform-verification.json`、`management-cleanup.json`，以及首次失败与复审记录。没有提交或推送共享工作区改动。
+
+## 15. 2026-10-20 Director 前端交互与独立测试部署
+
+### 15.1 页面与推理展示
+
+面试页按真实宿主事件显示准备、专家评分/出题、主面试官决策与保存阶段，并显示回答已保存和本次等待时长。评分后由用户手动进入下一题；澄清仍可在当前题继续回答。页面只在确认服务端状态后开放重试或后续操作，状态不明时提供同步入口。
+
+`useInterviewSubmission` 管理 SSE、取消和恢复；保存的回答沿用原 submission ID。刷新后先同步提交记录与对话历史，丢失最终响应时恢复已经完成的结果；完成回调和历史同步期间保持锁定，避免重复提交。读取有 15 秒超时和有界重试。请求断开仍按后端契约取消本轮，不承诺离开页面后持续评分。持久化恢复保证目前针对 Codex 路径。
+
+模型转发已设置 `reasoning.effort: low`，主 Agent 的工具往返传递不透明 `reasoning.encrypted_content`。这些内部内容不会作为网页事件输出，也不会变成可恢复的业务真源。页面新增的“面试官的下一步安排”来自经 Schema 校验的 `agent_decision.reason`，是简短决策说明，不是完整思考链；实时进度来自宿主阶段事件。
+
+### 15.2 部署与身份
+
+| 项目 | 本次结果 |
+| --- | --- |
+| 测试 API | `d9cc12b1-6af7-488a-8ab8-1493e9fc4766`，SUCCESS |
+| 独立测试 web | `75dc1568-ac96-4d96-8acd-443d97f4042b`，SUCCESS |
+| 测试前端入口 | https://codex-staging-web-codex-staging.up.railway.app/interview |
+| 数据库 | 原独立测试 PostgreSQL，未切换生产库 |
+| 源码 | web 基于 `ce1abff` 加本次前端改动；API 复用上一份 109 文件部署包，仅覆盖两个阶段事件文件 |
+
+web Docker 构建上下文为 `apps/web`，`.env*` 被排除；构建参数只有公开 Clerk key 和 API 地址等非秘密配置，Clerk secret 只在运行环境使用。`API_INTERNAL_URL` 必须在构建时指向测试 API，当前为其 HTTPS 公网地址。网页同源 `/api/proxy` 转发到测试 API。
+
+测试前后端使用已有的同一个 Clerk 开发实例。测试 API 的 `CLERK_JWT_KEY` 置空，改用对应 `CLERK_SECRET_KEY` 验证托管会话；`ALLOW_UNVERIFIED_AUTH_TOKEN=0` 保持。旧的本地 RSA 合成 JWT 脚本不再适用于这份运行配置，不能把它当成真实 Clerk 登录验收。旧配置的私密备份与源码回退包保存在本机忽略目录，不能提交到 Git。
+
+### 15.3 验证层级与未完成项
+
+- 本地 TypeScript、后端两处文件语法与 diff 检查通过；独立源码审查发现的恢复竞态、请求超时与提前解锁问题已修正。本轮未运行或新增自动化测试套件。
+- 本地浏览器合成接口验证澄清、停止后重试、刷新后保留回答并重试、最终响应丢失恢复、手动换题和结束后刷新。这证明页面状态行为，不证明真实模型、数据库或云端取消回收。
+- Railway web 构建及类型检查通过。线上首页与 `/api/proxy/health` 返回 200，健康接口确认 PostgreSQL、Codex Director、recovery ready/pending 0；匿名 `/api/proxy/v1/me` 返回 401。
+- 用户随后完成真实 Clerk 登录，经网页运行真实 Codex 单轮评分并验证数据库、刷新恢复及沙箱销毁，结果见 §15.4。
+- 本轮没有优化评分延迟；§14.5 的 281.97 秒仍是历史两专家单次观测，不能与下方的一专家换题样例直接比较。主子同时活动强退、多副本恢复仍未完成。
+
+生产复核出现独立异常：操作前后 web/API 变量逐项相同，数据库部署 ID 不变；但期间出现基于 Git 提交 `ce1abff` 的新部署，web 为 `941b6189-fab0-45b8-bdab-2f637ecc27d3`，API 为 `5f2371d3-f089-461d-ad69-1e39ac8d14bb`。后者日志报 `schema_migrations_pending: 004_interview_evidence_shadow.sql`。这些 ID 与本次显式指定 staging 服务的 CLI 发布不同，触发来源未在本次核实；没有执行生产迁移或回滚，也不能声称生产部署保持原样。
+
+非敏感部署状态、源码 manifest、HTTP 检查与本地页面截图保存在忽略提交的 `apps/api/data/codex-director-ui/`。本切片仍只面向 `codex-staging`，不开放生产灰度。
+
+### 15.4 真实登录后的浏览器单轮验收
+
+用户在测试前端完成 Clerk 托管登录后，页面确认“已登录”，使用现有《匿名简历示例.md》《jd-example.md》创建面试。验证回答为代理撰写的模拟项目经历，不代表用户真实经历；测试记录留在独立测试数据库。
+
+会话 `8f45d5d4-8e5c-4a83-adb5-38ee5e217d44`，提交 `b118cf00-6a89-45f8-af5a-dcabaa369da8`。356 字符回答在三次尝试中 hash 始终为 `6bcfa4c4462c615a77c6bf0c9a904bc434acb89ab2f9cbb99306545bcd518421`，没有更换回答绕过失败。
+
+1. 前两次评分专家以 `codex_turn_failed` 结束，主任务随之取消；数据库保持 0 条评分、回答 retryable，四个沙箱均销毁。网页保留完整输入并开放“重试本轮”。
+2. 独立、无业务写入的模型转发诊断收到 `response.failed`，类型 `service_unavailable_error`、代码 `server_error`，消息为模型服务当前过载。原任务日志未保存这一级上游细节，不能将诊断响应当作两次原请求的完整错误记录。
+3. 通过网页第三次点击重试，沿用同一提交 ID。2026-10-20 07:57:43.460 UTC 提交成功：88 分，主决策 `next_question`，选取已经批准的 React 组件设计题。主 Agent 两次模型请求、一次评分专家调用；没有调用出题专家。
+4. PostgreSQL 恰好 1 条完成提交（attempts=3）、1 条正式评分、1 份当前 attempt 评分产物。产物 ID 与主决策的 evaluation_ref 一致，产物分数、正式分数和网页面板均为 88。
+5. 页面等待用户手动进入第二题；点击后刷新，仍显示已完成 1 题、当前第 2 题、原回答与面试官回复，面板分数仍为 88。刷新后的只读数据库复核仍只有一条评分，没有启动新的评分任务。
+6. 成功主 run 为 `b2ca5756-f89c-4d6c-866f-413d5f89de3d`，评分专家为 `532c358b-3ded-4195-9035-bd9a4d085c70`。平台独立确认三次尝试共 6 个沙箱全部 DESTROYED、活跃数 0；每份运行日志均有出站拒绝探测通过。临时管理 SSH key 用后删除。
+
+| 成功尝试的耗时段 | 单次观测 |
+| --- | --- |
+| 网页点击重试到数据库正式提交 | 108.125 秒 |
+| 主沙箱准备 | 18.647 秒 |
+| 主沙箱 ready 到调用评分专家 | 8.812 秒 |
+| 专家沙箱准备 | 22.679 秒 |
+| 专家 ready 到结束（含回收） | 49.410 秒 |
+| 专家结束到正式提交 | 7.884 秒 |
+
+本次通过真实登录、网页提交、评分、主决策、持久化、刷新恢复与销毁的功能验收；两次失败及随后过载诊断表明模型可用性仍需处理，108 秒也不代表实时体验达标。下一步优先补安全错误分类和有界恢复，并分别测量沙箱准备与模型等待；不以减少沙箱隔离换取延迟。
+
+证据：`cloud-first-failure.json`、`cloud-retry-progress.json`、`model-diagnostic.json`、`cloud-final.json`、`platform-final.json`、`acceptance-summary.json`，以及 `cloud-progress.png`、`cloud-feedback.png`、`cloud-restored-score.png`，均位于上述忽略目录。此次验收未改变 Runtime、模型、网络策略或生产数据库，也未新增应用代码改动或推送。

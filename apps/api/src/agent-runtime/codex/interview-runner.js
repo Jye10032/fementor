@@ -69,8 +69,11 @@ function createCodexInterviewRunner({ runtimeFactory = (options) => new CodexSan
           skillRefs: taskSpec ? [] : ['frontend-answer-evaluation@1'],
           budget: { deadlineMs: config.turnDeadlineMs, maxSteps: config.maxModelRequests } },
         onEvent: async (event) => {
-          if (event.type === 'started') await onPhase?.('evaluation', parentRunId ? '正在准备专家分析环境' : '正在准备隔离面试环境');
-          if (event.type === 'status') await onPhase?.('evaluation', parentRunId ? '专家正在分析' : '正在分析回答');
+          const questionExpert = taskSpec?.taskType === 'design-question';
+          if (event.type === 'started') await onPhase?.(parentRunId ? 'expert_preparing' : 'environment_preparing',
+            parentRunId ? (questionExpert ? '正在准备问题设计' : '正在准备专家评分') : '正在准备面试分析');
+          if (event.type === 'status') await onPhase?.(parentRunId ? (questionExpert ? 'expert_question' : 'expert_evaluation') : 'evaluation',
+            parentRunId ? (questionExpert ? '问题专家正在准备提问' : '评分专家正在评估回答') : '面试官正在分析回答');
         },
       });
       if (controller.signal.aborted) throw new AgentRuntimeError('run_cancelled', 'Interview task was cancelled');

@@ -92,6 +92,7 @@ async function submitInterviewTurnDirector({ sessionId, body, sessionContext, su
       const artifact = await saveArtifact({ submission, expert: args.expert, callId, result, signal: persistenceSignal });
       assertLive(signal); assertLive(toolSignal);
       artifacts.set(artifact.artifact_id, structuredClone(artifact));
+      await onPhase?.('director_deciding', '面试官正在整理专家意见，决定下一步');
       // Only a short sanitized evidence summary is returned to the main agent.
       const summary = args.expert === 'evaluate_answer' ? {
         intent: result.intent, score: result.intent === 'answer' ? result.score : null,

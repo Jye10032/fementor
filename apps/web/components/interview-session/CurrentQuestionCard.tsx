@@ -7,6 +7,7 @@ type CurrentQuestionCardProps = {
   currentQuestion: InterviewQuestion | null;
   pendingNextQuestion: InterviewQuestion | null;
   questionCardMode: QuestionCardMode;
+  disabled?: boolean;
   onAdvance: () => void;
 };
 
@@ -14,6 +15,7 @@ export function CurrentQuestionCard({
   currentQuestion,
   pendingNextQuestion,
   questionCardMode,
+  disabled = false,
   onAdvance,
 }: CurrentQuestionCardProps) {
   const displayQuestion = currentQuestion ?? pendingNextQuestion;
@@ -60,7 +62,7 @@ export function CurrentQuestionCard({
             </span>
             {isTransitioning ? (
               <span className="rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary">
-                即将切题
+                等待继续
               </span>
             ) : null}
           </div>
@@ -75,11 +77,8 @@ export function CurrentQuestionCard({
               </span>
               <p className="text-sm font-semibold text-foreground">上一轮反馈已完成</p>
             </div>
-            <div className="mt-2 overflow-hidden rounded-full bg-card/80">
-              <div className="auto-advance-progress h-1.5 rounded-full bg-primary" />
-            </div>
-            <p className="mt-1.5 text-xs font-medium tracking-[0.08em] text-primary">
-              约 5 秒后自动进入，也可立即切换
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">
+              看完反馈后，按自己的节奏继续
             </p>
             <p className="mt-2 text-sm font-medium leading-6 text-foreground">
               下一题：第 {nextQuestion.order_no} 题
@@ -93,7 +92,7 @@ export function CurrentQuestionCard({
                 setIsAdvancing(true);
                 onAdvance();
               }}
-              disabled={isAdvancing}
+              disabled={isAdvancing || disabled}
               className="action-primary group mt-3 w-full justify-center gap-2 py-2 text-sm disabled:translate-y-0"
             >
               {isAdvancing ? "正在进入下一题..." : "进入下一题"}

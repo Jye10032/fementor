@@ -22,13 +22,12 @@ import {
 } from "./interview-session/copy";
 import { SessionTopBar } from "./interview-session/SessionTopBar";
 import { StageStatusBar } from "./interview-session/StageStatusBar";
+import { useInterviewSubmission } from "./interview-session/useInterviewSubmission";
 import {
   ConversationRow,
   InterviewQuestion,
   InterviewSessionDetail,
   InterviewTurnHistoryItem,
-  InterviewTurnStageEvent,
-  InterviewTurnTokenEvent,
   PanelTab,
   Props,
   QuestionCardMode,
@@ -80,8 +79,8 @@ function isPersistedTurnList(value: unknown): value is InterviewTurnHistoryItem[
 }
 
 export function InterviewSessionRoom({ initialSessionId }: Props) {
-  const { apiBase } = useRuntimeConfig();
-  const { getToken, isLoaded, isSignedIn } = useAuthState();
+  const { apiBase, agentRuntimeId } = useRuntimeConfig();
+  const { getToken, isLoaded, isSignedIn, authReady } = useAuthState();
   const [sessionId] = useState(initialSessionId);
   const [answer, setAnswer] = useState("");
   const [turns, setTurns] = useState<TurnRecord[]>([]);
@@ -100,7 +99,7 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
   const [output, setOutput] = useState("");
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [queueLoading, setQueueLoading] = useState(false);
-  const [submittingTurn, setSubmittingTurn] = useState(false);
+  const [lastDecision, setLastDecision] = useState<TurnResponse["agent_decision"]>();
   const [finishing, setFinishing] = useState(false);
   const [hasClosedSession, setHasClosedSession] = useState(false);
   const [retrospecting, setRetrospecting] = useState(false);
@@ -112,31 +111,15 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
   const transcriptScrollRef = useRef<HTMLDivElement>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
-  const autoAdvanceTimerRef = useRef<number | null>(null);
   const restoredHistoryRef = useRef(false);
-  const pendingSubmissionRef = useRef<{ id: string; question_id: string; answer: string } | null>(null);
   const closedSessionRef = useRef(false);
+  const historyRequestRef = useRef(0);
 
   const currentQuestion = useMemo(
     () => queueItems.find((item) => item.id === currentQuestionId) ?? null,
     [queueItems, currentQuestionId],
   );
   const latestTurn = useMemo(() => turns[turns.length - 1] ?? null, [turns]);
-  useEffect(() => {
-    if (!currentQuestion?.id || !isLoaded) return;
-    let cancelled = false;
-    void apiRequest<{ items: Array<{ id: string; question_id: string; answer: string; status: string }> }>(
-      apiBase, `/v1/interview/sessions/${sessionId}/submissions`, { auth: "required" },
-    ).then(({ items }) => {
-      if (cancelled || closedSessionRef.current || pendingSubmissionRef.current) return;
-      const pending = items.find((item) => item.question_id === currentQuestion.id);
-      if (!pending) return;
-      pendingSubmissionRef.current = pending;
-      setAnswer((previous) => previous || pending.answer);
-      setStageLabel(pending.status === "running" ? "回答已保存，正在处理" : "已恢复上次回答，可直接重新提交");
-    }).catch(() => { /* Existing deployments may not support saved submissions yet. */ });
-    return () => { cancelled = true; };
-  }, [apiBase, sessionId, currentQuestion?.id, isLoaded, isSignedIn]);
   const averageScore = useMemo(() => {
     if (turns.length === 0) return null;
     return Math.round(turns.reduce((sum, turn) => sum + (turn.score ?? 0), 0) / turns.length);
@@ -168,19 +151,10 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
     return now - startedAt - pausedMsRef.current;
   }, [now, sessionClosed, sessionDetail?.ended_at, sessionDetail?.started_at, startedAt]);
 
-  const clearAutoAdvanceTimer = useCallback(() => {
-    if (autoAdvanceTimerRef.current) {
-      window.clearTimeout(autoAdvanceTimerRef.current);
-      autoAdvanceTimerRef.current = null;
-    }
-  }, []);
-
   const markSessionCompleted = useCallback((endedAt?: string | null) => {
     // Completion is irreversible for this mounted session, including across late GET responses.
     closedSessionRef.current = true;
     setHasClosedSession(true);
-    clearAutoAdvanceTimer();
-    pendingSubmissionRef.current = null;
     setAnswer("");
     setSessionDetail((previous) => previous ? {
       ...previous, status: "completed", ended_at: endedAt || previous.ended_at,
@@ -191,7 +165,7 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
     setQuestionCardMode("completed");
     setStageStep("completed");
     setStageLabel("本场面试已结束");
-  }, [clearAutoAdvanceTimer]);
+  }, []);
 
   const updateEvaluationRow = (evaluationId: string, content: string) => {
     setConversationRows((previousRows) =>
@@ -207,7 +181,7 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
       const data = await apiRequest<QuestionQueueResponse>(
         apiBase,
         `/v1/interview/sessions/${sessionId}/questions`,
-        { auth: "required" },
+        { auth: "required", signal: AbortSignal.timeout(15000) },
       );
 
       if (closedSessionRef.current && data.session_status !== "completed") return;
@@ -253,7 +227,7 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
       const data = await apiRequest<InterviewSessionDetail>(
         apiBase,
         `/v1/interview/sessions/${sessionId}`,
-        { auth: "required" },
+        { auth: "required", signal: AbortSignal.timeout(15000) },
       );
       if (closedSessionRef.current && data.status !== "completed") return;
       setSessionDetail(data);
@@ -265,31 +239,39 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
     }
   }, [apiBase, sessionId, markSessionCompleted]);
 
-  const loadTurnHistory = useCallback(async () => {
+  const loadTurnHistory = useCallback(async (required = false) => {
     if (!sessionId) return;
-
+    const requestId = ++historyRequestRef.current;
     try {
       const data = await apiRequest<TurnHistoryResponse>(
         apiBase,
         `/v1/interview/sessions/${sessionId}/turns`,
-        { auth: "required" },
+        { auth: "required", signal: AbortSignal.timeout(15000) },
       );
+      if (requestId !== historyRequestRef.current) return;
       const history = restoreServerHistory(data);
       setTurns(history.turns);
+      setLastDecision(data.submissions?.at(-1)?.result.agent_decision);
       setConversationRows((previous) => mergeHistoryRows(previous, history.events));
     } catch (error) {
       setOutput(String(error));
+      if (required) throw error;
     } finally {
-      setHistoryLoaded(true);
+      if (requestId === historyRequestRef.current) setHistoryLoaded(true);
     }
   }, [apiBase, sessionId]);
+
+  useEffect(() => {
+    // Read again after observing completion, even if the initial parallel
+    // history request took its snapshot before the final commit.
+    if (sessionClosed) void loadTurnHistory();
+  }, [sessionClosed, loadTurnHistory]);
 
   const advanceToNextQuestion = useCallback((nextQuestion?: InterviewQuestion | null) => {
     if (closedSessionRef.current) return;
     const targetQuestion = nextQuestion ?? pendingNextQuestion;
     if (!targetQuestion) return;
 
-    clearAutoAdvanceTimer();
     setCurrentQuestionId(targetQuestion.id);
     setPendingNextQuestion(null);
     setQuestionCardMode("active");
@@ -305,14 +287,7 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
       });
       composerRef.current?.focus({ preventScroll: true });
     });
-  }, [clearAutoAdvanceTimer, pendingNextQuestion]);
-
-  const scheduleAutoAdvance = useCallback((nextQuestion: InterviewQuestion) => {
-    clearAutoAdvanceTimer();
-    autoAdvanceTimerRef.current = window.setTimeout(() => {
-      advanceToNextQuestion(nextQuestion);
-    }, 5000);
-  }, [advanceToNextQuestion, clearAutoAdvanceTimer]);
+  }, [pendingNextQuestion]);
 
   useEffect(() => {
     if (sessionClosed) return;
@@ -346,13 +321,7 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
   }, [sessionClosed]);
 
   useEffect(() => {
-    return () => {
-      clearAutoAdvanceTimer();
-    };
-  }, [clearAutoAdvanceTimer]);
-
-  useEffect(() => {
-    if (!sessionId) return;
+    if (!sessionId || !isLoaded || !isSignedIn || !authReady) return;
 
     setHistoryLoaded(false);
     restoredHistoryRef.current = false;
@@ -387,7 +356,7 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
     // Cached rows are only the first paint; server commits may have completed
     // while the response connection was lost.
     void loadTurnHistory();
-  }, [loadQuestionQueue, loadSessionDetail, loadTurnHistory, sessionId]);
+  }, [loadQuestionQueue, loadSessionDetail, loadTurnHistory, sessionId, isLoaded, isSignedIn, authReady]);
 
   useEffect(() => {
     if (!sessionId || !historyLoaded || typeof window === "undefined") return;
@@ -431,217 +400,113 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [isPanelOpen]);
 
-  const onAddTurn = async () => {
-    if (submittingTurn || !sessionId || !currentQuestion || !answer.trim()) return;
-    if (sessionClosed) {
-      setStageStep("completed");
-      setStageLabel("本场面试已结束，请返回重新开始");
-      setConversationRows((previousRows) => [
-        ...previousRows,
-        {
-          id: `notice-${Date.now()}`,
-          role: "assistant",
-          kind: "notice",
-          content: "系统提示：本场面试已经结束，当前会话不再接收新的回答，请返回面试准备页重新开始。",
-        },
-      ]);
-      return;
-    }
-
-    try {
-      setSubmittingTurn(true);
+  const submission = useInterviewSubmission({
+    apiBase, sessionId,
+    ready: isLoaded && isSignedIn && historyLoaded && Boolean(currentQuestion) && agentRuntimeId !== "unknown",
+    closed: sessionClosed,
+    durable: agentRuntimeId === "codex",
+    currentQuestion, getToken,
+    onRestore: (pending) => {
+      setAnswer((previous) => previous || pending.answer);
+    },
+    onStart: (pending) => {
       setShowCompletionReport(false);
       setQuestionCardMode("active");
       setStageStep("receiving");
       setStageLabel("正在接收回答");
-      clearAutoAdvanceTimer();
-
-      const submittedAnswer = answer.trim();
-      const previousSubmission = pendingSubmissionRef.current;
-      const submissionId = previousSubmission?.question_id === currentQuestion.id && previousSubmission.answer === submittedAnswer
-        ? previousSubmission.id : crypto.randomUUID();
-      pendingSubmissionRef.current = { id: submissionId, question_id: currentQuestion.id, answer: submittedAnswer };
-      const requestPayload = {
-        submission_id: submissionId,
-        question_id: currentQuestion.id,
-        question: currentQuestion.stem,
-        answer: submittedAnswer,
-      };
-      const evaluationId = `submission-evaluation-${submissionId}`;
-      const answerId = `submission-answer-${submissionId}`;
-
-      setConversationRows((previousRows) => [
-        ...previousRows.filter((row) => row.id !== answerId && row.id !== evaluationId),
-        { id: answerId, role: "user", kind: "answer", content: submittedAnswer },
-        { id: evaluationId, role: "assistant", kind: "evaluation", content: "正在接收回答..." },
+      const evaluationId = `submission-evaluation-${pending.id}`;
+      const answerId = `submission-answer-${pending.id}`;
+      setConversationRows((previous) => [
+        ...previous.filter((row) => row.id !== answerId && row.id !== evaluationId),
+        { id: answerId, role: "user", kind: "answer", content: pending.answer },
+        { id: evaluationId, role: "assistant", kind: "reply", content: "正在接收回答..." },
       ]);
-
-      const token = await getToken();
-      const response = await fetch(`${apiBase}/v1/interview/sessions/${sessionId}/turns/stream`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify(requestPayload),
-      });
-
-      if (!response.ok || !response.body) {
-        const errorData = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
-        throw new Error((errorData as { error?: string }).error || `HTTP ${response.status}`);
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder("utf-8");
-      let buffer = "";
-      let finalData: TurnResponse | null = null;
-      let finalTurnRecord: TurnRecord | null = null;
-      let streamFailed = false;
-      let streamingText = "";
-
-      const handleEvent = (eventName: string, payloadText: string) => {
-        const payload = payloadText
-          ? (JSON.parse(payloadText) as TurnResponse | InterviewTurnStageEvent | { error?: string })
-          : {};
-
-        if (eventName === "stage") {
-          if (closedSessionRef.current) return;
-          const stage = getStageDisplay(payload as InterviewTurnStageEvent);
-          setStageStep(stage.step);
-          setStageLabel(stage.label);
-          return;
-        }
-
-        if (eventName === "token") {
-          const token = payload as InterviewTurnTokenEvent;
-          if (!token.textChunk) return;
-
-          streamingText += token.textChunk;
-          updateEvaluationRow(evaluationId, streamingText);
-          return;
-        }
-
-        if (eventName === "result") {
-          finalData = payload as TurnResponse;
-          pendingSubmissionRef.current = null;
-          setAnswer("");
-          finalTurnRecord = normalizeTurnRecord(finalData, currentQuestion.stem, submittedAnswer);
-          updateEvaluationRow(
-            evaluationId,
-            finalData.evaluation_text ||
-              finalData.reply_text ||
-              "当前 LLM 服务不可用，未能生成评价文本。",
-          );
-          if (finalData.handled_as === "answer") {
-            setTurns((previousTurns) => [...previousTurns.filter((turn) => turn.turn_id !== finalTurnRecord!.turn_id), finalTurnRecord!]);
-          }
-          return;
-        }
-
-        if (eventName === "error") {
-          throw new Error((payload as { error?: string }).error || "stream failed");
-        }
-      };
-
-      while (true) {
-        const { done, value } = await reader.read().catch((error) => {
-          if (finalData) return { done: true as const, value: undefined };
-          throw error;
-        });
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const chunks = buffer.split(/\r?\n\r?\n/g);
-        buffer = chunks.pop() || "";
-
-        for (const chunk of chunks) {
-          const lines = chunk.split("\n");
-          const eventLine = lines.find((line) => line.startsWith("event:"));
-          const dataLines = lines.filter((line) => line.startsWith("data:"));
-          const eventName = eventLine ? eventLine.slice(6).trim() : "message";
-          const payloadText = dataLines.map((line) => line.slice(5).trim()).join("\n");
-          handleEvent(eventName, payloadText);
-        }
-      }
-
-      if (!finalData) {
-        streamFailed = true;
-      }
-
-      if (streamFailed || !finalData) {
-        throw new Error("interview turn stream ended without result");
-      }
-
-      const data = finalData as TurnResponse;
-      pendingSubmissionRef.current = null;
+    },
+    onStage: (event) => {
+      if (closedSessionRef.current) return;
+      const display = getStageDisplay(event);
+      setStageStep(display.step);
+      setStageLabel(display.label);
+    },
+    onToken: (id, text) => updateEvaluationRow(`submission-evaluation-${id}`, text),
+    onProblem: (id, message) => {
+      if (closedSessionRef.current) return;
+      setStageStep("idle");
+      setStageLabel(message);
+      setConversationRows((previous) => previous.map((row) => row.id === `submission-evaluation-${id}`
+        ? { ...row, kind: "notice", content: message } : row));
+    },
+    onResult: async (data, pending, recovered) => {
       setAnswer("");
-      if (closedSessionRef.current && data.session_status !== "completed") return;
-      const reconciledItems = reconcileQueueItems(queueItems, currentQuestion, data);
-      setQueueItems(reconciledItems);
-      setOutput(JSON.stringify(data, null, 2));
-
-      if (data.session_status === "completed") {
-        markSessionCompleted(data.ended_at);
+      setLastDecision(data.agent_decision);
+      if (recovered) {
+        await loadTurnHistory(true);
+        const queue = await apiRequest<QuestionQueueResponse>(
+          apiBase, `/v1/interview/sessions/${sessionId}/questions`, { auth: "required", signal: AbortSignal.timeout(15000) },
+        );
+        if (closedSessionRef.current && queue.session_status !== "completed") return;
+        setQueueItems(queue.items);
+        if (queue.session_status === "completed") {
+          markSessionCompleted(data.ended_at);
+        } else if (data.handled_as !== "non_answer" && data.agent_decision?.action !== "clarify"
+          && data.next_question && data.next_question.id !== pending.question_id && queue.current_question?.id === data.next_question.id
+          && queue.items.some((question) => question.id === pending.question_id)) {
+          setCurrentQuestionId(pending.question_id);
+          setPendingNextQuestion(queue.current_question);
+          setQuestionCardMode("transition");
+          setStageStep("transition");
+          setStageLabel("已恢复本轮反馈，准备好后继续");
+        } else {
+          setCurrentQuestionId(queue.current_question?.id || null);
+          setPendingNextQuestion(null);
+          setQuestionCardMode("active");
+          setStageStep("idle");
+          setStageLabel("已恢复面试进度，可以继续回答");
+        }
         await loadSessionDetail();
         return;
       }
-      if (closedSessionRef.current) return;
-
-      if (data.agent_decision?.action === "clarify") {
-        clearAutoAdvanceTimer();
+      const record = normalizeTurnRecord(data, pending.question, pending.answer);
+      setConversationRows((previous) => previous.map((row) => row.id === `submission-evaluation-${pending.id}`
+        ? { ...row, kind: data.handled_as === "answer" ? "evaluation" : "reply", decision: data.agent_decision,
+          content: data.evaluation_text || data.reply_text || "本轮处理已完成。" } : row));
+      if (data.handled_as === "answer") setTurns((previous) => [...previous.filter((turn) => turn.turn_id !== record.turn_id), record]);
+      if (closedSessionRef.current && data.session_status !== "completed") return;
+      const answeredQuestion = queueItems.find((question) => question.id === pending.question_id);
+      if (!answeredQuestion) { await loadQuestionQueue(); return; }
+      const items = reconcileQueueItems(queueItems, answeredQuestion, data);
+      setCurrentQuestionId(answeredQuestion.id);
+      setQueueItems(items);
+      setOutput(JSON.stringify(data, null, 2));
+      if (data.session_status === "completed") {
+        markSessionCompleted(data.ended_at);
+        await loadSessionDetail();
+      } else if (data.agent_decision?.action === "clarify" || data.handled_as === "non_answer") {
         setPendingNextQuestion(null);
-        setCurrentQuestionId(currentQuestion.id);
         setQuestionCardMode("active");
         setStageStep("idle");
-        setStageLabel("题意已说明，请继续回答");
-        return;
-      }
-
-      if (data.next_question) {
+        setStageLabel("面试官已回复，请继续回答当前题目");
+      } else if (data.next_question) {
         setPendingNextQuestion(data.next_question);
         setQuestionCardMode("transition");
         setStageStep("transition");
-        setStageLabel("下一题已准备好");
-        scheduleAutoAdvance(data.next_question);
+        setStageLabel("本轮反馈已完成，准备好后继续");
         await loadQuestionQueue({ preserveDisplayedQuestion: true });
-        return;
-      }
-
-      clearAutoAdvanceTimer();
-      setPendingNextQuestion(null);
-      setCurrentQuestionId(null);
-
-      const completed = reconciledItems.every(
-        (item) => item.status === "answered" || item.status === "skipped",
-      );
-
-      if (completed) {
-        setQuestionCardMode("completed");
-        setStageStep("completed");
-        setStageLabel("本场面试已完成");
-        setShowCompletionReport(true);
       } else {
-        setQuestionCardMode("active");
-        await loadQuestionQueue({ resetStageToIdle: true });
+        setCurrentQuestionId(null);
+        setPendingNextQuestion(null);
+        if (items.every((item) => item.status === "answered" || item.status === "skipped")) {
+          setQuestionCardMode("completed");
+          setStageStep("completed");
+          setStageLabel("本场题目已完成");
+          setShowCompletionReport(true);
+        } else await loadQuestionQueue({ resetStageToIdle: true });
       }
-    } catch (error) {
-      const message = String(error);
-      if (!closedSessionRef.current) {
-        setStageStep("idle");
-        setStageLabel("处理失败，请稍后重试");
-      }
-      setOutput(message);
-      setConversationRows((previousRows) => [
-        ...previousRows,
-        { id: `notice-${Date.now()}`, role: "assistant", kind: "notice", content: `系统提示：${message}` },
-      ]);
-    } finally {
-      setSubmittingTurn(false);
-    }
-  };
+    },
+  });
 
   const onFinish = async () => {
-    if (closedSessionRef.current || finishing) return;
+    if (closedSessionRef.current || finishing || submission.busy || submission.status === "unavailable") return;
     try {
       setFinishing(true);
       const data = await apiRequest<Record<string, unknown>>(
@@ -726,9 +591,9 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
           elapsedLabel={formatElapsed(elapsedMs)}
           interviewCompleted={interviewCompleted}
           sessionClosed={sessionClosed}
-          stageLabel={stageLabel}
+          stageLabel={submission.message || stageLabel}
           stageStep={stageStep}
-          endedNotice={sessionClosed ? "本场面试已经结束，请返回重新开始" : stageLabel}
+          endedNotice={sessionClosed ? "本场面试已经结束，请返回重新开始" : null}
           onOpenPanel={() => {
             setPanelTab("progress");
             setIsPanelOpen(true);
@@ -753,11 +618,12 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
           retrospecting={retrospecting}
           finishing={finishing}
           sessionClosed={sessionClosed}
+          turnBusy={submission.busy || submission.status === "unavailable"}
           canRetrospect={turns.length > 0}
           onRefresh={() => {
             void loadQuestionQueue({
-              preserveDisplayedQuestion: questionCardMode === "transition",
-              resetStageToIdle: questionCardMode !== "transition" && !showCompletionReport,
+              preserveDisplayedQuestion: questionCardMode === "transition" || submission.busy,
+              resetStageToIdle: questionCardMode !== "transition" && !showCompletionReport && !submission.busy,
             });
           }}
           onRetrospect={() => {
@@ -775,6 +641,7 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
           <section className="flex min-h-0 flex-1 items-center justify-center overflow-auto rounded-2xl border border-border/70 bg-card/92 p-5 shadow-[var(--shadow-soft)]">
             <InterviewCompletionReport
               sessionClosed={sessionClosed}
+              decisionReason={lastDecision?.reason}
               answeredCount={answeredCount}
               averageScore={averageScore}
               latestTurn={latestTurn}
@@ -797,9 +664,16 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
                   currentQuestion={currentQuestion}
                   pendingNextQuestion={pendingNextQuestion}
                   questionCardMode={questionCardMode}
-                  onAdvance={advanceToNextQuestion}
+                  disabled={submission.busy}
+                  onAdvance={() => {
+                    if (submission.busy) return;
+                    submission.resetActivity(); advanceToNextQuestion();
+                  }}
                 />
-                <StageStatusBar stageLabel={stageLabel} stageStep={stageStep} />
+                <StageStatusBar stageLabel={stageLabel} busy={submission.busy}
+                  saved={submission.saved} elapsedMs={submission.elapsedMs} steps={submission.steps}
+                  message={submission.message} canRefresh={submission.status === "unavailable"}
+                  onRefresh={submission.refresh} />
               </div>
             </div>
 
@@ -815,11 +689,15 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
               interviewCompleted={interviewCompleted}
               sessionClosed={sessionClosed}
               questionCardMode={questionCardMode}
-              submittingTurn={submittingTurn}
+              submittingTurn={submission.busy}
+              locked={!submission.ready || submission.status === "unavailable" || finishing}
+              retryable={submission.status === "retryable"}
+              canStop={submission.canStop}
+              onStop={submission.stop}
               composerRef={composerRef}
               onAnswerChange={setAnswer}
               onSubmit={() => {
-                void onAddTurn();
+                void submission.submit(answer);
               }}
             />
           </section>

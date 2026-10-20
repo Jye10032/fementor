@@ -23,6 +23,7 @@ type InterviewPanelDrawerProps = {
   retrospecting: boolean;
   finishing: boolean;
   sessionClosed: boolean;
+  turnBusy: boolean;
   canRetrospect: boolean;
   onRefresh: () => void;
   onRetrospect: () => void;
@@ -48,6 +49,7 @@ export function InterviewPanelDrawer({
   retrospecting,
   finishing,
   sessionClosed,
+  turnBusy,
   canRetrospect,
   onRefresh,
   onRetrospect,
@@ -102,6 +104,7 @@ export function InterviewPanelDrawer({
                 retrospecting={retrospecting}
                 finishing={finishing}
                 sessionClosed={sessionClosed}
+                turnBusy={turnBusy}
                 canRetrospect={canRetrospect}
                 onRefresh={onRefresh}
                 onRetrospect={onRetrospect}

@@ -85,8 +85,9 @@ export type TurnHistoryResponse = {
 export type ConversationRow = {
   id: string;
   role: "user" | "assistant";
-  kind: "answer" | "evaluation" | "notice";
+  kind: "answer" | "evaluation" | "reply" | "notice";
   content: string;
+  decision?: TurnResponse["agent_decision"];
 };
 
 export type InterviewTurnStageEvent = {
@@ -108,6 +109,8 @@ export type StageStep =
   | "evaluating"
   | "deciding"
   | "generating_followup"
+  | "preparing"
+  | "persisting"
   | "transition"
   | "completed";
 

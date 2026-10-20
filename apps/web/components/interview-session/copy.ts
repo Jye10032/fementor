@@ -60,6 +60,7 @@ export function buildEvaluationNarration(turn: TurnRecord) {
 
 export function getConversationLabel(row: ConversationRow) {
   if (row.kind === "evaluation") return "AI 评价";
+  if (row.kind === "reply") return "面试官";
   if (row.kind === "notice") return "系统提示";
   return "你";
 }
@@ -120,7 +121,8 @@ export function restoreServerHistory(data: TurnHistoryResponse) {
     })),
     ...submissions.map((item) => ({ created_at: item.created_at, complete: true, rows: [
       { id: `submission-answer-${item.id}`, role: "user", kind: "answer", content: item.answer },
-      { id: `submission-evaluation-${item.id}`, role: "assistant", kind: "evaluation",
+      { id: `submission-evaluation-${item.id}`, role: "assistant", kind: item.result.handled_as === "answer" ? "evaluation" : "reply",
+        decision: item.result.agent_decision,
         content: item.result.evaluation_text || item.result.reply_text || buildEvaluationNarration(normalizeTurnRecord(item.result, item.question, item.answer)) },
     ] as ConversationRow[] })),
   ].sort((a, b) => a.created_at.localeCompare(b.created_at));
@@ -137,14 +139,14 @@ export function mergeHistoryRows(previous: ConversationRow[], events: ReturnType
     let index = rows.findIndex((row) => row.id === answer.id);
     if (index < 0) index = rows.findIndex((row, i) => !matched.has(i)
       && !/^(submission|history)-answer-/.test(row.id)
-      && row.kind === "answer" && row.content === answer.content && rows[i + 1]?.kind === "evaluation");
+      && row.kind === "answer" && row.content === answer.content && ["evaluation", "reply", "notice"].includes(rows[i + 1]?.kind));
     if (index < 0) {
       index = rows.length;
       rows.push(answer, evaluation);
     } else {
       rows[index] = answer;
       // Old turn rows contain only score summaries; retain the richer cache.
-      if (rows[index + 1]?.kind === "evaluation") {
+      if (["evaluation", "reply", "notice"].includes(rows[index + 1]?.kind)) {
         rows[index + 1] = event.complete ? evaluation : { ...evaluation, content: rows[index + 1].content };
       } else rows.splice(index + 1, 0, evaluation);
     }
@@ -191,33 +193,23 @@ export function getStageDisplay(event: Partial<InterviewTurnStageEvent> | null):
   const step = String(event?.step || "").trim().toLowerCase();
   const message = event?.message?.trim();
 
-  if (step === "saving") {
-    return { step: "receiving", label: "接收回答" };
-  }
-  if (step === "intent") {
-    return { step: "receiving", label: "接收回答" };
-  }
-  if (step === "question_type") {
-    return { step: "evaluating", label: "评估回答" };
-  }
-  if (step === "evaluation") {
-    return { step: "evaluating", label: "评估回答" };
-  }
-  if (step === "feedback") {
-    return { step: "evaluating", label: "评估回答" };
-  }
-  if (step === "persist") {
-    return { step: "completed", label: "数据整理入库" };
-  }
-  if (step === "reply") {
-    return { step: "transition", label: "准备下一题" };
-  }
-  if (step === "planning") {
-    return { step: "transition", label: "准备下一题" };
-  }
-
-  return {
-    step: "evaluating",
-    label: message || "评估回答",
+  const stages: Record<string, { step: StageStep; label: string }> = {
+    preparing: { step: "receiving", label: "正在接收回答" },
+    saving: { step: "receiving", label: "正在接收回答" },
+    saved: { step: "preparing", label: "回答已保存" },
+    environment_preparing: { step: "preparing", label: "正在准备分析" },
+    expert_preparing: { step: "preparing", label: "正在准备专家分析" },
+    intent: { step: "deciding", label: "正在理解回答" },
+    question_type: { step: "evaluating", label: "正在分析回答" },
+    evaluation: { step: "evaluating", label: "面试官正在分析回答" },
+    expert_evaluation: { step: "evaluating", label: "评分专家正在评估回答" },
+    expert_question: { step: "generating_followup", label: "问题专家正在准备提问" },
+    director_deciding: { step: "deciding", label: "面试官正在决定下一步" },
+    feedback: { step: "deciding", label: "正在整理反馈" },
+    planning: { step: "deciding", label: "正在决定下一步" },
+    reply: { step: "deciding", label: "正在整理回复" },
+    persist: { step: "persisting", label: "正在保存面试进度" },
   };
+  const display = stages[step] || { step: "evaluating" as const, label: "正在处理本轮回答" };
+  return { ...display, label: message || display.label };
 }

@@ -58,7 +58,7 @@ export function SessionTopBar({
               {elapsedLabel}
             </div>
             <div className="rounded-xl border border-border bg-background/90 px-3 py-2 text-sm text-foreground">
-              已完成 {answeredCount}/{totalCount}
+              已完成 {answeredCount} 题
               {currentQuestion ? <span className="text-muted-foreground"> · 第 {currentQuestion.order_no} 题</span> : null}
             </div>
             <div className={`rounded-xl border px-3 py-2 text-sm ${getStatusTone(stageStep, interviewCompleted)}`}>

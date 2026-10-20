@@ -10,6 +10,7 @@ type InterviewCompletionReportProps = {
   retrospecting: boolean;
   finishing: boolean;
   sessionClosed?: boolean;
+  decisionReason?: string;
   onRetrospect: () => void;
   onFinish: () => void;
 };
@@ -22,6 +23,7 @@ export function InterviewCompletionReport({
   retrospecting,
   finishing,
   sessionClosed = false,
+  decisionReason,
   onRetrospect,
   onFinish,
 }: InterviewCompletionReportProps) {
@@ -44,6 +46,10 @@ export function InterviewCompletionReport({
           </div>
         </div>
 
+        {decisionReason && <details className="mt-4 rounded-xl bg-background/80 p-3 text-sm text-muted-foreground">
+          <summary className="cursor-pointer">面试官的结束说明</summary>
+          <p className="mt-2 whitespace-pre-wrap leading-7">{decisionReason}</p>
+        </details>}
         <div className="mt-6 grid gap-3 md:grid-cols-3">
           <article className="rounded-2xl border border-border/70 bg-background/80 p-4">
             <div className="flex items-center justify-between">

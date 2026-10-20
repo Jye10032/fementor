@@ -38,6 +38,12 @@ export function ConversationTranscript({
                 {getConversationLabel(item)}
               </p>
               <p className="mt-1 whitespace-pre-wrap text-sm leading-7">{item.content}</p>
+              {item.decision?.reason && (
+                <details className="mt-3 border-t border-border/70 pt-2 text-xs text-muted-foreground">
+                  <summary className="cursor-pointer py-1">面试官的下一步安排</summary>
+                  <p className="mt-1 whitespace-pre-wrap leading-6">{item.decision.reason}</p>
+                </details>
+              )}
             </div>
           </article>
         ))}
