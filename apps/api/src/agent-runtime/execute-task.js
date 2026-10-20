@@ -18,7 +18,8 @@ const executeRuntimeTask = async ({ runtime, sessionRequest, runRequest, onEvent
   }
 
   if (failure) {
-    throw new AgentRuntimeError(failure.code || 'execution_failed', failure.message || 'agent runtime failed');
+    throw Object.assign(new AgentRuntimeError(failure.code || 'execution_failed', failure.message || 'agent runtime failed'),
+      { retryAfterMs: failure.retryAfterMs });
   }
   if (output === undefined) {
     throw new AgentRuntimeError('missing_output', 'agent runtime completed without output');

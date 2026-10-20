@@ -11,7 +11,8 @@ type Submission = {
   answer: string;
   saved?: boolean;
 };
-type SavedSubmission = Submission & { status: "pending" | "running" | "retryable" };
+type Failure = { code: string; message: string; retry_after_seconds: number };
+type SavedSubmission = Submission & { status: "pending" | "running" | "retryable"; failure?: Failure | null };
 type Status = "idle" | "sending" | "processing" | "checking" | "retryable" | "unavailable" | "completed";
 export type ActivityStep = { label: string; at: number };
 type Options = {
@@ -41,6 +42,9 @@ export function useInterviewSubmission(options: Options) {
   const [steps, setSteps] = useState<ActivityStep[]>([]);
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
+  const [retryAt, setRetryAt] = useState(0);
+  const [retryInSeconds, setRetryInSeconds] = useState(0);
+  const lastFailure = useRef<Failure | null>(null);
   const pending = useRef<Submission | null>(null);
   const request = useRef<AbortController | null>(null);
   const recovery = useRef<AbortController | null>(null);
@@ -142,8 +146,13 @@ export function useInterviewSubmission(options: Options) {
       if (record || !submission.saved) {
         setStatus("retryable");
         setStartedAt(null);
+        const failure = lastFailure.current && lastFailure.current.code !== record?.failure?.code ? lastFailure.current : record?.failure || lastFailure.current;
+        const seconds = Math.max(0, Number(failure?.retry_after_seconds) || 0);
+        setRetryAt(stopped.current ? 0 : Date.now() + seconds * 1000);
+        setRetryInSeconds(stopped.current ? 0 : seconds);
         const text = record
-          ? (stopped.current ? "本轮已停止，回答已保存，可重新处理" : "回答已保存，可重试本轮")
+          ? (stopped.current ? "本轮已停止，回答已保存，可重新处理"
+            : failure ? `${failure.message}。回答已保存，重试将继续使用本次回答。` : "回答已保存，可重试本轮")
           : "尚未确认服务器保存，回答已保留在当前浏览器，可重试";
         setMessage(text);
         callbacks.current.onRestore(submission);
@@ -216,9 +225,20 @@ export function useInterviewSubmission(options: Options) {
     return () => clearInterval(interval);
   }, [busy, startedAt]);
 
+  useEffect(() => {
+    if (!retryAt) return;
+    const tick = () => {
+      const seconds = Math.max(0, Math.ceil((retryAt - Date.now()) / 1000));
+      setRetryInSeconds(seconds);
+      if (!seconds) clearInterval(interval);
+    };
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [retryAt]);
+
   const submit = async (answer: string) => {
     const { currentQuestion: question, closed, apiBase, sessionId, getToken } = callbacks.current;
-    if (!callbacks.current.ready || !question || closed || busy || status === "unavailable" || !answer.trim() || request.current) return;
+    if (!callbacks.current.ready || !question || closed || busy || status === "unavailable" || Date.now() < retryAt || !answer.trim() || request.current) return;
     generation.current++;
     recovery.current?.abort();
     if (timer.current) clearTimeout(timer.current);
@@ -230,6 +250,9 @@ export function useInterviewSubmission(options: Options) {
     const version = generation.current;
     const live = () => mounted.current && version === generation.current && !callbacks.current.closed;
     stopped.current = false;
+    lastFailure.current = null;
+    setRetryAt(0);
+    setRetryInSeconds(0);
     remember(submission);
     setSaved(Boolean(submission.saved));
     setStatus("sending");
@@ -267,7 +290,12 @@ export function useInterviewSubmission(options: Options) {
           text += payload.textChunk;
           callbacks.current.onToken(submission.id, text);
         } else if (event === "result") result = payload;
-        else if (event === "error") throw new Error("processing_failed");
+        else if (event === "error") {
+          if (typeof payload.code === "string" && typeof payload.message === "string") {
+            lastFailure.current = { code: payload.code, message: payload.message, retry_after_seconds: Number(payload.retry_after_seconds) || 0 };
+          }
+          throw new Error("processing_failed");
+        }
       };
       while (live()) {
         const { value, done } = await reader.read();
@@ -299,7 +327,7 @@ export function useInterviewSubmission(options: Options) {
   };
 
   return {
-    status, saved, busy, message, steps, elapsedMs, ready: options.ready,
+    status, saved, busy, message, steps, elapsedMs, retryInSeconds, ready: options.ready,
     canStop: Boolean(request.current) && ["sending", "processing"].includes(status),
     submit,
     stop: () => {

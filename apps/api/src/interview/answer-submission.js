@@ -41,10 +41,14 @@ async function saveSubmission({ sessionId, body, question }) {
 }
 
 async function claimSubmission(record) {
+  const problem = require('./failure').interviewFailure(record.error_code, record.updated_at, record.retry_not_before);
+  if (record.status === 'retryable' && problem.retry_after_seconds > 0) {
+    throw Object.assign(createHttpError(429, problem.message), { code: problem.code, retryNotBefore: record.retry_not_before });
+  }
   const attemptId = randomUUID();
   try {
     const rows = await query(`UPDATE interview_answer_submission SET status = 'running', attempt_id = ?,
-      attempts = attempts + 1, error_code = '', updated_at = ?
+      attempts = attempts + 1, error_code = '', retry_not_before = NULL, updated_at = ?
       WHERE id = ? AND session_id = ? AND status IN ('pending', 'retryable') RETURNING *`,
     [attemptId, new Date().toISOString(), record.id, record.session_id]);
     if (!rows.length) throw busy();
@@ -57,9 +61,12 @@ async function claimSubmission(record) {
 
 async function failSubmission(record, error) {
   const code = /^[a-z_]{1,60}$/.test(error.code || '') ? error.code : 'evaluation_interrupted';
-  await query(`UPDATE interview_answer_submission SET status = 'retryable', error_code = ?, updated_at = ?
+  const seconds = require('./failure').interviewFailure(error).retry_after_seconds;
+  const retryNotBefore = seconds ? new Date(Date.now() + seconds * 1000).toISOString() : null;
+  error.retryNotBefore = retryNotBefore;
+  await query(`UPDATE interview_answer_submission SET status = 'retryable', error_code = ?, retry_not_before = ?, updated_at = ?
     WHERE id = ? AND attempt_id = ? AND status = 'running' RETURNING id`,
-  [code, new Date().toISOString(), record.id, record.attempt_id]);
+  [code, retryNotBefore, new Date().toISOString(), record.id, record.attempt_id]);
 }
 
 // One API owner, called once after DB initialization and sandbox recovery.
@@ -70,12 +77,13 @@ async function recoverSubmissions() {
 }
 
 async function listPendingSubmissions(sessionId) {
-  return query(`SELECT s.id, s.question_id, s.question, s.answer, s.status, s.attempts, s.error_code, s.created_at
+  const rows = await query(`SELECT s.id, s.question_id, s.question, s.answer, s.status, s.attempts, s.error_code, s.created_at, s.updated_at, s.retry_not_before
     FROM interview_answer_submission s JOIN interview_question q ON q.id = s.question_id AND q.session_id = s.session_id
     WHERE s.session_id = ? AND s.status != 'completed' AND q.status IN ('asked', 'pending')
       AND NOT EXISTS (SELECT 1 FROM interview_answer_submission newer WHERE newer.session_id = s.session_id
         AND newer.question_id = s.question_id AND newer.status = 'completed' AND newer.created_at > s.created_at)
     ORDER BY s.created_at DESC LIMIT 20`, [sessionId]);
+  return rows.map((row) => ({ ...row, failure: row.error_code ? require('./failure').interviewFailure(row.error_code, row.updated_at, row.retry_not_before) : null }));
 }
 
 async function getSubmission(sessionId, id) {

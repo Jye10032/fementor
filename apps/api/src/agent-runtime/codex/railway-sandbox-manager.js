@@ -6,6 +6,22 @@ const { CODEX_VERSION, buildCodexConfig } = require('./config');
 const { withAbort } = require('./abort');
 
 const AGENT_PREFIX = 'unshare --net --pid --fork --mount-proc --kill-child=SIGKILL /bin/sh /capabilities/network-entrypoint.sh';
+const PUBLIC_FILES = ['sandbox-bridge.cjs', 'network-entrypoint.sh', 'network-probe.cjs'];
+const TASK_PATHS = ['/input/task.json', '/capabilities/evaluation-instructions.txt', '/capabilities/output-schema.json', '/work/home/.codex/config.toml'];
+// The program and target paths are host-owned constants. Contents arrive as
+// JSON data over the authenticated file channel, never shell interpolation.
+function unpackCommand(source, targets) {
+  const program = `const fs = require("node:fs");
+const source = ${JSON.stringify(source)}, targets = ${JSON.stringify(targets)};
+const files = JSON.parse(fs.readFileSync(source, "utf8"));
+if (!Array.isArray(files) || files.length !== targets.length) throw new Error("invalid_bundle");
+files.forEach((content, i) => {
+  if (typeof content !== "string") throw new Error("invalid_bundle");
+  fs.writeFileSync(targets[i], content, { mode: 0o644 });
+});
+fs.unlinkSync(source);`;
+  return `node -e '${program.replace(/'/g, "'\\''")}'`;
+}
 const BOOTSTRAP = `set -eu
 test "$(id -u)" = 0
 command -v setpriv >/dev/null
@@ -21,6 +37,7 @@ install -m 0755 "$(node -p 'process.execPath')" /opt/fementor/bin/node
 /opt/fementor/bin/codex --version
 `;
 const LOCKDOWN = `set -eu
+${unpackCommand('/tmp/fementor-public.json', PUBLIC_FILES.map((file) => `/capabilities/${file}`))}
 chown -R root:root /input /capabilities /opt/fementor
 chmod -R a+rX /input /capabilities /opt/fementor
 chmod -R a-w /input /capabilities /opt/fementor
@@ -96,10 +113,10 @@ class RailwaySandboxManager {
     if (bootstrap.exitCode !== 0 || !bootstrap.stdout.includes(`codex-cli ${CODEX_VERSION}`)) {
       throw new AgentRuntimeError('sandbox_bootstrap_failed', 'Fixed Codex version could not be installed in Sandbox');
     }
+    this.onLifecycle({ state: 'bootstrap_complete' });
     // Install only public, host-owned programs before isolation admission.
-    for (const file of ['sandbox-bridge.cjs', 'network-entrypoint.sh', 'network-probe.cjs']) {
-      await this.writeFile(`/capabilities/${file}`, fs.readFileSync(path.join(__dirname, file), 'utf8'), signal);
-    }
+    await this.writeFile('/tmp/fementor-public.json', JSON.stringify(PUBLIC_FILES.map((file) => fs.readFileSync(path.join(__dirname, file), 'utf8'))), signal);
+    this.onLifecycle({ state: 'capabilities_uploaded' });
     const locked = await withAbort(() => this.sandbox.exec(LOCKDOWN, { signal, timeoutSec: 20, maxOutputBytes: 4096, ephemeral: true }), signal);
     if (locked.exitCode !== 0) {
       // This is our fixed pre-agent probe, before model input or credentials.
@@ -108,12 +125,13 @@ class RailwaySandboxManager {
     }
     this.proof = JSON.parse(locked.stdout.trim());
     if (!this.proof.egressDenied) throw new AgentRuntimeError('sandbox_policy_failed', 'Outbound network isolation is not verified');
+    this.onLifecycle({ state: 'policy_verified', proof: this.proof });
     // Do not transfer interview data until the real kernel policy has passed.
-    await this.writeFile('/input/task.json', bundle.input, signal);
-    await this.writeFile('/capabilities/evaluation-instructions.txt', bundle.instructions, signal);
-    await this.writeFile('/capabilities/output-schema.json', JSON.stringify(bundle.outputSchema), signal);
-    await this.writeFile('/work/home/.codex/config.toml', buildCodexConfig(this.config.model), signal);
-    const sealed = await withAbort(() => this.sandbox.exec('chmod -R a+rX,a-w /input /capabilities', { signal, timeoutSec: 10, ephemeral: true }), signal);
+    await this.writeFile('/tmp/fementor-task.json', JSON.stringify([
+      bundle.input, bundle.instructions, JSON.stringify(bundle.outputSchema), buildCodexConfig(this.config.model),
+    ]), signal);
+    this.onLifecycle({ state: 'task_uploaded' });
+    const sealed = await withAbort(() => this.sandbox.exec(`set -eu\n${unpackCommand('/tmp/fementor-task.json', TASK_PATHS)}\nchmod -R a+rX,a-w /input /capabilities`, { signal, timeoutSec: 10, ephemeral: true }), signal);
     if (sealed.exitCode !== 0) throw new AgentRuntimeError('sandbox_policy_failed', 'Task bundle could not be sealed');
     this.onLifecycle({ state: 'ready', sandboxId: this.sandbox.id, proof: this.proof });
   }

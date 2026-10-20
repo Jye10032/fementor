@@ -356,7 +356,8 @@ const handleInterviewTurnStream = async ({ req, res, body, corsHeaders }) => {
       res.end(JSON.stringify({ error: getErrorMessage(error, 'stream failed') }));
     } else {
       closed = true;
-      writeSse(res, 'error', { error: getErrorMessage(error, 'stream failed') });
+      const failure = require('../interview/failure').interviewFailure(error);
+      writeSse(res, 'error', { error: failure.message, ...failure });
       res.end();
     }
   } finally {

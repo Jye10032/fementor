@@ -692,6 +692,7 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
               submittingTurn={submission.busy}
               locked={!submission.ready || submission.status === "unavailable" || finishing}
               retryable={submission.status === "retryable"}
+              retryInSeconds={submission.retryInSeconds}
               canStop={submission.canStop}
               onStop={submission.stop}
               composerRef={composerRef}

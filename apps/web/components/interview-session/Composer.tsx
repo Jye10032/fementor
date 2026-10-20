@@ -10,6 +10,7 @@ type ComposerProps = {
   questionCardMode: QuestionCardMode;
   submittingTurn: boolean;
   retryable: boolean;
+  retryInSeconds: number;
   locked: boolean;
   canStop: boolean;
   composerRef: ComposerTextareaRef;
@@ -47,6 +48,7 @@ export function Composer({
   questionCardMode,
   submittingTurn,
   retryable,
+  retryInSeconds,
   locked,
   canStop,
   composerRef,
@@ -95,11 +97,11 @@ export function Composer({
           </button>}
           <button
             onClick={onSubmit}
-            disabled={disabled || !answer.trim()}
+            disabled={disabled || retryInSeconds > 0 || !answer.trim()}
             className="action-primary rounded-2xl gap-2 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {submittingTurn ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            {submittingTurn ? "处理中..." : sessionClosed ? "本场已结束" : locked ? "等待状态同步" : retryable ? "重试本轮" : currentQuestion ? "提交回答" : "暂无可回答题目"}
+            {submittingTurn ? "处理中..." : sessionClosed ? "本场已结束" : locked ? "等待状态同步" : retryInSeconds > 0 ? `${retryInSeconds} 秒后可重试` : retryable ? "重试本轮" : currentQuestion ? "提交回答" : "暂无可回答题目"}
           </button>
         </div>
       </div>

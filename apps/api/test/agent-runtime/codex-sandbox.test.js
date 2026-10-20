@@ -40,7 +40,7 @@ test('model relay pins destination and budget, strips tools/headers and refuses 
   const config = { model: 'test-model', modelApiKey: 'host-only-key', modelBaseUrl: 'https://model.example/v1', maxModelRequests: 1, maxOutputTokens: 200 };
   const relay = new ModelRelay({ config, outputSchema: evaluationSchema, signal: new AbortController().signal, send: async (frame) => frames.push(frame), fetchImpl: async (url, init) => {
     forwarded = { url, ...init, body: JSON.parse(init.body) };
-    return new Response('data: {"ok":true}\n\n');
+    return new Response('data: {"type":"response.completed","response":{"status":"completed","output":[]}}\n\n');
   } });
   const request = { id: 1, method: 'POST', path: '/v1/responses', body: JSON.stringify({ model: 'test-model', input: [{ type: 'additional_tools', role: 'developer', tools: [{ type: 'function', name: 'execute' }] }, { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'score this' }] }], tools: [{ type: 'web_search' }], callback_url: 'https://evil.example', max_output_tokens: 999999, previous_response_id: 'private' }) };
   await relay.handle(request);
@@ -208,6 +208,7 @@ test('manager fails closed before uploading interview data when network admissio
   await assert.rejects(manager.prepare({ input: 'private answer', instructions: 'private context' }, new AbortController().signal), { code: 'sandbox_policy_failed' });
   assert.ok(writes.length > 0);
   assert.ok(!writes.includes('/input/task.json'));
+  assert.ok(!writes.includes('/tmp/fementor-task.json'));
   assert.ok(!writes.includes('/capabilities/evaluation-instructions.txt'));
 });
 

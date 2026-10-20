@@ -37,7 +37,7 @@ const getCodexRecoveryStatus = () => recovery?.status() || { state: 'not_started
 // Production uses only the default factory and the process-wide ownership map.
 function createCodexInterviewRunner({ runtimeFactory = (options) => new CodexSandboxRuntime(options),
   env = process.env, runs = activeRuns, checkCleanup = () => assertNoPendingCleanup(env) } = {}) {
-  async function runOwned({ interviewSessionId, input, taskSpec, config, signal, onPhase, parentRunId, toolGateway, onCancel, beforeRelease, runId = randomUUID() }) {
+  async function runOwned({ interviewSessionId, input, taskSpec, config, signal, onPhase, parentRunId, toolGateway, onCancel, beforeRelease, resolveFailure = (error) => error, runId = randomUUID() }) {
     const file = path.join(journalDirectory(env), `${runId}.json`);
     const record = { runId, interviewSessionId, parentRunId: parentRunId || null,
       profileId: config.profileId, environmentId: config.environmentId,
@@ -55,7 +55,9 @@ function createCodexInterviewRunner({ runtimeFactory = (options) => new CodexSan
     try {
       save();
       if (controller.signal.aborted) throw new AgentRuntimeError('run_cancelled', 'Interview task was cancelled');
-      runtime = runtimeFactory({ config, taskSpec, toolGateway, onLifecycle: (event) => {
+      runtime = runtimeFactory({ config, taskSpec, toolGateway,
+        onRetry: ({ delayMs }) => onPhase?.('model_retry', `模型服务暂时繁忙，${Math.ceil(delayMs / 1000)} 秒后自动重试一次；回答已保存`),
+        onLifecycle: (event) => {
         record.lifecycle.push({ ...event, at: new Date().toISOString() });
         if (event.state === 'creating') record.cleanup = 'create_unknown';
         if (event.sandboxId) { record.sandboxId = event.sandboxId; record.cleanup = 'pending'; }
@@ -80,6 +82,7 @@ function createCodexInterviewRunner({ runtimeFactory = (options) => new CodexSan
       record.status = 'validated';
       return { ...output, agent_runtime: { id: 'codex', profile_id: config.profileId, run_id: runId } };
     } catch (error) {
+      error = resolveFailure(error);
       record.status = 'failed'; record.errorCode = error.code || 'execution_failed'; throw error;
     } finally {
       await beforeRelease?.();
@@ -115,7 +118,7 @@ function createCodexInterviewRunner({ runtimeFactory = (options) => new CodexSan
     if (signal?.aborted) cancel();
     // This covers setup, all serial specialists, parsing and cleanup admission.
     const deadline = setTimeout(cancel, 900000);
-    let live = true, children = 0, childPromise = null;
+    let live = true, children = 0, childPromise = null, childFailure = null;
     const runChild = ({ taskSpec: childSpec, input: childInput }) => {
       if (!live || controller.signal.aborted || !runs.has(runId)) throw new AgentRuntimeError('run_cancelled', 'Root task is no longer live');
       if (childPromise) throw new AgentRuntimeError('tool_request_denied', 'Parallel experts are not permitted');
@@ -131,12 +134,16 @@ function createCodexInterviewRunner({ runtimeFactory = (options) => new CodexSan
         // A failed execution or unconfirmed deletion ends the entire root.
         // Poison admission before releasing the serial slot, even if the host
         // callback catches this rejection and tries to continue.
+        childFailure = error;
         cancel();
         throw error;
       }).finally(() => { if (childPromise === pending) childPromise = null; });
     };
     try {
       return await runOwned({ interviewSessionId, input, taskSpec, runId, signal: controller.signal, onPhase, onCancel: cancel,
+        // Cancelling the parent is still mandatory, but must not erase the
+        // expert's actionable failure. Explicit caller cancellation wins.
+        resolveFailure: (error) => error.code === 'run_cancelled' && childFailure && !signal?.aborted ? childFailure : error,
         beforeRelease: async () => { live = false; controller.abort(); await Promise.allSettled(childPromise ? [childPromise] : []); },
         config: { ...base, profileId: DIRECTOR_PROFILE_ID, turnDeadlineMs: 900000, maxModelRequests: 4 },
         toolGateway: { onTool: async (call) => {

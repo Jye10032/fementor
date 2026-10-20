@@ -373,6 +373,9 @@ const init = () => {
       .replace(/CREATE (UNIQUE )?INDEX /g, 'CREATE $1INDEX IF NOT EXISTS ')
       .replace(/ALTER TABLE \w+ ENABLE ROW LEVEL SECURITY;/g, ''));
   }
+  if (!db.prepare('PRAGMA table_info(interview_answer_submission)').all().some((column) => column.name === 'retry_not_before')) {
+    db.exec('ALTER TABLE interview_answer_submission ADD COLUMN retry_not_before TEXT');
+  }
 };
 
 module.exports = {

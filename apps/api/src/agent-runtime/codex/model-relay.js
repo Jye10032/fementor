@@ -1,16 +1,19 @@
 const { ToolStreamObserver } = require('./tool-gateway');
 const { AgentRuntimeError } = require('../contracts');
 const { getContextPolicy, countTokens } = require('../../interview/token-budget');
+const { setTimeout: delay } = require('node:timers/promises');
+const { readModelResponse } = require('./model-response');
+const { TRANSIENT, MESSAGES } = require('./model-errors');
 
 class ModelRelay {
-  constructor({ config, send, signal, outputSchema, toolGateway, fetchImpl = fetch }) {
-    Object.assign(this, { config, send, signal, outputSchema, toolGateway, fetchImpl });
+  constructor({ config, send, signal, outputSchema, toolGateway, onLifecycle = () => {}, onRetry = () => {}, fetchImpl = fetch }) {
+    Object.assign(this, { config, send, signal, outputSchema, toolGateway, onLifecycle, onRetry, fetchImpl });
     this.requests = 0;
     this.active = false;
   }
 
   async handle(frame) {
-    if (this.active || ++this.requests > this.config.maxModelRequests) {
+    if (this.active || this.requests >= this.config.maxModelRequests) {
       throw new AgentRuntimeError('model_budget_exceeded', 'Model request budget exceeded');
     }
     if (frame.method !== 'POST' || frame.path !== '/v1/responses' || typeof frame.body !== 'string' || Buffer.byteLength(frame.body) > 512 * 1024) {
@@ -69,30 +72,56 @@ class ModelRelay {
       if (countTokens(JSON.stringify(request), policy.encoding) > inputLimit) {
         throw new AgentRuntimeError('context_budget_exceeded', '评分输入超出模型预算，已保存的回答可在调整预算后重试');
       }
-      const response = await this.fetchImpl(`${this.config.modelBaseUrl}/responses`, {
+      const chunks = await this.requestWithRecovery({
         method: 'POST',
         redirect: 'error',
         headers: { Authorization: `Bearer ${this.config.modelApiKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify(request),
         signal: this.signal,
       });
-      if (!response.ok || !response.body) {
-        await response.body?.cancel();
-        throw new AgentRuntimeError('model_upstream_failed', `Model endpoint returned HTTP ${response.status}`);
-      }
-      await this.send({ channel: 'model', id: frame.id, status: 200 });
-      let bytes = 0;
       const observer = this.toolGateway ? new ToolStreamObserver(this.toolGateway) : null;
-      for await (const chunk of response.body) {
-        bytes += chunk.length;
-        if (bytes > 2 * 1024 * 1024) throw new AgentRuntimeError('output_limit', 'Model response exceeds limit');
-        observer?.push(chunk);
-        await this.send({ channel: 'model', id: frame.id, data: Buffer.from(chunk).toString('base64') });
-      }
+      for (const chunk of chunks) observer?.push(chunk);
       observer?.push(new Uint8Array(), true);
+      const deliveryStartedAt = Date.now();
+      const responseBytes = Buffer.concat(chunks);
+      await this.send({ channel: 'model', id: frame.id, status: 200 });
+      // Coalesce small provider deltas to reduce control-channel framing and
+      // writes now that the complete bounded response is validated.
+      for (let offset = 0; offset < responseBytes.length; offset += 48 * 1024) {
+        await this.send({ channel: 'model', id: frame.id, data: responseBytes.subarray(offset, offset + 48 * 1024).toString('base64') });
+      }
       await this.send({ channel: 'model', id: frame.id, end: true });
+      this.onLifecycle({ state: 'model_response_delivered', request: this.requests, bytes: responseBytes.length, durationMs: Date.now() - deliveryStartedAt });
     } finally {
       this.active = false;
+    }
+  }
+
+  async requestWithRecovery(init) {
+    for (let attempt = 0; ; attempt++) {
+      if (this.signal.aborted) throw new AgentRuntimeError('run_cancelled', 'Model request cancelled');
+      const number = ++this.requests;
+      const startedAt = Date.now();
+      let code = null;
+      let durationMs;
+      try {
+        const response = await this.fetchImpl(`${this.config.modelBaseUrl}/responses`, init);
+        return await readModelResponse(response);
+      } catch (error) {
+        if (this.signal.aborted) throw new AgentRuntimeError('run_cancelled', 'Model request cancelled');
+        const failure = error instanceof AgentRuntimeError ? error
+          : new AgentRuntimeError('model_connection_failed', MESSAGES.model_connection_failed);
+        code = failure.code;
+        durationMs = Date.now() - startedAt;
+        const delayMs = failure.retryAfterMs || 2000;
+        if (!TRANSIENT.has(code) || attempt >= 1 || number >= this.config.maxModelRequests || delayMs > 10000) throw failure;
+        this.onLifecycle({ state: 'model_retry', request: number, code, delayMs });
+        await this.onRetry({ code, delayMs });
+        try { await delay(delayMs, undefined, { signal: this.signal }); }
+        catch { throw new AgentRuntimeError('run_cancelled', 'Model retry cancelled'); }
+      } finally {
+        this.onLifecycle({ state: 'model_request_finished', request: number, durationMs: durationMs ?? Date.now() - startedAt, code });
+      }
     }
   }
 }

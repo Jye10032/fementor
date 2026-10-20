@@ -88,3 +88,24 @@ User approved continuing with frontend integration, independent staging deployme
 The earlier 281.97-second round is historical evidence. This UI work does not establish a latency improvement. Main/child simultaneous crash and multi-replica recovery remain separate acceptance items.
 
 The first two scoring experts failed with `codex_turn_failed`; a separate staging model-relay diagnostic returned `service_unavailable_error/server_error` with an overload message. Preserve both failed attempts and do not treat attempt 3 as reliability acceptance. Next work is safe upstream-error classification/recovery and measured startup/model latency; this run selected an existing question and used only one expert, unlike the earlier two-expert sample.
+
+## Task 5: Model failure recovery and measured latency (2026-10-20)
+
+User approved error hints and retry recovery first, followed by single-round latency work.
+
+- [x] Classify HTTP and Responses SSE failures using public error codes and fixed messages; never persist provider response bodies, headers, reasoning or credentials.
+- [x] Hold at most 2 MiB of a model response until a successful terminal event. Failed attempts cannot authorize a tool or reach Codex. Retry transient failures once, within the existing actual request budget; cancellation interrupts backoff.
+- [x] Preserve the expert failure when cancellation shuts down its parent. Cleanup uncertainty still blocks admission.
+- [x] Persist `retry_not_before` in migration 007, enforce it before claiming a new attempt, and restore the remaining wait after refresh. Preserve the answer and submission ID for an unchanged retry.
+- [x] Show the classified failure and retry countdown; retain manual retry after the bounded automatic attempt fails.
+- [x] Batch seven sandbox file transfers into two JSON bundles; use fixed host-owned paths and decode data without shell interpolation. Business material still arrives only after the per-run isolation probe.
+- [x] Coalesce validated model bytes into bounded bridge frames; record setup, model request, delivery and cleanup timings.
+- [x] Independent review and follow-up review; syntax/type checks, direct fault/storage/parent-cancellation probes, and local browser recovery checks.
+- [x] Real Railway specialist with one injected overload then a real model response: same VM, two model requests, score 93, confirmed destruction. This is fault-injection acceptance, not a naturally observed provider outage.
+- [x] Exercise natural provider failures through the authenticated staging browser: three attempts retained one submission and the same answer hash; classified hints, retry countdown, manual retry and reload recovery worked. Six sandboxes were destroyed, with no partial or duplicate formal score.
+- [ ] Complete a successful full browser round on the updated deployment. Attempt 2 recovered from its first overload and completed evaluation, then failed at the final director call. Attempt 3 completed evaluation and question design but again exhausted the bounded final-call retry. Persistent upstream overload prevented end-to-end success; the saved answer remains retryable.
+- [ ] Establish repeated comparable latency measurements; one sample is not a stable latency target.
+
+No model downgrade, runtime change, cross-user VM reuse or weaker isolation was introduced. The staging API release retains its prior migration manifest plus 007; unrelated migration 004 and production migration remain outside this slice.
+
+See Railway sandbox design §16.4 for the three natural failures and measured boundaries. Work remains on the isolated `codex/interview-recovery-latency` branch because the original checkout contains concurrent frontend changes; those changes must not be overwritten by this slice.

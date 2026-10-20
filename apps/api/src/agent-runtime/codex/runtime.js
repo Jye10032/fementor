@@ -10,9 +10,9 @@ const { withAbort } = require('./abort');
 
 // Each invocation owns a fresh VM and one turn; no cross-user session reuse.
 class CodexSandboxRuntime {
-  constructor({ config, manager, taskSpec, toolGateway, onLifecycle = () => {}, fetchImpl = fetch }) {
+  constructor({ config, manager, taskSpec, toolGateway, onLifecycle = () => {}, onRetry = () => {}, fetchImpl = fetch }) {
     this.id = 'codex';
-    Object.assign(this, { config, taskSpec, toolGateway, onLifecycle, fetchImpl });
+    Object.assign(this, { config, taskSpec, toolGateway, onLifecycle, onRetry, fetchImpl });
     this.manager = manager || new RailwaySandboxManager({ config, onLifecycle });
     this.session = null;
     this.controller = null;
@@ -71,6 +71,7 @@ class CodexSandboxRuntime {
       relay = new ModelRelay({
         config: { ...this.config, maxModelRequests: Math.min(run.budget.maxSteps, this.config.maxModelRequests) },
         send, toolGateway: gateway, signal: controller.signal, fetchImpl: this.fetchImpl, outputSchema: bundle.outputSchema,
+        onLifecycle: this.onLifecycle, onRetry: this.onRetry,
       });
       let readyResolve;
       let readyReject;
@@ -117,7 +118,7 @@ class CodexSandboxRuntime {
       // Machine-readable networking diagnostics, never the raw provider body.
       this.audit.failureCode = error?.cause?.code || error?.code || null;
       const safe = error instanceof AgentRuntimeError ? error : new AgentRuntimeError('sandbox_execution_failed', 'Sandbox evaluation failed');
-      yield emit('failed', { code: safe.code, message: safe.message });
+      yield emit('failed', { code: safe.code, message: safe.message, retryAfterMs: safe.retryAfterMs });
     } finally {
       clearTimeout(timeout);
       this.audit.modelRequests = relay?.requests || 0;
