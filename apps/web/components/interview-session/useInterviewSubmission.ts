@@ -13,7 +13,6 @@ type Submission = {
 };
 type SavedSubmission = Submission & { status: "pending" | "running" | "retryable" };
 type Status = "idle" | "sending" | "processing" | "checking" | "retryable" | "unavailable" | "completed";
-export type ActivityStep = { label: string; at: number };
 type Options = {
   apiBase: string;
   sessionId: string;
@@ -24,7 +23,7 @@ type Options = {
   getToken: () => Promise<string | null>;
   onStart: (submission: Submission) => void;
   onRestore: (submission: Submission) => void;
-  onStage: (event: InterviewTurnStageEvent) => void;
+  onStage: (id: string, event: InterviewTurnStageEvent) => void;
   onToken: (id: string, text: string) => void;
   onResult: (result: TurnResponse, submission: Submission, recovered: boolean) => Promise<void>;
   onProblem: (id: string, message: string) => void;
@@ -38,7 +37,7 @@ export function useInterviewSubmission(options: Options) {
   const [status, setStatus] = useState<Status>("idle");
   const [saved, setSaved] = useState(false);
   const [message, setMessage] = useState("");
-  const [steps, setSteps] = useState<ActivityStep[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
   const pending = useRef<Submission | null>(null);
@@ -59,12 +58,6 @@ export function useInterviewSubmission(options: Options) {
       else sessionStorage.removeItem(storageKey);
     } catch { /* Storage may be disabled; the server remains authoritative. */ }
   }, [storageKey]);
-
-  const stage = useCallback((event: InterviewTurnStageEvent) => {
-    callbacks.current.onStage(event);
-    setSteps((previous) => previous.at(-1)?.label === event.message ? previous
-      : [...previous.slice(-11), { label: event.message, at: Date.now() }]);
-  }, []);
 
   const complete = useCallback(async (result: TurnResponse, submission: Submission, recovered: boolean) => {
     // Keep controls locked until page reconciliation finishes. A committed
@@ -118,6 +111,7 @@ export function useInterviewSubmission(options: Options) {
         remember(submission);
         callbacks.current.onRestore(submission);
       }
+      setActiveId(submission.id);
       // Read history after pending state, so completion between the reads is
       // visible in this pass instead of appearing to be an absent submission.
       const history = await apiRequest<TurnHistoryResponse>(
@@ -236,7 +230,7 @@ export function useInterviewSubmission(options: Options) {
     setStartedAt(Date.now());
     setElapsedMs(0);
     setMessage("");
-    setSteps([]);
+    setActiveId(submission.id);
     callbacks.current.onStart(submission);
     let result: TurnResponse | null = null;
     let interrupted = false;
@@ -262,7 +256,7 @@ export function useInterviewSubmission(options: Options) {
         const payload = JSON.parse(data);
         if (event === "stage") {
           if (payload.step === "saved") { submission.saved = true; remember(submission); setSaved(true); }
-          stage(payload);
+          callbacks.current.onStage(submission.id, payload);
         } else if (event === "token" && payload.textChunk) {
           text += payload.textChunk;
           callbacks.current.onToken(submission.id, text);
@@ -299,7 +293,7 @@ export function useInterviewSubmission(options: Options) {
   };
 
   return {
-    status, saved, busy, message, steps, elapsedMs, ready: options.ready,
+    status, saved, busy, message, activeId, elapsedMs, ready: options.ready,
     canStop: Boolean(request.current) && ["sending", "processing"].includes(status),
     submit,
     stop: () => {
@@ -312,7 +306,7 @@ export function useInterviewSubmission(options: Options) {
     refresh: () => { void check(); },
     resetActivity: () => {
       if (busy) return;
-      setStatus("idle"); setSaved(false); setMessage(""); setSteps([]);
+      setStatus("idle"); setSaved(false); setMessage(""); setActiveId(null);
       setElapsedMs(0); setStartedAt(null);
     },
   };

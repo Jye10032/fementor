@@ -21,7 +21,6 @@ import {
   reconcileQueueItems,
 } from "./interview-session/copy";
 import { SessionTopBar } from "./interview-session/SessionTopBar";
-import { StageStatusBar } from "./interview-session/StageStatusBar";
 import { useInterviewSubmission } from "./interview-session/useInterviewSubmission";
 import {
   ConversationRow,
@@ -63,6 +62,10 @@ function isConversationRowList(value: unknown): value is ConversationRow[] {
       typeof (item as ConversationRow).content === "string"
     );
   });
+}
+
+function endActivity(activity: ConversationRow["activity"]) {
+  return activity && { ...activity, endedAt: activity.endedAt ?? Date.now() };
 }
 
 function isPersistedTurnList(value: unknown): value is InterviewTurnHistoryItem[] {
@@ -419,14 +422,21 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
       setConversationRows((previous) => [
         ...previous.filter((row) => row.id !== answerId && row.id !== evaluationId),
         { id: answerId, role: "user", kind: "answer", content: pending.answer },
-        { id: evaluationId, role: "assistant", kind: "reply", content: "正在接收回答..." },
+        { id: evaluationId, role: "assistant", kind: "reply", content: "", activity: { startedAt: Date.now(), steps: [] } },
       ]);
     },
-    onStage: (event) => {
+    onStage: (id, event) => {
       if (closedSessionRef.current) return;
       const display = getStageDisplay(event);
       setStageStep(display.step);
       setStageLabel(display.label);
+      const at = Date.now();
+      setConversationRows((previous) => previous.map((row) => {
+        if (row.id !== `submission-evaluation-${id}`) return row;
+        const activity = row.activity ?? { startedAt: at, steps: [] };
+        if (activity.steps.at(-1)?.label === display.label) return row;
+        return { ...row, activity: { ...activity, steps: [...activity.steps, { label: display.label, at }] } };
+      }));
     },
     onToken: (id, text) => updateEvaluationRow(`submission-evaluation-${id}`, text),
     onProblem: (id, message) => {
@@ -434,7 +444,7 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
       setStageStep("idle");
       setStageLabel(message);
       setConversationRows((previous) => previous.map((row) => row.id === `submission-evaluation-${id}`
-        ? { ...row, kind: "notice", content: message } : row));
+        ? { ...row, kind: "notice", content: message, activity: endActivity(row.activity) } : row));
     },
     onResult: async (data, pending, recovered) => {
       setAnswer("");
@@ -469,7 +479,7 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
       const record = normalizeTurnRecord(data, pending.question, pending.answer);
       setConversationRows((previous) => previous.map((row) => row.id === `submission-evaluation-${pending.id}`
         ? { ...row, kind: data.handled_as === "answer" ? "evaluation" : "reply", decision: data.agent_decision,
-          content: data.evaluation_text || data.reply_text || "本轮处理已完成。" } : row));
+          content: data.evaluation_text || data.reply_text || "本轮处理已完成。", activity: endActivity(row.activity) } : row));
       if (data.handled_as === "answer") setTurns((previous) => [...previous.filter((turn) => turn.turn_id !== record.turn_id), record]);
       if (closedSessionRef.current && data.session_status !== "completed") return;
       const answeredQuestion = queueItems.find((question) => question.id === pending.question_id);
@@ -670,10 +680,6 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
                     submission.resetActivity(); advanceToNextQuestion();
                   }}
                 />
-                <StageStatusBar stageLabel={stageLabel} busy={submission.busy}
-                  saved={submission.saved} elapsedMs={submission.elapsedMs} steps={submission.steps}
-                  message={submission.message} canRefresh={submission.status === "unavailable"}
-                  onRefresh={submission.refresh} />
               </div>
             </div>
 
@@ -681,6 +687,12 @@ export function InterviewSessionRoom({ initialSessionId }: Props) {
               conversationRows={conversationRows}
               scrollContainerRef={transcriptScrollRef}
               transcriptEndRef={transcriptEndRef}
+              live={submission.activeId ? {
+                rowId: `submission-evaluation-${submission.activeId}`,
+                busy: submission.busy, saved: submission.saved, elapsedMs: submission.elapsedMs,
+                message: submission.message, canRefresh: submission.status === "unavailable",
+                onRefresh: submission.refresh,
+              } : null}
             />
 
             <Composer

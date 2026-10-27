@@ -45,6 +45,17 @@ test('a committed response lost before receipt replaces its pending placeholder 
   assert.equal(rows[1].content, '完整评价和证据说明');
   assert.deepEqual(mergeHistoryRows(rows, history.events), rows);
 });
+test('server reconciliation keeps the cached processing trace on its reply', () => {
+  const activity = { startedAt: 1000, endedAt: 9000, steps: [{ label: '正在评估回答', at: 2000 }] };
+  const previous = [
+    { id: 'submission-answer-submission-1', kind: 'answer', role: 'user', content: '回答' },
+    { id: 'submission-evaluation-submission-1', kind: 'evaluation', role: 'assistant', content: '正在评分', activity },
+  ];
+  const history = restoreServerHistory({ items: [item], submissions: [submission] });
+  const rows = mergeHistoryRows(previous, history.events);
+  assert.equal(rows[1].content, '完整评价和证据说明');
+  assert.deepEqual(rows[1].activity, activity);
+});
 test('equal text in different submissions never overwrites an in-flight response', () => {
   const previous = [
     { id: 'submission-answer-new', kind: 'answer', role: 'user', content: '回答' },

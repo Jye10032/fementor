@@ -88,7 +88,13 @@ export type ConversationRow = {
   kind: "answer" | "evaluation" | "reply" | "notice";
   content: string;
   decision?: TurnResponse["agent_decision"];
+  activity?: RowActivity;
 };
+
+export type ActivityStep = { label: string; at: number };
+// Processing trace kept on the evaluation row, so each reply retains its own
+// collapsible chain after the next answer starts.
+export type RowActivity = { startedAt: number; endedAt?: number; steps: ActivityStep[] };
 
 export type InterviewTurnStageEvent = {
   step: string;

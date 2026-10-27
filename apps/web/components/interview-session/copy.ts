@@ -147,7 +147,9 @@ export function mergeHistoryRows(previous: ConversationRow[], events: ReturnType
       rows[index] = answer;
       // Old turn rows contain only score summaries; retain the richer cache.
       if (["evaluation", "reply", "notice"].includes(rows[index + 1]?.kind)) {
-        rows[index + 1] = event.complete ? evaluation : { ...evaluation, content: rows[index + 1].content };
+        const { activity } = rows[index + 1];
+        const next = event.complete ? evaluation : { ...evaluation, content: rows[index + 1].content };
+        rows[index + 1] = activity ? { ...next, activity } : next;
       } else rows.splice(index + 1, 0, evaluation);
     }
     matched.add(index);

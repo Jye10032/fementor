@@ -133,6 +133,18 @@
   }
 }
 
+@keyframes activity-step-in {
+  0% {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @keyframes fade-in-up {
   0% {
     opacity: 0;
@@ -564,6 +576,16 @@
 
   .fade-in-up {
     animation: fade-in-up 500ms ease-out both;
+  }
+
+  .activity-step {
+    animation: activity-step-in 220ms ease-out both;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .activity-step {
+      animation: none;
+    }
   }
 
   .fade-in-up-delay-1 {
